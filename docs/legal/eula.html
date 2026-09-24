@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  TEMPLATE — READ BEFORE PUBLISHING
+  ----------------------------------------------------------------------------
+  Replace every highlighted placeholder, e.g. <span class="ph">[your legal
+  name]</span>. Search this file for class="ph" and clear them all.
+
+  This document is a starting point written for a one-person software shop
+  selling AGPLv3 binaries under a personal licence. It is NOT legal advice.
+  Have a lawyer read it — particularly the liability cap (§10), the governing
+  law clause (§12), and the interaction between this agreement and the AGPLv3
+  in §2. Drafting notes for the whole set live in Fulfil/CHECKOUT.md.
+  ============================================================================
+-->
+<html lang="en" data-theme="uv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Licence Agreement (EULA) — GoaSynth</title>
+<meta name="description" content="The GoaSynth end user licence agreement: what the €15 personal licence covers, how it sits alongside the AGPLv3 source, seats, updates, support, warranty and liability.">
+<meta name="theme-color" content="#0b0714">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='.5' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230b0714'/%3E%3Cpath d='M12 40c6-18 12-18 18 0s12 18 22-14' fill='none' stroke='url(%23g)' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../styles.css">
+<script>try { var s = localStorage.getItem('goasynth-skin'); if (s) document.documentElement.setAttribute('data-theme', s); } catch (e) {}</script>
+</head>
+<body>
+
+<header class="wrap legal-head">
+  <a class="legal-back" href="../index.html">&larr; GoaSynth</a>
+  <p class="kicker">Legal</p>
+  <h1>Licence Agreement (EULA)</h1>
+  <p class="legal-updated">Version 1.0 · <span class="ph">[date]</span></p>
+  <p class="legal-lede">
+    This is the agreement between you and <span class="ph">[your legal name]</span> covering the
+    GoaSynth software you download after paying for a licence. It explains what the
+    €15 personal licence lets you do, how it sits next to the open-source
+    licence the code is published under, and what happens if something goes wrong.
+  </p>
+</header>
+
+<main class="wrap legal-body">
+  <div class="legal-grid">
+
+    <nav class="legal-toc" aria-label="Contents">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#parties">1. Parties and scope</a></li>
+        <li><a href="#two-licences">2. Two licences, one plugin</a></li>
+        <li><a href="#grant">3. What your licence gives you</a></li>
+        <li><a href="#limits">4. What it does not allow</a></li>
+        <li><a href="#seats">5. Seats, bands and studios</a></li>
+        <li><a href="#updates">6. Updates, support and end of life</a></li>
+        <li><a href="#no-account">7. Activation, the trial and your data</a></li>
+        <li><a href="#your-work">8. Your music and your presets</a></li>
+        <li><a href="#warranty">9. Warranty</a></li>
+        <li><a href="#liability">10. Limitation of liability</a></li>
+        <li><a href="#term">11. Term and termination</a></li>
+        <li><a href="#law">12. Governing law</a></li>
+        <li><a href="#changes">13. Changes to this agreement</a></li>
+        <li><a href="#contact">14. Contact</a></li>
+      </ol>
+    </nav>
+
+    <article class="legal">
+
+      <h2 id="parties">1. Parties and scope</h2>
+      <p>
+        This agreement is between <span class="ph">[your legal name]</span>,
+        <span class="ph">[street and number]</span>, <span class="ph">[postcode and city]</span>,
+        <span class="ph">[country]</span> ("we", "us") and the person who obtained a licence to the
+        GoaSynth software ("you"). It applies to the compiled plugin builds we deliver. It does not
+        apply to the source code, which is licensed separately — see §2.
+      </p>
+      <p>
+        Nothing in this agreement limits any right you have under mandatory consumer protection law
+        in your country of residence.
+      </p>
+
+      <h2 id="two-licences">2. Two licences, one plugin</h2>
+      <p>
+        GoaSynth exists under two licences at the same time, and it is worth being precise about which
+        one does what:
+      </p>
+      <ul>
+        <li>
+          <b>The source code is free software under the GNU Affero General Public License v3.0
+          (AGPLv3).</b> Anyone — including you, whether or not you paid — may read it, run it, study
+          it, modify it, compile it and redistribute it under the terms of that licence. We cannot
+          take those rights away, and we do not try. The complete corresponding source is published
+          at <span class="ph">[repository URL]</span>.
+        </li>
+        <li>
+          <b>This agreement covers everything the AGPLv3 does not.</b> The AGPLv3 says nothing about
+          who delivers and updates your build, who answers your emails, how many machines a purchase
+          covers, what the GoaSynth name may be used for, or who is liable if the plugin misbehaves.
+          That is what the rest of this document is for.
+        </li>
+      </ul>
+      <div class="legal-note">
+        <b>In plain words:</b> the €15 is not a padlock on the software. It pays for compiled, tested
+        builds, the factory preset bank, updates for the 1.x line and support — and in return you get a
+        plugin you can inspect, audit and keep. The one technical gate is the licence serial, which
+        activates the build we send you on the machine it was bought for (§7); the published source carries
+        a placeholder key that rejects all serials, and the AGPLv3 lets you replace it with a keypair of
+        your own and build for nothing if that is what you prefer.
+      </div>
+
+      <h2 id="grant">3. What your licence gives you</h2>
+      <p>Subject to this agreement, we grant you a personal, non-exclusive, worldwide, perpetual licence to:</p>
+      <ul>
+        <li>install and use the delivered GoaSynth builds on up to <b>three devices that you personally
+            use</b> (for example a studio desktop, a laptop and a spare);</li>
+        <li>use GoaSynth in <b>commercial music</b> — releases, live sets, remixes, sample packs,
+            film, games and client work — without royalties, per-track fees or credit requirements;</li>
+        <li>make backup copies and keep your installers for as long as you like;</li>
+        <li>modify the software and distribute your modified version under the AGPLv3.</li>
+      </ul>
+      <p>
+        The licence is personal to you. It is not exclusive, and it does not transfer automatically if
+        you sell your hardware or your studio.
+      </p>
+
+      <h2 id="limits">4. What it does not allow</h2>
+      <ul>
+        <li>
+          <b>Passing our work off as yours.</b> Do not remove copyright notices or authorship
+          information from the software or its documentation, and do not present the unmodified plugin
+          as a product you built.
+        </li>
+        <li>
+          <b>Using the GoaSynth name for a modified build.</b> "GoaSynth", the GoaSynth logo and the
+          factory preset names are our marks. If you distribute a modified version, you must give it a
+          different name and must not suggest that it is an official release or that we endorse it.
+          This clause is not a restriction on the code — it only concerns the names and branding.
+        </li>
+        <li>
+          <b>Sharing a serial instead of a licence.</b> Sending friends the installer is how the AGPLv3
+          already works — they may build or obtain the plugin for free — so we do not police it. A serial
+          is different: it is signed for one machine and will not activate on another, so passing one
+          around simply does not work. We do ask that you not resell licences to our builds as if you were
+          us, and that you not attempt to defeat the activation or the trial (§7).
+        </li>
+        <li>
+          <b>Breaking the law</b> with the software, including infringing anyone's copyright, or
+          using the Steinberg VST name or logo in a way their trademark rules forbid.
+        </li>
+      </ul>
+      <p>
+        If you redistribute the plugin or a modified version, the AGPLv3 requires you to make the
+        corresponding source available. That obligation comes from the AGPLv3, not from this document,
+        and it applies whether or not you paid for a licence.
+      </p>
+
+      <h2 id="seats">5. Seats, bands and studios</h2>
+      <p>
+        One licence covers <b>one person on up to three devices</b>. If two people work with GoaSynth —
+        bandmates, a producer and an engineer, a shared studio — each of them needs their own licence.
+        There is no per-project, per-release or per-track licence, and no size limit on the music you
+        make with it.
+      </p>
+      <p>
+        Because a serial is signed against one machine, we issue that allowance as one serial per computer:
+        send us up to three machine IDs on a single licence and you receive three serials at no extra cost.
+        Moving to a new computer is free as well (§7) — the seat count limits how many machines run
+        GoaSynth at once, not how often you upgrade your hardware.
+      </p>
+
+      <h2 id="updates">6. Updates, support and end of life</h2>
+      <ul>
+        <li><b>Updates.</b> Every release in the <b>1.x</b> line is included. If we ever ship a 2.0
+            with substantial new functionality, we may charge for it — your 1.x licence will keep
+            working, and your existing build will not be disabled.</li>
+        <li><b>Support.</b> Write to <span class="ph">[support@yourdomain]</span> and we will help on a
+            best-effort basis. We target a reply within two working days; we cannot promise a fix, an
+            SLA, or support for every DAW, plugin format and operating system combination.</li>
+        <li><b>Platforms.</b> The builds we currently deliver are VST3 for Windows, macOS and Linux. We
+            do not promise to support future operating system versions, but we will say so clearly if
+            that ever changes rather than let a build quietly rot.</li>
+        <li><b>End of life.</b> If we ever stop developing GoaSynth, you keep your builds, your
+            presets and your rights under §3 — an update stopping is not a licence expiring.</li>
+      </ul>
+
+      <h2 id="no-account">7. Activation, the trial and your data</h2>
+      <p>
+        <b>The trial.</b> The first time you open GoaSynth it starts a <b>24-hour trial</b> covering every
+        feature — the full sound engine, both filters, the effects, both sequencers, the AI patch designer
+        and the factory bank. The start time is recorded in a small file in the shared public documents
+        folder so that it cannot be reset by creating another user account on the same computer. When the
+        24 hours are up, instances render silence until they are activated; a valid serial (or our master
+        key) supersedes the trial entirely.
+      </p>
+      <p>
+        <b>Activation is offline.</b> GoaSynth does not check a licence over the internet, does not phone
+        home, does not require an account and sends us nothing. What it needs is a serial — an RSA-signed
+        statement of your computer's machine ID. That machine ID is shown on the activation screen and is a
+        fingerprint of that machine, so a serial activates <b>the machine it was issued for</b> and no
+        other, and a ledger file on the machine records which machine each serial belongs to, refusing one
+        that is already bound elsewhere. There is no dongle, no login, no subscription check and no expiry:
+        once activated, that build stays activated.
+      </p>
+      <p>
+        <b>Keep your order email.</b> Your serial, or the <code>.goalicense</code> file containing it, is
+        part of your purchase. Losing it does not invalidate your licence — write to
+        <span class="ph">[support@yourdomain]</span> and we will re-issue it. Re-installing your operating
+        system or changing hardware changes the machine ID, and in that case we release the old binding and
+        issue a fresh serial free of charge. The plugin can also deactivate itself, which frees that
+        machine's ledger entry.
+      </p>
+      <p>
+        <b>What we ask of you.</b> Do not share, publish or resell your serial; do not activate more
+        machines than §5 allows; and do not attempt to defeat the activation or the trial, including
+        editing the trial file or the ledger. Nothing here is used to monitor you: the plugin reports
+        nothing, and the machine ID is the only machine information we ever receive, once, when your
+        licence is issued.
+      </p>
+      <p>
+        <b>Cloud AI is optional, and it is your own connection.</b> The AI patch designer runs entirely
+        offline by default. If you choose to switch it to a cloud engine — Gemini, an OpenAI-compatible
+        endpoint, or a base URL of your own — and supply your own API key, the plugin sends the prompt you
+        typed directly to that provider, under your account and their terms. We are not a party to that,
+        receive nothing from it and cannot see your prompts. Your presets, drawn wavetables, project data
+        and audio stay on your own machine either way. See the
+        <a href="privacy.html">Privacy Policy</a> for the full detail.
+      </p>
+
+      <h2 id="your-work">8. Your music and your presets</h2>
+      <p>
+        Music, presets, patches and wavetables you make with GoaSynth are entirely yours. This agreement
+        makes no claim over your output, and we claim no licence to your recordings, including anything
+        created with the AI patch designer — whether generated by the built-in offline designer or by a
+        cloud model using your own API key. A patch is a set of parameter values written on your own
+        machine, and nothing in it is owned by us or by any AI provider.
+      </p>
+
+      <h2 id="warranty">9. Warranty</h2>
+      <p>
+        GoaSynth is provided "as is". We do not warrant that it will be free of defects, that it will
+        work with every DAW, host or operating system, or that it will produce a particular musical
+        result. What we do warrant is that the software is as described on the product page and that
+        we are entitled to license it to you.
+      </p>
+      <p>
+        If you are a consumer, your statutory rights for defective digital content are unaffected:
+        if GoaSynth does not work as described, you are entitled to a remedy regardless of the 14-day
+        refund window — see the <a href="refunds.html">Refund Policy</a>.
+      </p>
+
+      <h2 id="liability">10. Limitation of liability</h2>
+      <p>
+        To the fullest extent permitted by law, our total liability arising out of or relating to this
+        agreement is limited to <b>the amount you paid for the licence</b>, and we are not liable for
+        indirect or consequential losses, including lost profits, lost recordings, or damage to your
+        equipment, project files or other software.
+      </p>
+      <p>
+        Nothing in this section excludes or limits liability for death or personal injury caused by
+        negligence, for fraud or fraudulent misrepresentation, for wilful misconduct or gross
+        negligence, or for any other liability that cannot lawfully be excluded.
+      </p>
+
+      <h2 id="term">11. Term and termination</h2>
+      <p>
+        This agreement runs for as long as you use the software. You may end it at any time by
+        deleting your copies. We may end it if you materially breach §4; if we do, you must stop using
+        our builds and stop using our marks, and we may refuse future support or updates.
+      </p>
+      <p>
+        Ending this agreement does <b>not</b> withdraw any rights you already have under the AGPLv3:
+        you may continue to use, modify and distribute the source and any builds you compiled under
+        that licence. We cannot revoke what the AGPLv3 has already granted, and we would not want to.
+      </p>
+
+      <h2 id="law">12. Governing law</h2>
+      <p>
+        This agreement is governed by the law of <span class="ph">[your country]</span>, with the
+        courts of <span class="ph">[your city]</span> having jurisdiction. If you are a consumer, this
+        does not deprive you of the protection afforded by the mandatory provisions of the law of your
+        country of residence, and you may also bring proceedings in your local courts.
+      </p>
+
+      <h2 id="changes">13. Changes to this agreement</h2>
+      <p>
+        We may update this agreement for future releases. The version you accepted when you obtained
+        your licence continues to govern that copy of the software. Material changes will be dated at
+        the top of this page, and we will not apply them retroactively to a purchase you already made.
+      </p>
+
+      <h2 id="contact">14. Contact</h2>
+      <p>
+        Questions about this agreement, or about what your licence covers:
+        <span class="ph">[support@yourdomain]</span>. Postal address:
+        <span class="ph">[your legal name, street, postcode, city, country]</span>.
+      </p>
+
+      <div class="legal-cross">
+        <a href="terms.html">Terms of Sale</a>
+        <a href="refunds.html">Refund Policy</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="../index.html#licence">Back to the licence overview</a>
+      </div>
+    </article>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <strong>GOA <span>SYNTH</span></strong>
+      <p>Goa Trance synthesizer · VST3 · Licence Agreement v1.0</p>
+    </div>
+    <p class="footer-legal">
+      VST® is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other
+      countries. GoaSynth is an independent project and is not affiliated with or endorsed by
+      Steinberg. Source code is published under the AGPLv3.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

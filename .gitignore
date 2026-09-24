@@ -1,0 +1,10 @@
+build/
+_build/
+*.user
+.vs/
+
+# Agent/tooling state, not project source
+.freebuff/
+
+# licensing secrets — never commit
+Source/LicenseKeys.h

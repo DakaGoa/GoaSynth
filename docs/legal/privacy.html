@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  TEMPLATE — READ BEFORE PUBLISHING
+  Replace every <span class="ph">[…]</span> placeholder, and check the two lists
+  that only you can know: the processors in §7 (store, email provider, host)
+  and the retention periods in §6. If you add analytics, a newsletter or an
+  embedded player later, this page must change with them.
+  Not legal advice — see the notes in Fulfil/CHECKOUT.md.
+  ============================================================================
+-->
+<html lang="en" data-theme="uv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — GoaSynth</title>
+<meta name="description" content="GoaSynth privacy: the plugin stores your presets, your licence serial and your optional AI key on your own machine, contacts nothing unless you enable cloud AI, the website sets no cookies, and only the checkout store handles your payment data.">
+<meta name="theme-color" content="#0b0714">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='.5' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230b0714'/%3E%3Cpath d='M12 40c6-18 12-18 18 0s12 18 22-14' fill='none' stroke='url(%23g)' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../styles.css">
+<script>try { var s = localStorage.getItem('goasynth-skin'); if (s) document.documentElement.setAttribute('data-theme', s); } catch (e) {}</script>
+</head>
+<body>
+
+<header class="wrap legal-head">
+  <a class="legal-back" href="../index.html">&larr; GoaSynth</a>
+  <p class="kicker">Legal</p>
+  <h1>Privacy Policy</h1>
+  <p class="legal-updated">Version 1.0 · <span class="ph">[date]</span></p>
+  <p class="legal-lede">
+    GoaSynth is built so that there is very little to write here. The plugin has no telemetry, no
+    analytics and no accounts: it keeps a few small files on your own disk, and the only network request
+    it can make is one you switch on yourself, with your own AI key. This website sets no cookies and
+    runs no analytics, and the only personal data we ever hold is what arrives with an order or a
+    support email.
+  </p>
+</header>
+
+<main class="wrap legal-body">
+  <div class="legal-grid">
+
+    <nav class="legal-toc" aria-label="Contents">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#short">The short version</a></li>
+        <li><a href="#plugin">What the plugin stores</a></li>
+        <li><a href="#site">This website</a></li>
+        <li><a href="#purchase">Buying a licence</a></li>
+        <li><a href="#support">Support emails</a></li>
+        <li><a href="#basis">Legal bases and retention</a></li>
+        <li><a href="#recipients">Who else sees the data</a></li>
+        <li><a href="#transfers">International transfers</a></li>
+        <li><a href="#rights">Your rights</a></li>
+        <li><a href="#marketing">Marketing and tracking</a></li>
+        <li><a href="#children">Children</a></li>
+        <li><a href="#controller">Controller and contact</a></li>
+      </ol>
+    </nav>
+
+    <article class="legal">
+
+      <h2 id="short">The short version</h2>
+      <div class="legal-note">
+        <b>The plugin:</b> no telemetry, no analytics, no crash reports, no accounts. It keeps your presets,
+        your licence serial, and — only if you switch on a cloud AI engine — your own API key, all on your
+        own disk. It contacts nothing unless you enable cloud AI, and it never contacts us.<br>
+        <b>The licence:</b> a serial signed for your machine ID. We receive that ID once, to issue and
+        re-issue your licence, and nothing else about your computer.<br>
+        <b>This website:</b> no cookies, no tracking, no third-party scripts, no external fonts or
+        embeds. One local browser preference stores which of the three skins you picked.<br>
+        <b>Buying:</b> your payment and billing details go to our merchant of record, not to us. We
+        receive your name, email, country, machine ID and order details, because we have to issue the
+        licence, support the order and keep tax records.
+      </div>
+
+      <h2 id="plugin">What the plugin stores, and what it sends</h2>
+      <p>
+        GoaSynth reports nothing: no telemetry, no analytics, no crash reports, no usage measurement, no
+        advertising or analytics SDK, and no contact with us of any kind. Several of its features do write
+        files on your own machine — the licence system, the preset bank, the AI designer's local memory
+        and two small preferences — and exactly one of them can reach the internet, if you deliberately
+        switch it on. Everything it writes stays on your own computer, on your own disk:
+      </p>
+      <h3 id="machineid">The machine ID</h3>
+      <p>
+        Unlicensed, the plugin shows a 20-character <b>MACHINE ID</b> on its activation screen. It is a
+        one-way fingerprint derived from your computer's hostname, your user name, its network adapter
+        addresses and the OS device id: those values cannot be recovered from it, but it is stable for
+        that machine — which is exactly what makes a serial useless if it is passed to someone else.
+        Treat it like a device serial number. It identifies a computer, not a person, and we recommend
+        not posting it in public.
+      </p>
+      <p>
+        We receive it once — through the store's checkout, or by email — and use it to sign your licence
+        serial. It is stored alongside your order record for as long as we must keep order data (§6), which
+        is also what lets us re-issue a serial free of charge when you change hardware.
+      </p>
+      <table>
+        <tr><th>What</th><th>Where</th><th>Why</th></tr>
+        <tr>
+          <td>Your presets</td>
+          <td><code>%APPDATA%/GoaSynth/Presets</code></td>
+          <td>So your own patches are there next time</td>
+        </tr>
+        <tr>
+          <td>Drawn wavetables and settings</td>
+          <td>Inside your DAW project, plus the plugin's own state files</td>
+          <td>So a project reopens exactly as you left it</td>
+        </tr>
+        <tr>
+          <td>Shared bank, if you use it</td>
+          <td><code>C:\Users\Public\Documents\GoaSynth</code></td>
+          <td>So presets can be shared between accounts on one computer</td>
+        </tr>
+        <tr>
+          <td>Your licence serial</td>
+          <td><code>%APPDATA%/GoaSynth/License/license.txt</code></td>
+          <td>So the plugin unlocks on this machine without asking again</td>
+        </tr>
+        <tr>
+          <td>Activation ledger and 24-hour trial stamp</td>
+          <td><code>C:\Users\Public\Documents\GoaSynth\License</code> (<code>machines.txt</code>, <code>trial.txt</code>)</td>
+          <td>So one serial stays bound to the machine it was issued for, and the trial cannot be reset by creating a second user account on the same computer</td>
+        </tr>
+        <tr>
+          <td>Cloud AI settings, if you use them</td>
+          <td><code>%APPDATA%/GoaSynth/ai.txt</code></td>
+          <td>Your chosen engine, and your own API key or server URL</td>
+        </tr>
+        <tr>
+          <td>Learned AI memory, if you use the AI designer</td>
+          <td><code>%APPDATA%/GoaSynth/Learned</code></td>
+          <td>The text briefs you typed and the parameter values a cloud model returned, so later
+              <b>LOCAL</b> generations can borrow that character offline. It is plain local storage: no
+              credentials, no model replies in raw form, and deleting the folder forgets all of it</td>
+        </tr>
+        <tr>
+          <td>Microtuning and interface preferences</td>
+          <td><code>%APPDATA%/GoaSynth/tuning.scl</code>, <code>%APPDATA%/GoaSynth/zoom.txt</code>, <code>%APPDATA%/GoaSynth/size.txt</code></td>
+          <td>A copy of the Scala tuning file you loaded, your window zoom setting and the window size, so all three survive a
+              restart</td>
+        </tr>
+      </table>
+      <p>
+        None of that is transmitted anywhere. Uninstalling the plugin and deleting those folders removes
+        all of it — including the activation, which means a reinstall will need the same serial again (or a
+        fresh one from us, free, if the machine ID has changed). Preset packs you export
+        (<code>.goapack</code>) are files you create and send yourself; we are not involved.
+      </p>
+
+      <h3 id="cloud">Optional cloud AI — the only request the plugin can make</h3>
+      <p>
+        The AI patch designer's default <b>LOCAL</b> engine runs entirely inside the plugin and needs no
+        network at all, so on a machine that has never been online every feature works. If you deliberately
+        switch the engine to <b>GEMINI</b>, <b>OPENAI</b> or a <b>CUSTOM</b> base URL, the plugin makes a
+        direct request from your computer to the provider you chose, using the API key or server address
+        you entered. What is sent is the text brief you typed together with a compact list of parameter
+        names and ranges; your presets, project files and audio are not included, and the request never
+        passes through us.
+      </p>
+      <p>
+        A reply that survives validation is archived locally (see the table above) so the offline
+        <b>LOCAL</b> engine can reuse its character later; that archive is never transmitted, by us or by
+        the plugin.
+      </p>
+      <p>
+        In that case <b>that provider</b> is the recipient of the data: their terms and privacy policy
+        govern it, and their charges apply, not ours. We receive nothing, store nothing, and cannot see
+        your prompts. Leave the engine on LOCAL — or point CUSTOM at a server you host yourself, such as
+        Ollama or LM Studio — and the plugin makes no network request at all.
+      </p>
+
+      <h2 id="site">This website</h2>
+      <p>
+        The site is a set of static files. It sets <b>no cookies</b> and runs <b>no analytics,
+        tracking pixels, heatmaps, A/B testing or advertising scripts</b>. There are no embedded
+        videos, no social widgets, no comment systems, and no third-party fonts, stylesheets or
+        scripts loaded from a CDN — everything is served from this domain.
+      </p>
+      <p>
+        Two things you should still know about:
+      </p>
+      <ul>
+        <li>
+          <b>A local preference.</b> When you click one of the three skin cards, the site remembers
+          your choice in your browser's <code>localStorage</code> (key <code>goasynth-skin</code>) so
+          the next page you open matches. It is a functional preference, not a tracking identifier, it
+          is never sent to us, and clearing your browser data removes it.
+        </li>
+        <li>
+          <b>Server logs.</b> Our hosting provider records standard access logs — IP address, user
+          agent, requested file and timestamp — for security and abuse prevention. We do not analyse
+          them for marketing, do not build profiles from them, and they are deleted after
+          <span class="ph">[e.g. 14 days]</span>.
+        </li>
+      </ul>
+
+      <h2 id="purchase">Buying a licence</h2>
+      <p>
+        Purchases are processed by <span class="ph">[store name, e.g. Lemon Squeezy]</span>, who acts
+        as the seller of record. They are the data controller for the payment itself: your name,
+        billing address, email address, country and payment method details are collected and stored by
+        them, under their privacy policy. <b>We never see or store your card or bank details.</b>
+      </p>
+      <p>
+        What we receive from them is limited to the order information we need to run the shop and the
+        support desk:
+      </p>
+      <ul>
+        <li>your name and email address,</li>
+        <li>your billing country (used to determine tax, and to answer support questions),</li>
+        <li>the <b>machine ID</b> you supply, used to sign your licence serial,</li>
+        <li>the order reference, the amount paid, the product bought and its refund status.</li>
+      </ul>
+      <p>
+        We do not ask for your operating system, your DAW, your hostname, your phone number or your
+        physical address, because the plugin does not need any of them. If you would rather not put your
+        machine ID into a checkout form, email it to us instead — it is the same ID and the same result.
+      </p>
+
+      <h2 id="support">Support emails</h2>
+      <p>
+        If you write to us, we see your email address and whatever you choose to include — which often
+        means a DAW screenshot or a project file name. We use it only to answer you, keep it in our
+        mailbox, and do not add you to any list. Please send the smallest thing that solves the
+        problem, and don't send anything you would rather keep private; nothing in a support
+        attachment is needed to diagnose a plugin issue except the DAW name, version and steps.
+      </p>
+
+      <h2 id="basis">Legal bases and retention</h2>
+      <table>
+        <tr><th>Purpose</th><th>Legal basis (GDPR Art. 6)</th><th>Kept for</th></tr>
+        <tr>
+          <td>Delivering your purchase, licence and support</td>
+          <td>(b) performance of a contract</td>
+          <td>For as long as the licence exists; order records per the next row</td>
+        </tr>
+        <tr>
+          <td>Invoices and tax/accounting records</td>
+          <td>(c) legal obligation</td>
+          <td><span class="ph">[the statutory period in your country, e.g. 6–10 years]</span></td>
+        </tr>
+        <tr>
+          <td>Refunds, abuse and fraud prevention</td>
+          <td>(f) legitimate interest</td>
+          <td>Same as the order record</td>
+        </tr>
+        <tr>
+          <td>Support correspondence</td>
+          <td>(f) legitimate interest, or (b) as part of the contract</td>
+          <td><span class="ph">[e.g. 24 months]</span> after the last message</td>
+        </tr>
+      </table>
+      <p>
+        Your machine ID and the serial issued for it are kept with the order record for the same period,
+        because together they are the record of which licence belongs to whom — and because that is what
+        lets us release a binding and issue a new serial when you change computers.
+      </p>
+      <p>
+        We do not use your data for automated decision-making, profiling, scoring or advertising, and
+        we do not sell it to anybody.
+      </p>
+
+      <h2 id="recipients">Who else sees the data</h2>
+      <p>
+        A short list, because there is nothing else:
+      </p>
+      <ul>
+        <li><b><span class="ph">[store name]</span></b> — checkout, payment, tax, invoices, refunds
+            (and the controller for the payment data).</li>
+        <li><b><span class="ph">[email provider]</span></b> — our mailbox for orders and support.</li>
+        <li><b><span class="ph">[hosting provider]</span></b> — serves this website and its access
+            logs.</li>
+        <li><b>Tax and financial authorities</b>, where we are legally required to report or retain
+            records.</li>
+      </ul>
+      <p>
+        Anyone acting on our behalf does so under a data processing agreement, and only for the
+        purposes listed above. We use no advertising networks, no data brokers and no analytics
+        vendors, so there is nobody else to list.
+      </p>
+      <p>
+        If you use a cloud AI engine inside the plugin, the AI provider you chose is a recipient of the
+        prompts you send them — but under <em>your</em> account with them, not ours. We are not a party to
+        that processing and receive none of it.
+      </p>
+
+      <h2 id="transfers">International transfers</h2>
+      <p>
+        Our store and email providers may process data outside the European Economic Area, for example
+        in the United States. Where that happens they rely on appropriate safeguards — the EU Standard
+        Contractual Clauses or an approved adequacy framework such as the EU-US Data Privacy
+        Framework — and their privacy policies describe the mechanism they use.
+      </p>
+
+      <h2 id="rights">Your rights</h2>
+      <p>
+        Under the GDPR you can ask us for access to your personal data, correction of anything wrong,
+        erasure, restriction of processing, a portable copy, or to object to processing based on
+        legitimate interests. Where processing rests on consent, you can withdraw it at any time.
+      </p>
+      <p>
+        Write to <span class="ph">[privacy@yourdomain]</span> and we will respond within one month. If
+        your request concerns a payment, invoice or the checkout itself, it is more efficient — and
+        sometimes only possible — to go to <span class="ph">[store name]</span> directly, since they
+        hold that data. Note that tax law can oblige us to keep invoice records even after you ask us
+        to delete everything else.
+      </p>
+      <p>
+        If you believe we have handled your data badly, you may complain to the data protection
+        authority in your country. We would appreciate the chance to fix it first.
+      </p>
+
+      <h2 id="marketing">Marketing and tracking</h2>
+      <p>
+        We do not run a newsletter, do not send marketing email and do not retarget you after you
+        leave. If a store's checkout offers to keep you updated about the product, that choice is
+        yours and defaults to no; you can unsubscribe from any such message with one click.
+      </p>
+
+      <h2 id="children">Children</h2>
+      <p>
+        GoaSynth is a music production tool, not a product aimed at children, and this website is not
+        directed at anyone under 16. We do not knowingly collect personal data from children; if you
+        believe a child has sent us data, write to us and we will delete it.
+      </p>
+
+      <h2 id="controller">Controller and contact</h2>
+      <p>
+        The controller for data described in §4–6 and §8 is
+        <span class="ph">[your legal name]</span>, <span class="ph">[street and number]</span>,
+        <span class="ph">[postcode and city]</span>, <span class="ph">[country]</span> —
+        <span class="ph">[privacy@yourdomain]</span>. For all payment data, the controller is
+        <span class="ph">[store name]</span>.
+      </p>
+      <p>
+        This policy is dated at the top of the page and covers version 1.0 of GoaSynth. If we ever add
+        something that collects data — a mailing list, an embedded audio player, an analytics service —
+        this page will be updated before that feature goes live.
+      </p>
+
+      <div class="legal-cross">
+        <a href="eula.html">Licence Agreement</a>
+        <a href="terms.html">Terms of Sale</a>
+        <a href="refunds.html">Refund Policy</a>
+        <a href="../index.html">Back to GoaSynth</a>
+      </div>
+    </article>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <strong>GOA <span>SYNTH</span></strong>
+      <p>Goa Trance synthesizer · VST3 · Privacy Policy v1.0</p>
+    </div>
+    <p class="footer-legal">
+      VST® is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other
+      countries. GoaSynth is an independent project and is not affiliated with or endorsed by
+      Steinberg. This website sets no cookies and runs no analytics.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

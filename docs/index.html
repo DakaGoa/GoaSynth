@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="uv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoaSynth — Goa Trance VST3 Synthesizer · €15</title>
+<meta name="description" content="GoaSynth is a VST3 synthesizer built for Goa trance: 303 acid, supersaw leads, hoover stabs, FM bleeps, tempo-locked trancegate and arp, OTT multiband squeeze and an AI patch designer that runs offline or with your own Gemini/OpenAI key. 135 factory presets, a 24-hour full trial, €15 one-time with offline serial activation.">
+<meta property="og:title" content="GoaSynth — Goa Trance VST3 Synthesizer">
+<meta property="og:description" content="303 acid, supersaws, trancegate and arp locked to the transport, OTT, an AI patch designer that runs offline or on your own API key, and a 24-hour full trial. €15 one-time for Windows, macOS and Linux, activated offline.">
+<meta name="theme-color" content="#0b0714">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='.5' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230b0714'/%3E%3Cpath d='M12 40c6-18 12-18 18 0s12 18 22-14' fill='none' stroke='url(%23g)' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="swirl" aria-hidden="true">
+  <span class="swirl-layer swirl-a"></span>
+  <span class="swirl-layer swirl-b"></span>
+  <span class="swirl-glow"></span>
+</div>
+
+<header class="topbar" id="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="26" height="26"><defs><linearGradient id="bm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a855f7"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs><path d="M8 42c7-22 13-22 20 0s13 22 28-16" fill="none" stroke="url(#bm)" stroke-width="7" stroke-linecap="round"/></svg>
+      </span>
+      <span class="brand-text">
+        <strong>GOA <span>SYNTH</span></strong>
+        <em>Goa Trance Synthesizer</em>
+      </span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <a href="#sound">Sound</a>
+      <a href="#filters">Filters</a>
+      <a href="#modulation">Modulation</a>
+      <a href="#fx">FX</a>
+      <a href="#sequencers">Sequencers</a>
+      <a href="#tuning">Tuning</a>
+      <a href="#ai">AI Patch</a>
+      <a href="#presets">Presets</a>
+      <a href="#buy">Pricing</a>
+      <a href="#themes">Themes</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a href="#contrib">Contributing</a>
+    </nav>
+    <div class="topbar-actions">
+      <a class="btn btn-ghost" data-link="repo" href="#" target="_blank" rel="noopener">Source</a>
+      <a class="btn btn-primary" data-link="buy" href="#buy">Buy <span data-price>€15</span></a>
+      <button class="burger" id="burger" aria-label="Menu" aria-expanded="false" aria-controls="nav">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="dot"></span> VST3 · Windows · macOS · Linux · <b><span data-price>€15</span> one-time</b></p>
+        <h1>
+          <span class="grad">GOA</span> SYNTH
+          <small>Everything a Goa trance track needs in one window.</small>
+        </h1>
+        <p class="lede">
+          A polyphonic virtual-analog synthesizer built specifically for psychedelic trance:
+          TB-303 squelch, seven-voice supersaws, hoover stabs, FM bleeps and PWM pads — with a
+          tempo-locked trancegate, a rolling arp sequencer, OTT multiband squeeze and an
+          AI patch designer right in the header — offline by default, or your own Gemini/OpenAI key.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary btn-lg" data-link="buy" href="#buy">Buy GoaSynth — <span data-price>€15</span></a>
+          <a class="btn btn-outline btn-lg" data-link="download" href="#install">Already bought it? Install</a>
+        </div>
+        <ul class="stat-strip">
+          <li><b data-price>€15</b><span>one-time licence</span></li>
+          <li><b>135</b><span>factory presets</span></li>
+          <li><b>150+</b><span>automatable params</span></li>
+          <li><b>24 h</b><span>full trial, no account</span></li>
+        </ul>
+      </div>
+
+      <figure class="hero-shot" data-lightbox>
+        <div class="shot-frame">
+          <img src="assets/ui-overview.png" alt="The GoaSynth interface: oscillator A and B panels with drawn waveforms, filter and filter B, sub oscillator, amp and filter envelopes, two LFOs, chorus, phaser, delay, reverb, OTT, movement, noise, trancegate and arp strips with the on-screen keyboard.">
+        </div>
+        <figcaption>The full interface — UV GOA skin, three panel rows and the gate, arp and keyboard strips.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================= HIGHLIGHTS ================= -->
+  <section class="section" id="highlights">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Overview</p>
+        <h2>Designed around the genres it serves</h2>
+        <p class="section-lede">
+          No ten-page manual for basic sounds. Everything is on one surface: the two oscillators, both
+          filters and the sub across the top, the envelopes and LFOs beneath them, the FX row under
+          that, and the sequencers, scale quantiser, pump and keyboard along the bottom — with the
+          depth you don't need yet behind a single <b>MOD</b> button.
+        </p>
+      </header>
+
+      <div class="card-grid">
+        <article class="card">
+          <div class="card-icon ic-uv">◍</div>
+          <h3>Two oscillators, drawn or classic</h3>
+          <p>Saw, square, PWM, triangle, sine — or sketch your own <b>8-frame wavetable</b> right in
+             the display. Up to seven detuned unison voices around both oscillators, plus sub, noise
+             and analog drift.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">◇</div>
+          <h3>Two filters, three routings</h3>
+          <p>12/24 dB lowpass, highpass, bandpass and notch, with a second independent filter that can
+             run in <b>serial, parallel or stereo split</b>.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-pink">⣿</div>
+          <h3>Trancegate that never drifts</h3>
+          <p>16 steps from 1/32 to 1/4, sample-accurate and phase-locked to the host bar. Classic
+             UPLIFT, off-beat and roller shapes are one click away.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">⇅</div>
+          <h3>Arp with per-step velocity</h3>
+          <p>A programmed semitone run with 0–3 octave range, five playback directions and an
+             <b>accent bar on every step</b> for pumping off-beat dynamics.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-pink">◎</div>
+          <h3>OTT on the output</h3>
+          <p>The psy secret weapon: a three-band upward/downward compressor with 220 Hz / 2 kHz
+             fourth-order crossovers and per-band trims.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-uv">✦</div>
+          <h3>AI patch designer</h3>
+          <p>Type "dark rolling acid bass" and get a playable patch instantly — and a different one
+             every time you press generate. <b>Offline by default</b>, or point it at Gemini, OpenAI or
+             your own local LLM with your own key.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-uv">⌗</div>
+          <h3>Scales and microtuning</h3>
+          <p>Nine scale tables — Phrygian, harmonic and Hungarian minor, double harmonic and more — keep a
+             rolling arp in key, and <b>LOCK</b> applies the same quantiser to your own playing. Load a
+             Scala <code>.scl</code> file for anything from a 432 Hz reference to a 19-tone scale.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">◧</div>
+          <h3>Pump without the wiring</h3>
+          <p>A host-synced sidechain pump ducks the output on the beat division you choose, so the synth
+             sits under a kick with no sidechain bus, no extra mixer channel and nothing to route.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-pink">◈</div>
+          <h3>Character, all the way in</h3>
+          <p>A morphing vowel bank, tape wow and flutter, filter feedback that screams, and a
+             <b>QUALITY</b> switch that renders the oscillators and filters at 2× oversampling. Every one
+             of them is off until you ask for it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PRICING ================= -->
+  <section class="section" id="buy">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Pricing</p>
+        <h2>One price. The whole instrument.</h2>
+        <p class="section-lede">
+          GoaSynth is a paid plugin: <b><span data-price>€15</span>, once</b> — no subscription, no tiers,
+          no preset store. That covers the built VST3 for Windows, macOS and Linux, the complete
+          135-preset factory bank, every effect and sequencer in this page, and all updates for the
+          whole 1.x line. Download it first and use it free for <b>24 hours</b> — full features, no
+          account, nothing to cancel.
+        </p>
+      </header>
+
+      <div class="price-grid">
+        <article class="price-card">
+          <span class="price-badge">Full licence</span>
+          <p class="price-tag"><b data-price>€15</b><span data-price-note>one-time · VAT included where applicable</span></p>
+          <p class="price-tag-note">Personal licence for one user. Everything is in the box — there is no
+             "pro" version waiting behind another payment.</p>
+
+          <ul class="price-list">
+            <li><b>A 24-hour full trial</b> to try it before you pay — every feature, no account</li>
+            <li><b>VST3 builds for Windows, macOS and Linux</b> — the same engine on all three</li>
+            <li><b>A licence serial signed for your machine</b>, delivered as a <code>.goalicense</code>
+                file. One serial per computer, three machines per licence, activated fully offline</li>
+            <li><b>135 factory presets</b> across nine families, plus the AI patch designer
+                (offline by default, or your own Gemini / OpenAI key)</li>
+            <li><b>Every feature on this page</b>: dual drawing oscillators, two filters with SERIAL / PARALLEL / SPLIT,
+                8-slot mod matrix, full FX chain with OTT, trancegate and arp sequencers</li>
+            <li><b>All three skins</b> and the animated swirl background</li>
+            <li><b>Commercial use</b> — releases, live sets, client work and sample packs, with no royalties</li>
+            <li><b>Free updates</b> for the entire 1.x line</li>
+            <li><b>14-day refund</b>, no questions asked</li>
+          </ul>
+
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" data-link="buy" href="#buy">Buy now — <span data-price>€15</span></a>
+            <a class="btn btn-outline btn-lg" data-link="download" href="#install">Install &amp; first steps</a>
+          </div>
+
+          <p class="fine" data-when="checkout">
+            Card, Apple&nbsp;Pay and PayPal are handled by <span data-store-name>our checkout provider</span>,
+            who acts as merchant of record — they process the payment, issue the receipt and look after VAT,
+            and we never see or store your card details. Prices are shown in euros; the receipt and download
+            link arrive by email within a minute of payment.
+          </p>
+          <p class="fine" data-when="email">
+            Store checkout is still being set up, so orders are taken by email for now: download the trial
+            build, copy your <b>machine ID</b> from the activation screen, and
+            <a data-link="contact" href="#buy">write to us</a> with it. You'll get a proper invoice (card,
+            bank transfer or PayPal) plus your serial and the download link — usually the same day. The
+            licence, the 14-day refund and everything else on this page apply exactly as written.
+          </p>
+          <p class="fine" data-when="none">
+            The checkout is being wired up right now. The licence is <span data-price>€15</span> one-time, the
+            terms below are final, and refunds run for 14 days — nothing about the offer is still in flux,
+            only the payment page.
+          </p>
+          <p class="fine" data-when-machineid>
+            Checkout asks for your <b>machine ID</b> — the 20-character code on the plugin's activation
+            screen, with a copy button beside it — because that is the machine your serial is signed for.
+            Install the build first and it is already there, along with your 24-hour trial.
+          </p>
+        </article>
+
+        <div class="buy-side">
+          <div class="panel panel-accent">
+            <h4>What happens after you order</h4>
+            <ol class="steps tight">
+              <li>Install the build first — no purchase needed. GoaSynth starts with a
+                  <b>24-hour full trial</b>, and the activation screen already shows your
+                  <b>machine ID</b> (20 characters, one copy button).</li>
+              <li>Checkout asks for that machine ID. It is what your serial gets signed against, so one
+                  serial unlocks one computer — keys can't be shared around, and nothing is ever checked
+                  against a server.</li>
+              <li>Your receipt arrives by email with the download page for the Windows, macOS and Linux
+                  builds, and we send a <b>.goalicense</b> file signed for your machine — double-click it,
+                  or press IMPORT on the activation screen, and the plugin unlocks for good.</li>
+              <li>Keep that email. It is your re-download link, your order reference and your proof of
+                  licence — there is no account to log into.</li>
+            </ol>
+          </div>
+
+          <div class="panel">
+            <h4>Not a customer? Build it from source</h4>
+            <p>The source is public under the <b>AGPLv3</b>, so if you have a compiler and an afternoon you
+               can build GoaSynth for nothing — that is a deliberate choice, not a loophole. The licence
+               gate comes with the code, though: a fresh checkout carries a placeholder key header that
+               rejects every serial, so a self-build means running the keygen's <code>--init</code> once to
+               create your own keypair and rebuilding. Anyone may do that under the AGPLv3. What you're
+               paying for is the finished thing: tested builds for three platforms, the preset bank,
+               updates, and a person to email when a DAW misbehaves.</p>
+          </div>
+
+          <div class="panel">
+            <h4>Who it's for</h4>
+            <p>Producers making psy-trance, Goa, acid, forest and full-on — and anyone who wants 303
+               squelch, supersaws and a tempo-locked gate without wiring six plugins together. If your
+               mixer already sounds the way you want, you still only need one window to get there.</p>
+          </div>
+        </div>
+      </div>      <p class="note">
+        <span data-contact-wrap>Not sure it fits your setup? <a data-link="contact" href="#buy">Ask first</a> —
+        a question costs nothing. </span>A full refund is available for 14 days after purchase.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= SOUND ENGINE ================= -->
+  <section class="section alt" id="sound">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Sound engine</p>
+        <h2>Oscillators, wavetable drawing &amp; voice architecture</h2>
+        <p class="section-lede">
+          Each voice runs two full oscillators, a sub and white noise, with a unison stack of up to
+          seven detuned voices around both oscillators — all band-limited so a scream stays a scream,
+          not an alias.
+        </p>
+      </header>
+
+      <div class="split">
+        <div class="split-text">
+          <h3>Oscillator A / B</h3>
+          <ul class="tick">
+            <li><b>Waves:</b> Saw, Square, PWM, Triangle, Sine — or a user-drawn wavetable</li>
+            <li><b>Octave</b> ±2 and <b>fine detune</b> ±50 cents</li>
+            <li><b>Level</b> and independent <b>pan</b> per oscillator</li>
+            <li><b>Start phase</b> 0–360° plus <b>phase randomisation</b> for wide, non-identical stacks</li>
+            <li><b>FM:</b> oscillator B phase-modulates oscillator A — metallic, bell and vocal formants from a single knob</li>
+          </ul>
+
+          <h3>Wavetable morphing &amp; drawing</h3>
+          <ul class="tick">
+            <li><b>8 frames per oscillator.</b> Pick a frame in the strip under the display and sketch it:
+                left-drag draws, right-drag erases, double-click resets.</li>
+            <li><b>WT POS</b> sweeps the table with linear frame interpolation; the other frames show as
+                ghost outlines and the display previews the live morphed output.</li>
+            <li><b>Edit tools</b> on each oscillator: SMOOTH (blur), FLIP (polarity), NORM (re-level) and the
+                <b>P25 / P50 / FORMANT / SPIKES</b> shape generators.</li>
+            <li>Transforms remove DC and normalise, so even scratchy doodles play at full level.</li>
+            <li><b>Both LFOs can target WT POS A and WT POS B</b> for evolving spectral movement.</li>
+          </ul>
+        </div>
+
+        <aside class="split-side">
+          <div class="panel">
+            <h4>Voice extras</h4>
+            <dl class="kv">
+              <dt>Sub oscillator</dt><dd>Square / sine / triangle, 0–2 octaves below the note</dd>
+              <dt>Noise</dt><dd>White, level-controlled — hats, wind, riser beds</dd>
+              <dt>Unison</dt><dd>1–7 detuned voices around both oscillators with stereo spread — the DETUNE and WIDTH knobs live in the MOVEMENT panel and move the whole stack</dd>
+              <dt>Analog drift</dt><dd>Slow random pitch wander per voice</dd>
+              <dt>Analog character</dt><dd>Tape-style wow and flutter on top of the drift — the pitch sags and steadies the way a tape machine does, not the way a plugin wobbles</dd>
+              <dt>Master quality</dt><dd>A <b>QUALITY</b> switch renders the oscillator and filter path at <b>2× oversampling</b>, halving audible aliasing when a lead is screaming. Every LEAD and RISER preset ships with it already on</dd>
+            </dl>
+          </div>
+          <div class="panel">
+            <h4>Why it stays clean</h4>
+            <dl class="kv">
+              <dt>Saw / square / PWM / sub</dt><dd>polyBLEP band-limited</dd>
+              <dt>Wavetables</dt><dd>Mip-mapped per frame with raised-cosine band fades</dd>
+              <dt>Cutoff</dt><dd>Log-domain smoothing — the same glide at 44.1 kHz or 192 kHz</dd>
+              <dt>Drive stage</dt><dd>Followed by a DC blocker so heavy saturation never thumps the limiter</dd>
+              <dt>Delay feedback</dt><dd>5 kHz lowpass for analog-darkening repeats</dd>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FILTERS ================= -->
+  <section class="section" id="filters">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Filtering</p>
+        <h2>Screaming 303 resonance, two filters deep</h2>
+      </header>
+
+      <div class="split reverse">
+        <div class="split-text">
+          <h3>Filter A</h3>
+          <ul class="tick">
+            <li><b>Types:</b> LP 12 dB, LP 24 dB, HP 12 dB, BP 12 dB, <b>Notch</b> — TPT state-variable</li>
+            <li><b>Cutoff</b> 20 Hz – 20 kHz with <b>resonance</b>, <b>drive</b> and <b>key tracking</b></li>
+            <li><b>Filter envelope amount ±5 octaves</b>, drawn on a draggable graph</li>
+          </ul>
+
+          <h3>Filter B + routing</h3>
+          <p>An independent second filter — its own type, cutoff and resonance — with a
+             <b>ROUTE</b> selector that changes the character completely:</p>
+          <div class="route-list">
+            <div class="route"><b>SERIAL</b><span>B follows A. The classic cascade — a 24 dB lowpass into a
+              second stage for a steep, squelching 303 sweep.</span></div>
+            <div class="route"><b>PARALLEL</b><span>A and B summed 50/50. A lowpass plus a highpass
+              becomes a band limiter; two bandpasses gives a formant notch.</span></div>
+            <div class="route"><b>SPLIT</b><span>A filters the left channel, B the right — wide stereo
+              filter movement you can hear panning across the image.</span></div>
+          </div>
+
+          <h3>Filter character</h3>
+          <ul class="tick">
+            <li><b>F-DRIVE</b> saturates <em>before</em> the main filter, so a screaming resonance stays
+                musical instead of clicking and clipping its way through the envelope</li>
+            <li><b>F-FB</b> feeds a one-sample of the filter output back into its own input. Low settings
+                thicken; high settings are the screech-and-scream zone psy leads live in, and it reaches
+                self-oscillation at the top. A hard safety clamp means it can never run away on you</li>
+          </ul>
+
+          <h3>Vowel / formant filter</h3>
+          <p>A three-formant bank sits after the main filters and morphs through
+             <b>AH → EH → EE → OH → OO</b> on one knob — talking acid, vocal pads and phased hoovers with
+             no third-party plugin in the chain.</p>
+          <ul class="tick">
+            <li><b>VOWEL</b> switches the bank in, <b>MORPH</b> walks the sequence, <b>V-RES</b> sharpens
+                the formants and <b>V-MIX</b> blends dry against filtered</li>
+            <li>Both LFOs can target <b>VOWEL</b>, so the morph can move on its own — a slow LFO gives you
+                vowel drift, a fast one gives you a talkbox</li>
+          </ul>
+        </div>
+        <aside class="split-side">
+          <div class="panel panel-accent">
+            <h4>Filter facts</h4>
+            <dl class="kv">
+              <dt>Architecture</dt><dd>Zero-delay-feedback TPT state-variable</dd>
+              <dt>Slopes</dt><dd>12 dB/oct and 24 dB/oct selectable per filter</dd>
+              <dt>Env amount</dt><dd>±5 octaves, snappy to barely-moving</dd>
+              <dt>Mod targets</dt><dd>Cutoff, resonance and drive can all be routed from the matrix</dd>
+              <dt>Character</dt><dd>Pre-filter saturation (F-DRIVE) and a feedback path (F-FB) for the screech zone</dd>
+              <dt>Vowel bank</dt><dd>AH EH EE OH OO, morphable by hand or by either LFO</dd>
+              <dt>Display</dt><dd>Live filter response curve that follows the knobs</dd>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MODULATION ================= -->
+  <section class="section alt" id="modulation">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Modulation</p>
+        <h2>Two envelopes, two LFOs, eight matrix slots</h2>
+        <p class="section-lede">
+          Velocity-sensitive envelopes with draggable graphs, animated LFO scopes, and a freely
+          routable matrix for everything else.
+        </p>
+      </header>
+
+      <div class="three-col">
+        <article class="panel">
+          <h4>Envelopes</h4>
+          <p>Two ADSRs — <b>amp</b> and <b>filter</b> — both velocity-sensitive, both with graphs you can
+             drag directly. Decay and sustain shape the classic acid "wow" while a long release carries
+             a pad into the next bar.</p>
+        </article>
+        <article class="panel">
+          <h4>LFOs</h4>
+          <p>Sines, triangles, squares and random sample &amp; hold. Route to <b>Pitch, Cutoff, PWM width,
+             Volume, WT POS A, WT POS B or the vowel morph</b> — seven destinations each. Run free
+             (0.02 – 20 Hz) or lock to <b>host tempo</b> from 1/1 down to 1/16 and 3/16 triplets.</p>
+        </article>
+        <article class="panel">
+          <h4>Voicing &amp; performance</h4>
+          <dl class="kv">
+            <dt>POLY</dt><dd>1–16 voices with steal-free allocation</dd>
+            <dt>MONO</dt><dd>Retriggering mono for basslines</dd>
+            <dt>LEGATO</dt><dd>Glide/slide, full 303 behaviour</dd>
+            <dt>Glide</dt><dd>0–1000 ms</dd>
+            <dt>Bend</dt><dd>0–12 semitones</dd>
+            <dt>Extras</dt><dd>Mod wheel → cutoff, sustain pedal support</dd>
+          </dl>
+        </article>
+      </div>
+
+      <div class="matrix">
+        <div class="matrix-col">
+          <h4>Matrix sources</h4>
+          <ul class="chips">
+            <li>LFO 1</li><li>LFO 2</li><li>Filter env</li><li>Amp env</li><li>Velocity</li><li>Mod wheel</li>
+          </ul>
+        </div>
+        <div class="matrix-arrow" aria-hidden="true">→</div>
+        <div class="matrix-col">
+          <h4>Matrix destinations</h4>
+          <ul class="chips">
+            <li>Cutoff <span>±4 oct</span></li>
+            <li>OSC A / B fine <span>±1200 ct</span></li>
+            <li>OSC A / B levels</li>
+            <li>WT POS A / B</li>
+            <li>Resonance</li>
+            <li>Drive</li>
+            <li>OSC A / B pan</li>
+            <li>LFO 1 / 2 rate <span>±6 Hz</span></li>
+            <li>Delay time <span>±2 oct</span></li>
+            <li>Delay feedback</li>
+            <li>Delay mix</li>
+            <li>Phaser mix</li>
+            <li>Reverb size</li>
+            <li>Reverb mix</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">
+        <b>8 slots, free routing.</b> Click a cell to cycle values, right-click to go backwards, drag the
+        bipolar amount bar — negative amounts invert the response, and a slot whose source is <b>off</b>
+        is inert. Everything down to <b>OSC A / B pan</b> is read per voice, so each voice's LFOs,
+        envelopes, velocity and mod wheel move only that voice; the LFO-rate and FX destinations after it
+        are global and applied once per block, which is how one row can sweep the whole instrument's
+        delay, phaser or reverb.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= FX ================= -->
+  <section class="section" id="fx">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Effects</p>
+        <h2>A complete psy-trance FX chain, pre-mixed</h2>
+      </header>
+
+      <ol class="chain" aria-label="Effect signal chain">
+        <li class="hot">Pump</li>
+        <li>Chorus</li>
+        <li>Phaser</li>
+        <li class="hot">OTT</li>
+        <li>Tempo delay</li>
+        <li>Reverb</li>
+        <li class="hot">Master</li>
+        <li>Limiter</li>
+      </ol>
+
+      <div class="card-grid tight">
+        <article class="card">
+          <h3>Chorus &amp; phaser</h3>
+          <p>Rate / depth / mix each. The chorus widens supersaws; the phaser gives a slow moving
+             sweep behind acid lines.</p>
+        </article>
+        <article class="card">
+          <h3>Tempo-synced ping-pong delay</h3>
+          <p>Off, 1/16, 1/8 dotted, 1/8, 1/4 or free milliseconds. Feedback runs through a
+             <b>5 kHz lowpass</b> so repeats darken the way analog echoes do instead of turning brittle.</p>
+        </article>
+        <article class="card">
+          <h3>Reverb</h3>
+          <p>Size and damping into a straightforward mix control. Long, dark tails for morning pads;
+             barely there for tight bass.</p>
+        </article>
+        <article class="card">
+          <h3>Movement &amp; noise</h3>
+          <p>Two more panels sit on the FX row. <b>MOVEMENT</b> gathers the analog drift amount and the
+             unison detune and stereo width in one place — the slow per-voice wander that stops a
+             supersaw sounding like a photocopy. <b>NOISE</b> is the voice's white-noise level on its own
+             knob, for hats, wind and riser beds without borrowing an oscillator.</p>
+        </article>
+        <article class="card card-wide">
+          <h3>OTT multiband compressor</h3>
+          <p>
+            The signal is split at <b>220 Hz</b> and <b>2 kHz</b> with fourth-order crossovers, and each band
+            gets the classic fast upward + downward squeeze that makes psy kickbasses and saws feel
+            glued and loud. <b>DEPTH</b> blends from fully transparent to the full psy squeeze,
+            <b>LOW / MID / HIGH</b> trim each band's response and <b>OUT</b> is an output pad.
+          </p>
+          <p class="fine">
+            Depth 0 is a true DSP bypass — no filter colouration when you don't want it. Every effect
+            in the chain is a real parameter, so your DAW can automate the whole signal path.
+          </p>
+        </article>
+        <article class="card card-wide">
+          <h3>Sidechain pump — the kick-follow feel, with nothing to route</h3>
+          <p>
+            Set <b>PUMP</b> to 1/4, 1/8, 1/8T, 1/16 or 1/16T and the output ducks on that division,
+            locked to the host transport: deepest right on the beat, then an exponential recovery until
+            the next one. <b>DEPTH</b> sets how far it dips, so a nudge gives you movement and a full
+            turn gives you the classic Goa pump. It sits on the voice output ahead of the FX, which is
+            why the reverb tails breathe with it instead of fighting it — and why you never have to build
+            a sidechain bus, add a mixer channel or hope your host has a kick track to trigger from.
+            Off — sync at OFF or depth at zero — is a true bypass.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SEQUENCERS ================= -->
+  <section class="section alt" id="sequencers">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Sequencers</p>
+        <h2>Trancegate and arp, locked to the transport</h2>
+        <p class="section-lede">
+          Two 16-step strips at the bottom of the window. Both are sample-accurate and phase-locked to
+          the host bar — start playback mid-pattern and they're already on the right step.
+        </p>
+      </header>
+
+      <div class="two-col">
+        <article class="deep">
+          <h3>Trancegate</h3>
+          <p>Click or drag on the strip to toggle steps. Right-click cycles the step division, and the
+             second cell sets <b>chop depth</b>. With every step on, the gate bypasses itself.</p>
+          <h4>Step lengths</h4>
+          <ul class="chips">
+            <li>1/32</li><li>1/16</li><li>1/16 dotted</li><li>1/8</li><li>1/8 triplet</li><li>1/4</li>
+          </ul>
+          <h4>Pattern cell</h4>
+          <ul class="pattern-list">
+            <li><b>UPLIFT</b> <span>3-on / 1-off</span></li>
+            <li><b>OFF-BEAT</b> <span>house chop</span></li>
+            <li><b>ROLLER</b> <span>eighth notes</span></li>
+            <li><b>SLOWROCK</b> <span>half-time</span></li>
+            <li><b>16THS</b> <span>full run</span></li>
+            <li><b>OFF+4TH</b> <span>swell</span></li>
+          </ul>
+          <p class="fine">
+            Left/right click cycles the shapes. Hand edit a single step and the cell flips back to
+            <b>MANUAL</b>. The <b>COPY</b> cell mirrors the arp strip's active/rest pattern onto the gate in
+            one click — program an arp run, get an identically gated trance chop.
+          </p>
+        </article>
+
+        <article class="deep">
+          <h3>Arp sequencer</h3>
+          <p>A second 16-step strip plays the held note as a programmed semitone run. Each step is
+             either a <b>Rest</b> or an offset from <b>+0 to +11</b>, with a <b>0–3 octave</b> range — the classic
+             rolling Goa arp line.</p>
+          <h4>Per-step velocity</h4>
+          <p>Drag the velocity bar up or down on any step; right-click toggles a full-velocity accent.
+             The synth plays those dynamics back exactly, so off-beat accents pump the way they do in
+             the genre.</p>
+          <h4>Direction cell</h4>
+          <ul class="chips">
+            <li>UP</li><li>DOWN</li><li>UP-DOWN <span>ping-pong</span></li><li>RANDOM <span>fresh roll every step</span></li><li>CONVERGE <span>0-15-1-14…</span></li>
+          </ul>
+          <h4>Scale, root and lock</h4>
+          <p>Two cells beside the strip pick a <b>SCALE</b> and a <b>ROOT</b>, and every programmed step is
+             snapped into that scale (ties resolve downward, which is the darker, more musical choice).
+             Turn on <b>LOCK</b> and the same quantiser applies to notes you play live — hold a chord and
+             it folds into Phrygian instead of the chromatic mush your keyboard hands you.</p>
+
+          <h4>FILL — a roll in the key you're in</h4>
+          <p>One click on the <b>FILL</b> cell writes three to six in-scale steps into the empty positions,
+             leaving every step you programmed alone, so a sparse pattern becomes a psy roll without you
+             plotting sixteen cells by hand. It only ever uses notes of the current SCALE and ROOT —
+             including the pentatonics, where that constraint is what makes a roll sound deliberate — and
+             it deliberately skips some rests instead of filling every gap, because a roll with air in it
+             is the sound, not a machine-gun.</p>
+
+          <p class="fine">The playhead cell lights up while the transport runs, so you can see exactly
+             where you are.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= TUNING ================= -->
+  <section class="section" id="tuning">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Tuning</p>
+        <h2>In the scale you meant, in the tuning you want</h2>
+        <p class="section-lede">
+          Two things most synths leave to luck: whether a rolling arp stays in key, and what "in tune"
+          means at all. GoaSynth answers both from the controls at the bottom-right of the window — nine
+          scale tables, a root selector, and full Scala microtuning.
+        </p>
+      </header>
+
+      <div class="two-col">
+        <article class="deep">
+          <h3>Scale quantizer</h3>
+          <p>Pick a table with the <b>SCALE</b> cell and a pitch class with <b>ROOT</b>. Every semitone the
+             arp strip plays is snapped into that scale, and an out-of-scale step lands on the nearest
+             in-scale note — ties resolve downward, which is usually the answer the ear wanted anyway. A
+             row of twelve LEDs beside the cell shows both the mode and what your pattern does with it:
+             in-scale degrees glow faintly, the pitch classes your enabled arp steps actually hit light
+             up, and the root is the brightest — so you can read the shape of the scale and the shape of
+             the line at a glance.</p>
+          <ul class="chips dense">
+            <li>chromatic (off)</li><li>minor</li><li>Phrygian</li><li>harmonic minor</li>
+            <li>Hungarian minor</li><li>double harmonic</li><li>Dorian</li><li>major</li>
+            <li>minor pentatonic</li>
+          </ul>
+          <p><b>LOCK</b> lifts the quantiser off the arp and puts it on your playing: hold a chord and
+             every note folds into the selected scale. With LOCK on and Hungarian minor chosen, a wrong
+             key never lands — it simply becomes the note of the scale that sits closest to it.</p>
+        </article>
+
+        <article class="deep">
+          <h3>Microtuning — Scala <code>.scl</code></h3>
+          <p><b>FINE¢</b> shifts the whole instrument by up to <b>±100 cents</b>, so −32 puts you on a
+             432 Hz reference and everything else in the session follows. The <b>SCL</b> button goes
+             further and loads a <b>Scala <code>.scl</code></b> file: the classic text format, 2 to 64
+             degrees per octave, octave-wrapped and anchored on A4.</p>
+          <ul class="tick">
+            <li>Accepts what real files contain — cent values (<code>204.0</code>), ratios
+                (<code>6/5</code>) and decimal ratios (<code>1.25</code>), with comments and blank lines
+                ignored</li>
+            <li>Any equal or unequal temperament: just intonation, 19-tone, 31-tone, gamelan tables,
+                hand-built per-octave scales</li>
+            <li>The button takes the name of the loaded tuning and shows its degree count on hover;
+                clicking again returns to 12-TET</li>
+            <li>Your file is copied to <code>%APPDATA%/GoaSynth/tuning.scl</code> and reloaded next
+                session, so the tuning survives even if you move or delete the original</li>
+            <li>Tunings swap on a lock-free note table — the UI publishes, the audio thread keeps
+                reading — so changing scale between tracks never gaps or clicks</li>
+          </ul>
+          <p class="fine">Octave wrapping means a seven-degree file still plays every key on the keyboard:
+             notes above its range continue the pattern instead of falling back to 12-TET.</p>
+        </article>
+      </div>
+
+      <p class="note">
+        <b>Why this genre needs it:</b> Goa and psy trance are built on hypnotic repetition, so one wrong
+        step is audible by the fourth bar. Scale locks keep a wild arp in key without flattening it, and
+        microtuning is how a lead sits against a tabla, a flute or a 432 Hz drone instead of beating
+        against it.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= AI PATCH ================= -->
+  <section class="section" id="ai">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">AI patch designer</p>
+        <h2>Describe the sound. Get a patch.</h2>
+        <p class="section-lede">
+          The AI PATCH screen is a vocabulary-driven designer. Families stack — "dark rolling acid bass"
+          is the acid family plus dark and bass tweaks — then a variation pass guarantees that no two
+          generations are identical while staying musically related.
+        </p>
+      </header>
+
+      <div class="split">
+        <figure class="shot" data-lightbox>
+          <div class="shot-frame">
+            <img src="assets/ai-patch-designer.png" alt="The AI Patch Designer overlay: a prompt box containing 'acid goa pluck', a GENERATE button, SUBTLE / NORMAL / WILD variation buttons and a row of keyword chips.">
+          </div>
+          <figcaption>Type a prompt, pick a variation, generate.</figcaption>
+        </figure>
+
+        <div class="split-text">
+          <h3>It re-rolls every time</h3>
+          <p>The same prompt always yields a <em>different</em> but musically-related patch: waveform
+             flavours, octave placement, unison and detune rolls, filter offset, pan spread, delay
+             division, fresh gate and arp grooves, and humanised envelope jitter. Variant suffixes
+             (II, NEO, PRIME…) in the title make generations easy to tell apart in the browser.
+             Save the ones you like.</p>
+
+          <h3>Variation strength</h3>
+          <div class="route-list">
+            <div class="route"><b>SUBTLE</b><span>Keeps the family's core choices, lays classic grooves
+              (3-on/1-off gate, 1/16 minor roller) and halves the jitter.</span></div>
+            <div class="route"><b>NORMAL</b><span>The default free re-roll.</span></div>
+            <div class="route"><b>WILD</b><span>Doubles the jitter and widens the filter and FX ranges —
+              may redesign waves, octaves and groove density wholesale.</span></div>
+          </div>
+
+          <h3>Vocabulary it understands</h3>
+          <ul class="chips dense">
+            <li>acid / 303</li><li>sub / 808</li><li>bass</li><li>lead</li><li>hoover</li><li>riser / build</li>
+            <li>pad / atmos / drone</li><li>bell / crystal</li><li>pluck / arp</li><li>noise / texture</li>
+            <li>dark / darkpsy</li><li>fullon</li><li>hi-tech</li><li>forest</li><li>morning</li>
+            <li>melodic</li><li>gnarly</li><li>rolling</li><li>mono glide</li><li>tempo delay</li>
+          </ul>
+
+          <h3>Or point it at a real language model</h3>
+          <p>The <b>AI ENGINE</b> button switches the designer between four engines. LOCAL is the default
+             and needs nothing but the plugin; the other three are opt-in, and use your own key or your own
+             server:</p>
+          <div class="route-list">
+            <div class="route"><b>LOCAL</b><span>The built-in rule-based designer. No key, no network, no
+              cost per generation — and the automatic fallback whenever a cloud engine fails.</span></div>
+            <div class="route"><b>GEMINI</b><span>Google Gemini (3.6 Flash by default, with 3.5 Flash and
+              3.5 Lite selectable) using an API key you paste in from AI Studio.</span></div>
+            <div class="route"><b>OPENAI</b><span>Any OpenAI-compatible chat endpoint — GPT-5.6 Luna by
+              default, with GPT-5 Mini and the legacy 4o-mini selectable.</span></div>
+            <div class="route"><b>CUSTOM</b><span>A base URL you own: Ollama or LM Studio on
+              <code>http://localhost:11434/v1</code>, OpenRouter, or anything else speaking the same API.
+              A local server needs no key at all.</span></div>
+          </div>
+          <p>Your key is stored per user in <code>%APPDATA%/GoaSynth/ai.txt</code> on your own disk, and it —
+             together with your prompt — goes <b>only</b> to the provider you selected, never to us. What
+             leaves your machine is the brief plus a compact table of parameter names; your presets,
+             projects and audio never do. Replies are parsed defensively before anything reaches the synth:
+             unknown parameters are dropped, numbers clamped and bogus choice names rejected.</p>
+
+          <h3>It repairs its own bad reply</h3>
+          <p>A model occasionally answers with a parameter that doesn't exist or a value outside its range.
+             Instead of handing you a half-broken patch, the plugin shows the model its own rejected reply
+             and exactly what was wrong with it, and asks once more — so a formality slip costs a second
+             rather than a generation. If the second reply fails validation too, nothing is applied and
+             you are told why.</p>
+
+          <h3>The whole engine is in its vocabulary</h3>
+          <p>Generated patches are not limited to the classics: the designer can reach the vowel morph,
+             the scale quantiser, the fine tuning, the pump and the quality switch, so "talking acid in
+             Phrygian" is a brief it can actually answer rather than a stretch.</p>
+
+          <h3>And it learns the character you keep</h3>
+          <p>Every cloud patch you keep is archived on disk — the brief, the model's title and the values
+             it produced — in <code>%APPDATA%/GoaSynth/Learned</code>. Later <b>LOCAL</b> generations are
+             blended with the best-matching entries, so the offline designer gradually picks up the stamp
+             of the models you actually liked, with no key and no network. Nothing in that archive is ever
+             transmitted, and deleting the folder resets the memory.</p>
+
+          <div class="callout">
+            <b>Honest about the name:</b> the default engine is a rule-based generator, not a language
+            model — no weights, no server, no key — so it costs nothing and works on a machine that has
+            never been online. Cloud generation is a switch only you can flip, with your own key, billed
+            by your own provider, and every cloud patch you keep quietly improves the offline one.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PRESETS ================= -->
+  <section class="section alt" id="presets">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Factory presets</p>
+        <h2>135 patches, nine families, fifteen each</h2>
+        <p class="section-lede">
+          Every preset carries its category as a tag of the same name, so the browser's TAG filter doubles
+          as a family menu — pick ACID or PAD and see only that bank. Names are prefixed by category, which
+          makes the search box a category filter too.
+        </p>
+      </header>
+
+      <div class="preset-grid">
+        <article class="preset">
+          <h3>ACID <span>15</span></h3>
+          <p>303-family squelch</p>
+          <ul><li>ACID 303 CLASSIC</li><li>ACID SILVER RUSH</li><li>ACID TANTRA SPIRAL</li></ul>
+        </article>
+        <article class="preset">
+          <h3>BASS <span>15</span></h3>
+          <p>Rollers, subs, growls</p>
+          <ul><li>BASS PSY ROLLER</li><li>BASS SUB TERRA</li><li>BASS FM GROWL</li></ul>
+        </article>
+        <article class="preset">
+          <h3>FM <span>15</span></h3>
+          <p>Bells, metallics, vocal forms</p>
+          <ul><li>FM ALIEN CHIRP</li><li>FM COSMIC DUST</li><li>FM BUBBLE WORLD</li></ul>
+        </article>
+        <article class="preset">
+          <h3>FX <span>15</span></h3>
+          <p>Sweeps, noise, zaps</p>
+          <ul><li>FX ALIEN MODEM</li><li>FX BREATH MACHINE</li><li>FX COSMIC HUM</li></ul>
+        </article>
+        <article class="preset">
+          <h3>LEAD <span>15</span></h3>
+          <p>Supersaws, hoovers, screeches</p>
+          <ul><li>LEAD ACID STACK</li><li>LEAD FLYING SAWS</li><li>LEAD DARK WHISPER</li></ul>
+        </article>
+        <article class="preset">
+          <h3>PAD <span>15</span></h3>
+          <p>Swirls, drones, choirs</p>
+          <ul><li>PAD DARK CATHEDRAL</li><li>PAD AURA GLOW</li><li>PAD CRYSTAL SPHERE</li></ul>
+        </article>
+        <article class="preset">
+          <h3>PLUCK <span>15</span></h3>
+          <p>Trance fingers, kotos, glass</p>
+          <ul><li>PLUCK ACID PLUCK</li><li>PLUCK BALI WOOD</li><li>PLUCK CRYSTAL RAIN</li></ul>
+        </article>
+        <article class="preset">
+          <h3>RISER <span>15</span></h3>
+          <p>Builds, sweeps, noise jets</p>
+          <ul><li>RISER ACID CLIMB</li><li>RISER CELESTIAL CHOIR</li><li>RISER AIR PUMP</li></ul>
+        </article>
+        <article class="preset">
+          <h3>SYNTH <span>15</span></h3>
+          <p>Organs, EPs, strings, clavs</p>
+          <ul><li>SYNTH BRASS STRIKE</li><li>SYNTH CHIP ARPEGGIO</li><li>SYNTH DEEP SPACE CONN</li></ul>
+        </article>
+      </div>
+
+      <div class="split reverse">
+        <div class="split-text">
+          <h3>Preset browser</h3>
+          <p>The header always shows the current patch name with <b>&lt; / &gt;</b> arrows for stepping
+             through the bank, <b>BROWSE</b> opens a Serum-style overlay, and <b>SAVE</b> / <b>DEL</b>
+             write or remove a user patch from the header itself:</p>
+          <ul class="tick">
+            <li><b>ALL / FACTORY / USER</b> folder tabs</li>
+            <li>Live <b>search box</b> and a <b>TAG filter</b> built from every tag in the bank</li>
+            <li>Grouped, zebra-striped list with the selected patch highlighted and up to three tags per entry</li>
+            <li>A teal <b>SHARED</b> badge on patches that live in the machine-wide bank</li>
+            <li><b>DEL</b> in the header removes the selected user preset — factory patches are never touched</li>
+          </ul>
+
+          <h3>Saving your own</h3>
+          <p><b>SAVE</b> writes the complete patch — every parameter plus both drawn waves — as a
+             <code>.goapreset</code> file in <code>%APPDATA%/GoaSynth/Presets</code>. The save dialog takes
+             space-separated <b>tags</b> ("acid bass night") and a <b>SHARED</b> toggle: shared patches land in
+             <code>C:\Users\Public\Documents\GoaSynth</code> and are visible to every account on the machine
+             (a same-named preset in your own bank shadows the shared copy). AI-generated patches are one
+             SAVE click away from being permanent.</p>
+        </div>
+
+        <figure class="shot" data-lightbox>
+          <div class="shot-frame">
+            <img src="assets/preset-browser.png" alt="The GoaSynth preset browser overlay: search box, TAG filter, ALL / FACTORY / USER / IMPORT PACK / EXPORT PACK tabs and a grouped list of factory presets with their tags.">
+          </div>
+          <figcaption>Browse, search, tag-filter — or move whole banks in and out.</figcaption>
+        </figure>
+      </div>
+
+      <div class="two-col packs">
+        <article class="deep">
+          <h3>Preset packs</h3>
+          <p><b>EXPORT PACK</b> and <b>IMPORT PACK</b> move whole banks in and out of the plugin. A pack is a
+             <code>.goapack</code> file — a plain ZIP containing <code>.goapreset</code> files — so it's trivial to
+             email, torrent or archive.</p>
+          <ul class="tick">
+            <li><b>Export</b> writes every patch in your merged bank (own presets, plus shared-bank patches and
+                their tags) into a single pack, behind a native overwrite prompt.</li>
+            <li><b>Import</b> merges non-destructively: existing presets are skipped, so a pack can never
+                silently clobber what you have. New ones appear in the browser immediately.</li>
+            <li>Junk entries (READMEs, <code>__MACOSX</code> folders) are ignored, and zip paths are flattened on
+                import so nested or hostile entries can't write outside the presets folder.</li>
+            <li>Packs round-trip: export → send → import → play.</li>
+          </ul>
+        </article>
+        <article class="deep">
+          <h3>Where things are stored</h3>
+          <dl class="kv">
+            <dt>Your presets</dt><dd><code>%APPDATA%/GoaSynth/Presets</code></dd>
+            <dt>Shared bank</dt><dd><code>C:\Users\Public\Documents\GoaSynth</code></dd>
+            <dt>Preset file</dt><dd><code>.goapreset</code> — all parameters + both user waves</dd>
+            <dt>Pack file</dt><dd><code>.goapack</code> — ZIP of presets, safe to share</dd>
+            <dt>Session state</dt><dd>Full plugin state saved in the DAW project, including drawn waves and the active skin</dd>
+          </dl>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= THEMES ================= -->
+  <section class="section" id="themes">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Skins</p>
+        <h2>Three faces, one engine</h2>
+        <p class="section-lede">
+          The <b>THEME</b> button cycles three complete skins and names the one you're on
+          (<code>THEME: UV</code> → <code>THEME: STEEL</code> → <code>THEME: WARM</code>), stored with the
+          session and restored on reopen. Click one below to repaint this page.
+        </p>
+      </header>
+
+      <div class="theme-picker" role="group" aria-label="Choose a skin">
+        <button class="theme-card is-active" data-skin="uv">
+          <span class="swatch swatch-uv"><i></i><i></i><i></i></span>
+          <b>UV GOA</b>
+          <em>Violet, teal and magenta over purple-black — the house look.</em>
+        </button>
+        <button class="theme-card" data-skin="steel">
+          <span class="swatch swatch-steel"><i></i><i></i><i></i></span>
+          <b>STEEL</b>
+          <em>Studio blue-greys with a restrained cyan-steel primary and amber secondary.</em>
+        </button>
+        <button class="theme-card" data-skin="warm">
+          <span class="swatch swatch-warm"><i></i><i></i><i></i></span>
+          <b>WARM</b>
+          <em>Analog rack: cream face with orange, olive and rust accents.</em>
+        </button>
+      </div>
+
+      <div class="panel panel-accent motion">
+        <h4>The room breathes</h4>
+        <p>Behind the panels an <b>animated psychedelic swirl</b> counter-rotates at about 30 fps — two
+           pre-rendered log-spiral layers in the UV palette — and scale-pulses subtly with the smoothed
+           output level, so the window moves with the music instead of sitting static.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SPECS ================= -->
+  <section class="section alt" id="specs">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Specifications</p>
+        <h2>The boring details, all in one table</h2>
+      </header>
+      <dl class="spec-table">
+        <div><dt>Format</dt><dd>VST3 (instrument / synth)</dd></div>
+        <div><dt>Platforms</dt><dd>Windows 64-bit, macOS, Linux</dd></div>
+        <div><dt>Plugin codes</dt><dd><code>Frbf</code> / <code>Gsyn</code></dd></div>
+        <div><dt>Polyphony</dt><dd>1–16 voices (POLY), MONO, LEGATO</dd></div>
+        <div><dt>Oscillators</dt><dd>2 + sub + noise, with a 1–7 voice unison stack detuning both oscillators together</dd></div>
+        <div><dt>Wavetables</dt><dd>8 drawable frames per oscillator, mip-mapped</dd></div>
+        <div><dt>Filters</dt><dd>2 × (LP12, LP24, HP12, BP12, NOTCH) with SERIAL / PARALLEL / SPLIT routing</dd></div>
+        <div><dt>Filter character</dt><dd>Pre-filter saturation (F-DRIVE) plus a one-sample resonant feedback path (F-FB)</dd></div>
+        <div><dt>Vowel filter</dt><dd>3-formant bank (AH · EH · EE · OH · OO), morph / resonance / mix, LFO-targetable</dd></div>
+        <div><dt>Envelopes</dt><dd>2 ADSR (amp + filter), velocity-sensitive</dd></div>
+        <div><dt>LFOs</dt><dd>2, seven destinations each (pitch, cutoff, PWM, volume, WT POS A/B, vowel morph), free or tempo-synced</dd></div>
+        <div><dt>Mod matrix</dt><dd>8 slots, bipolar amounts</dd></div>
+        <div><dt>FX</dt><dd>Pump → Chorus → Phaser → OTT → Tempo delay → Reverb → Master → Limiter</dd></div>
+        <div><dt>Sidechain pump</dt><dd>Host-synced output duck on 1/4, 1/8, 1/8T, 1/16 or 1/16T, with depth — no DAW sidechain routing needed</dd></div>
+        <div><dt>Sequencers</dt><dd>16-step trancegate + 16-step arp (velocity per step), scale-quantised and phase-locked to the transport</dd></div>
+        <div><dt>Scales</dt><dd>9 tables — chromatic (off), minor, Phrygian, harmonic minor, Hungarian minor, double harmonic, Dorian, major, minor pentatonic — in any of 12 roots, with LOCK for live playing</dd></div>
+        <div><dt>Microtuning</dt><dd>Scala <code>.scl</code> files (2–64 degrees per octave, cents or ratios), plus ±100 cents fine tune (−32 = 432 Hz)</dd></div>
+        <div><dt>Presets</dt><dd>135 factory across 9 categories, unlimited user bank</dd></div>
+        <div><dt>Parameters</dt><dd>150+ host automatable, including every gate/arp step and matrix entry</dd></div>
+        <div><dt>MIDI</dt><dd>Note input required; mod wheel → cutoff, sustain pedal supported</dd></div>
+        <div><dt>Keyboard</dt><dd>Built-in on-screen keyboard with OCT− / OCT+ octave buttons and PANIC (all notes off)</dd></div>
+        <div><dt>AI engines</dt><dd>LOCAL (offline, default) · GEMINI · OPENAI-compatible · CUSTOM base URL (Ollama, LM Studio…)</dd></div>
+        <div><dt>Networking</dt><dd>Off unless you enable a cloud AI engine — then only your prompt and a parameter table go to the provider whose key you configured. No telemetry, no update checks, no accounts</dd></div>
+        <div><dt>Activation</dt><dd>Offline serial signed for your machine ID (20 hex characters). No account, no dongle, no server check; one serial per computer</dd></div>
+        <div><dt>Trial</dt><dd>24 hours, full features, stamped once per machine</dd></div>
+        <div><dt>Licence files</dt><dd><code>%APPDATA%/GoaSynth/License/license.txt</code>, with the shared ledger and trial stamp under <code>C:\Users\Public\Documents\GoaSynth\License</code></dd></div>
+        <div><dt>Analog &amp; quality</dt><dd>Tape-style wow and flutter (ANALOG), and a QUALITY switch that renders the oscillator and filter path at 2× oversampling</dd></div>
+        <div><dt>Interface</dt><dd>Resizable window, 100 / 125 / 150 / 175 / 200 % zoom, remembered per user</dd></div>
+        <div><dt>Built with</dt><dd>JUCE 8, CMake 3.22+, C++17</dd></div>
+        <div><dt>Price</dt><dd><span data-price>€15</span> <span data-price-note>one-time · VAT included where applicable</span></dd></div>
+        <div><dt>Licence</dt><dd>Buyers get a paid binary licence; the source stays public under AGPLv3</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= INSTALL ================= -->
+  <section class="section" id="install">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Install</p>
+        <h2>From download to first acid line in two minutes</h2>
+      </header>
+
+      <div class="os-tabs" id="osTabs">
+        <button class="os-tab is-active" data-os="win">
+          <span class="os-glyph">⊞</span> Windows
+        </button>
+        <button class="os-tab" data-os="mac">
+          <span class="os-glyph">⌘</span> macOS
+        </button>
+        <button class="os-tab" data-os="lin">
+          <span class="os-glyph">🐧</span> Linux
+        </button>
+      </div>
+
+      <div class="os-panel" data-os-panel="win">
+        <ol class="steps">
+          <li>Grab the Windows build from the download page linked in your purchase email.
+            <button class="copy" data-copy-target="dlWin">Copy link</button></li>
+          <li>Copy the whole <code>GoaSynth.vst3</code> folder — it's a bundle, the folder <em>is</em> the plugin — into:
+            <button class="copy" data-copy="C:\Program Files\Common Files\VST3\">Copy path</button>
+            <code class="path">C:\Program Files\Common Files\VST3\</code>
+            <span class="muted">…or into your DAW's own VST3 folder.</span>
+          </li>
+          <li>Rescan plugins in your DAW, create an instrument track, and play.</li>
+        </ol>
+      </div>
+
+      <div class="os-panel" data-os-panel="mac" hidden>
+        <ol class="steps">
+          <li>Grab the macOS build from the download page linked in your purchase email.
+            <button class="copy" data-copy-target="dlMac">Copy link</button></li>
+          <li>Copy <code>GoaSynth.vst3</code> to:
+            <button class="copy" data-copy="/Library/Audio/Plug-Ins/VST3/">Copy path</button>
+            <code class="path">/Library/Audio/Plug-Ins/VST3/</code>
+          </li>
+          <li>If macOS quarantines the unsigned build, allow it in
+            <b>System Settings → Privacy &amp; Security</b>, then rescan plugins in your DAW.</li>
+        </ol>
+      </div>
+
+      <div class="os-panel" data-os-panel="lin" hidden>
+        <ol class="steps">
+          <li>Grab the Linux build from the download page linked in your purchase email.
+            <button class="copy" data-copy-target="dlLin">Copy link</button></li>
+          <li>Copy <code>GoaSynth.vst3</code> to the per-user bundle folder:
+            <button class="copy" data-copy="~/.vst3/">Copy path</button>
+            <code class="path">~/.vst3/</code>
+          </li>
+          <li>Rescan plugins in your DAW (Bitwig, Reaper, Qtractor, Ardour via a VST3 host…).</li>
+        </ol>
+      </div>
+
+      <div class="panel panel-accent">
+        <h4>Activate — offline, one serial</h4>
+        <ol class="steps tight">
+          <li>Open GoaSynth in your DAW. Unlicensed it shows the activation screen with your
+              <b>MACHINE ID</b> (20 characters, with a copy button), and the synth runs <b>fully for
+              24 hours</b> from first launch so you can try everything before paying.</li>
+          <li>Send that ID to us — checkout has a field for it. We sign a serial against it and email you a
+              <code>.goalicense</code> file.</li>
+          <li>Double-click the file (Windows opens it with the bundled GoaSynth license helper), or press
+              <b>IMPORT</b> on the activation screen and pick it — you can also drag the file straight onto
+              the plugin window. You can paste the plain serial instead if you prefer — a file and its
+              serial are interchangeable.</li>
+          <li>That's it. The serial unlocks this computer and stays unlocked with no server to reach, no
+              dongle and no login. Reinstalled Windows or changed hardware? The machine ID changes — email
+              us, we release the old binding and issue a fresh serial, free.</li>
+        </ol>
+      </div>
+
+      <div class="build">
+        <h3>Not a customer? Build it from source</h3>
+        <p>The complete source is public under the AGPLv3, so anyone can compile GoaSynth without paying.
+           Requires CMake 3.22+ and MSVC 2022 (Windows), Xcode (macOS) or a g++/clang toolchain (Linux).
+           JUCE is fetched automatically by CMake.</p>
+        <div class="code-block">
+          <button class="copy copy-code" data-code-copy="build">Copy</button>
+          <pre><code id="build-snippet">cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build build --config Release --target GoaSynth_VST3 --parallel</code></pre>
+        </div>
+        <p class="fine">The plugin lands at
+          <code>build/GoaSynth_artefacts/Release/VST3/GoaSynth.vst3</code>. On macOS/Linux use your
+          platform's generator instead of the Visual Studio one. A <code>RoundTripTest</code> target checks that
+          every parameter and both drawn waves serialise and reload identically. The licence gate ships with
+          that source: <code>Source/LicenseKeys.h</code> is generated by <code>GoaSynthKeygen --init</code>,
+          so a fresh checkout carries a placeholder header that rejects every serial — building it yourself
+          means creating your own keypair once and rebuilding. The AGPLv3 allows exactly that; the
+          <span data-price>€15</span> buys the finished builds, the support and the updates.</p>
+      </div>
+
+      <p class="note"><b>Activation is offline, and it binds to one computer at a time.</b> A serial is an
+        RSA signature over your machine ID, so it never phones home — but it also can't be passed around,
+        and a Windows reinstall or a hardware change moves the ID. Email us and we release the old binding
+        and issue a fresh serial, free; you are never locked out of hardware you own.</p>
+    </div>
+  </section>
+
+  <!-- ================= CONTRIB ================= -->
+  <section class="section alt" id="contrib">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Contributing</p>
+        <h2>UI conventions</h2>
+        <p class="section-lede">
+          The editor keeps its hover info and modulation indicators uniform on purpose. If you touch
+          Source/PluginEditor, these are the rules new controls follow.
+        </p>
+      </header>
+      <div class="two-col">
+        <article class="deep">
+          <h3>Tooltips</h3>
+          <p>Every interactive control has hover text, displayed by the single
+             <code>TooltipWindow</code> the editor owns — without it every <code>setTooltip()</code>
+             is a silent no-op. Knobs and toggles build theirs automatically: <b>parameter name +
+             live value in engine units</b> (<i>Cutoff (Hz) — 1500 Hz</i>, <i>Attack — 0.01 s</i>,
+             <i>RESO — 25 %</i>; toggles show ON/OFF). The unit map is <code>liveValueText()</code>
+             in <code>Source/PluginEditor.cpp</code>; give any new parameter a branch there, or the
+             OverlayTest unit sweep fails and names the id. Text is rebuilt every paint, so values
+             track drags, host automation and preset loads while you hover — never cache tooltip
+             strings. Hand-written tooltips follow the house style: <i>what it is</i>, an em dash,
+             then the gestures.</p>
+          <figure class="shot">
+            <img src="assets/mod-dots.png" alt="A CUTOFF knob with a velocity mod dot and its 1.5k live readout" loading="lazy">
+          </figure>
+        </article>
+        <article class="deep">
+          <h3>Mod dots &amp; pick-to-assign</h3>
+          <p>A knob targeted by an active mod-matrix slot wears small dots in its top-right corner —
+             one per source slot (max 3): <span style="color:#22d3ee">teal</span> for LFO 1,
+             <span style="color:#ec4899">magenta</span> for LFO 2, accent for envelopes, dim for
+             velocity/modwheel. Each dot pulses with the live source value × amount, and depth past
+             ±0.6 adds a ring. Hovering the knob lists its routings
+             (<i>MOD 2: LFO 1 → CUTOFF (+40)</i>). Dots refresh on matrix edits, overlay open and
+             preset loads — any new code path that changes slots must call
+             <code>goaui::repaintCtlPaints()</code>.</p>
+          <p>The matrix itself routes by pointing: click a DST cell then a knob, or a SRC cell then
+             an LFO/ENV graph; ESC or a re-click cancels, and the just-routed cell flashes inside
+             the card with a brief arrow pointing at the clicked control to confirm. New routable
+             controls must expose their parameter ids
+             (<code>Ctl::paramId</code>, <code>LfoGraph::rateParamId</code>,
+             <code>EnvGraph::attackParamId()</code>).</p>
+          <figure class="shot">
+            <img src="assets/mod-pick-flash.png" alt="Pick-to-assign: the just-routed DST cell flashing, with a brief arrow pointing at the target knob" loading="lazy">
+          </figure>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= LICENCE ================= -->
+  <section class="section alt" id="licence">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Licence</p>
+        <h2>Paid builds, public source</h2>
+        <p class="section-lede">
+          Two things are true at once: the binaries cost <b><span data-price>€15</span></b>, and the code is
+          open. That's intentional — and no part of the licence locks your music or your copy of the plugin.
+        </p>
+      </header>
+      <div class="two-col">
+        <article class="deep">
+          <h3>What your purchase covers</h3>
+          <p>Paying for GoaSynth buys a personal licence to the built plugin: use it in commercial releases,
+             live sets, remixes, sample packs and client work, forever. There are no per-track fees, no
+             royalties, and nothing in the licence claims any rights over the music you make with it.</p>
+          <dl class="kv">
+            <dt>Seats</dt><dd>Up to three machines you personally use — studio, laptop, spare. One serial per computer, issued free on request</dd>
+            <dt>Bands &amp; studios</dt><dd>One licence per user; a second seat for a bandmate is a second licence</dd>
+            <dt>Updates</dt><dd>Free for the whole 1.x line, delivered by the same download link</dd>
+            <dt>Refunds</dt><dd>14 days from purchase, no questions asked; the serial is revoked with it</dd>
+            <dt>Activation</dt><dd>Offline serial signed for your machine ID. No account, no dongle, no server check — and moving to new hardware costs nothing</dd>
+            <dt>Trial</dt><dd>24 hours of the full plugin before you pay anything</dd>
+          </dl>
+        </article>
+        <article class="deep">
+          <h3>Why the source is still public</h3>
+          <p>The code is released under the <b>GNU Affero General Public License v3.0</b>. Anyone may read it,
+             modify it, and compile a working plugin for free — including people who bought a licence. The
+             AGPL also lets you redistribute it, as long as the corresponding source goes with it.</p>
+          <p>So the €15 is not a padlock on the software; it's the price of not building it yourself. You're
+             paying for compiled, tested builds for three platforms, the 135-preset bank, updates and
+             support — and in exchange you get a plugin you can inspect, audit and keep, with no
+             subscription that can expire on you.</p>
+          <dl class="kv">
+            <dt>JUCE 8</dt><dd>Used under its AGPLv3 option</dd>
+            <dt>VST3 interface code</dt><dd>Used under Steinberg's GPLv3 dual licence</dd>
+            <dt>Your music</dt><dd>100% yours — nothing here claims rights over your output</dd>
+            <dt>Your data</dt><dd>The plugin keeps your machine ID, serial and trial stamp on your own disk and sends nothing anywhere. A cloud AI engine is off until you configure your own key, and then only your prompt goes to the provider you chose</dd>
+          </dl>
+          <p class="fine">
+            VST® is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other
+            countries. The <a href="legal/eula.html">Licence Agreement</a> and the
+            <a href="legal/terms.html">Terms of Sale</a> are provided with your order confirmation, and
+            are on this site in full before you buy.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section class="section" id="faq">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">FAQ</p>
+        <h2>Questions, answered</h2>
+      </header>
+
+      <div class="faq">
+        <details open>
+          <summary>It costs <span data-price>€15</span> — why is the source on GitHub for free?</summary>
+          <p>Because you'd rather make music than compile code. GoaSynth's source is public under the AGPLv3,
+             so yes: you can clone it, install CMake and build the plugin yourself for nothing, and that's a
+             deliberate choice rather than a loophole. The <span data-price>€15</span> buys the finished
+             product — builds for Windows, macOS and Linux, the tested 135-preset bank, every update in the
+             1.x line, and someone to email when a DAW misbehaves. Most people take the second option; both
+             are legitimate.</p>
+        </details>
+        <details>
+          <summary>What exactly do I get when I buy?</summary>
+          <p>The download page for the Windows, macOS and Linux VST3 builds, the licence terms, and a
+             licence serial signed for the machine ID you gave at checkout — delivered as a
+             <code>.goalicense</code> file you double-click or IMPORT. There's no account to create and no
+             server to reach: activation is offline and permanent. Keep the receipt email, since it stays
+             your re-download link and your order reference for support.</p>
+        </details>
+        <details>
+          <summary>Can I try it before paying?</summary>
+          <p>Yes — install the build and GoaSynth runs <b>fully featured for 24 hours</b> from first
+             launch: the whole sound engine, both filters, the FX chain, the trancegate, the arp, the AI
+             designer and all 135 presets. The header shows a <code>TRIAL 23 h 59 m</code> badge, and
+             clicking it opens the activation screen with your machine ID ready to copy. Once the 24 hours
+             are up, instances render silence until a serial is entered.</p>
+        </details>
+        <details>
+          <summary>How many computers can I install it on?</summary>
+          <p>Three machines that you personally use — studio desktop, laptop, spare. Each needs its own
+             serial, because a serial is signed against that computer's machine ID: checkout asks for one
+             ID, and send us the other two afterwards and we'll issue those serials free. One licence
+             covers one person, so bandmates and studio partners each need their own. Nothing is ever
+             checked online — the binding lives in a ledger file on your machine, not on a server.</p>
+        </details>
+        <details>
+          <summary>What if it doesn't work out?</summary>
+          <p>Email within 14 days of purchase and you get a full refund, no questions asked — you don't have
+             to justify it or prove anything, and having already used the plugin doesn't disqualify you.
+             We'd rather have a clean refund than a grudging customer. The details are in the
+             <a href="legal/refunds.html">Refund Policy</a>.</p>
+        </details>
+        <details>
+          <summary>Does the AI patch designer need the internet?</summary>
+          <p>No. The default LOCAL engine is a rule-based generator that runs entirely inside the plugin —
+             type, generate, save, offline. If you want a real language model, the <b>AI ENGINE</b> button
+             can point the designer at Gemini, an OpenAI-compatible endpoint or your own base URL (Ollama,
+             LM Studio, OpenRouter) using a key you supply. That key is kept locally in
+             <code>%APPDATA%/GoaSynth/ai.txt</code> and sent only to the provider you chose; your presets,
+             projects and audio are never part of the request, and switching back to LOCAL makes the plugin
+             fully offline again.</p>
+        </details>
+        <details>
+          <summary>Will it run on my machine?</summary>
+          <p>It's a standard VST3 instrument for Windows, macOS and Linux, built with JUCE 8. Because the
+             oscillators and wavetables are band-limited and the OTT is a true bypass at depth 0, the
+             engine stays light even with unison and long reverb tails — but a 7-voice unison on both
+             oscillators, 16 voices of polyphony, full OTT and QUALITY (2× oversampling) on is the
+             heaviest case.</p>
+        </details>
+        <details>
+          <summary>Where do my presets live, and can I share them?</summary>
+          <p>Your bank is in <code>%APPDATA%/GoaSynth/Presets</code>. Use <b>EXPORT PACK</b> to write a
+             <code>.goapack</code> ZIP of your whole bank and send it to anyone; they hit <b>IMPORT PACK</b> and it
+             merges in without overwriting their own patches. There's also a machine-wide shared bank at
+             <code>C:\Users\Public\Documents\GoaSynth</code> if you share one studio PC.</p>
+        </details>
+        <details>
+          <summary>What data do you collect?</summary>
+          <p>From the plugin: nothing. It keeps a handful of small files on your own disk — your preset
+             bank and settings, the serial you activated with, a trial timestamp, your AI key if you add
+             one, a copy of any Scala tuning you load, and a local memory of the AI briefs and patches you
+             chose to keep — and sends nothing anywhere unless you switch on a cloud AI engine. Because a
+             licence is signed for a machine, the store's checkout asks for your <b>machine ID</b>
+             alongside the usual name, email and billing country; the
+             <a href="legal/privacy.html">Privacy Policy</a> explains exactly what that ID is, where it
+             goes and how long it is kept. This website sets no cookies and runs no analytics.</p>
+        </details>
+        <details>
+          <summary>I reinstalled Windows (or moved to a new PC) and it says unlicensed.</summary>
+          <p>The machine ID is a fingerprint of your hardware and user account, so a reinstall or a new
+             machine produces a new one — and the old serial correctly refuses to activate there. That is
+             the same property that stops keys from being passed around. Email us with your order
+             reference and we release the old binding in the ledger and issue a fresh serial for the new
+             ID at no charge; there is no limit on how often you need that.</p>
+        </details>
+        <details>
+          <summary>Can I release commercial tracks made with it?</summary>
+          <p>Yes, and that's included in the <span data-price>€15</span>. Releases, live sets, remixes, sample
+             packs and client work made with GoaSynth are entirely yours — no royalties, no credit required,
+             no per-track fee. The licence covers the software, never your music.</p>
+        </details>
+        <details>
+          <summary>Does the trancegate actually stay in time?</summary>
+          <p>Yes — both the gate and the arp are sample-accurate and phase-locked to the host transport bar.
+             Drop into the middle of a bar and they're already on the correct step instead of restarting.</p>
+        </details>
+        <details>
+          <summary>Can I use my own scales or a non-standard tuning?</summary>
+          <p>Yes. <b>SCALE</b> and <b>ROOT</b> quantise the arp — and your live playing, with <b>LOCK</b> on —
+             into nine built-in tables, from Phrygian and harmonic minor to minor pentatonic. For anything
+             past that, <b>SCL</b> loads a Scala <code>.scl</code> file: just intonation, 19- or 31-tone
+             equal temperaments, gamelan-style per-octave tables, up to 64 degrees. <b>FINE¢</b> covers the
+             common cases on its own, since −32 cents is a 432 Hz reference. The loaded tuning is copied
+             into your settings and comes back automatically next session.</p>
+        </details>
+        <details>
+          <summary>Do I need to set up sidechain routing in my DAW?</summary>
+          <p>No. The built-in <b>PUMP</b> ducks the output on a beat division you pick — 1/4, 1/8, 1/8T,
+             1/16 or 1/16T — locked to the host transport, with <b>DEPTH</b> setting how deep it goes.
+             Nothing to route, no kick track to trigger from, no extra mixer channel, and it works in any
+             host that reports tempo. Sync at OFF or depth at zero is a true bypass.</p>
+        </details>
+        <details>
+          <summary>Why "GoaSynth" and not "VST"?</summary>
+          <p>The plugin is a VST3. Steinberg's usage guidelines say the word VST shouldn't appear in a
+             product name, so the name stays clean and the format is described separately — with the
+             trademark attribution above.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CTA ================= -->
+  <section class="section cta">
+    <div class="wrap cta-inner">
+      <h2>Make something that sounds like midday at Ozora.</h2>
+      <p>One payment of <span data-price>€15</span>. Three platforms, 135 presets, every update in the 1.x
+         line, and no subscription to forget about.</p>
+      <div class="cta-row center">
+        <a class="btn btn-primary btn-lg" data-link="buy" href="#buy">Buy GoaSynth — <span data-price>€15</span></a>
+        <a class="btn btn-outline btn-lg" data-link="download" href="#install">Install &amp; first steps</a>
+      </div>
+      <p class="fine">24-hour trial · 14-day refund · offline activation · no account · source published under the AGPLv3</p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <strong>GOA <span>SYNTH</span></strong>
+      <p>Goa Trance synthesizer · VST3 · <span data-price>€15</span> · AGPLv3 source</p>
+    </div>
+    <nav class="footer-nav" aria-label="Footer">
+      <a href="#sound">Sound engine</a>
+      <a href="#fx">Effects</a>
+      <a href="#sequencers">Sequencers</a>
+      <a href="#tuning">Tuning</a>
+      <a href="#presets">Presets</a>
+      <a href="#buy">Pricing</a>
+      <a href="#install">Install</a>
+      <a href="#licence">Licence</a>
+      <a data-link="buy" href="#buy">Buy <span data-price>€15</span></a>
+      <a data-link="repo" href="#" target="_blank" rel="noopener">Repository</a>
+      <a href="legal/eula.html">Licence Agreement</a>
+      <a href="legal/terms.html">Terms of Sale</a>
+      <a href="legal/refunds.html">Refund Policy</a>
+      <a href="legal/privacy.html">Privacy Policy</a>
+    </nav>
+    <p class="footer-legal">
+      VST® is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries.
+      GoaSynth is an independent project and is not affiliated with or endorsed by Steinberg.
+      JUCE is used under the AGPLv3. Payments are processed by our checkout provider as merchant of record.
+    </p>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lightbox-close" id="lightboxClose" aria-label="Close">✕</button>
+  <img id="lightboxImg" alt="">
+  <p id="lightboxCap"></p>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

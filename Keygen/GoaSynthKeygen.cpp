@@ -1,0 +1,590 @@
+#include "GoaSynthKeygen.h"
+#include "KeygenCore.h"
+
+// Everything that signs, verifies or logs a serial lives in KeygenCore.h, shared
+// with the order-fulfilment tool (Fulfil/) so both use one code path.
+using namespace keygen::core;
+
+//==============================================================================
+// GoaSynth key generator (seller-side console tool).
+//
+//   GoaSynthKeygen --init                    create keypair + master key (once!)
+//   GoaSynthKeygen --machine-id              print this machine's id
+//   GoaSynthKeygen --gen <machineId> [note]  issue a serial for a buyer's machine
+//   GoaSynthKeygen --list                    list every issued serial
+//   GoaSynthKeygen --verify <serial>         cryptographically check a serial
+//   GoaSynthKeygen --master-info             show stored master digest
+//
+// Serial format (identical to the plugin's verifier):
+//   GOA1-<machineId, 20 hex>-<RSA/2048 signature of sha256(machineId), 512 hex>
+//
+// The private key and master key never leave this tool; the plugin embeds only
+// the public key and a salted SHA-256 of the master key.
+namespace
+{
+// One interactive console prompt. Accepts a fallback when the user just
+// presses Enter, and loops on an optional validator (with a retry hint).
+juce::String promptLine (const juce::String& question,
+                         const juce::String& fallback = {},
+                         bool (*validator) (const juce::String&) = nullptr,
+                         const char* retryHint = nullptr)
+{
+    for (;;)
+    {
+        std::cout << question;
+        if (fallback.isNotEmpty())
+            std::cout << " [Enter = " << fallback << "]";
+        std::cout << ": \n> ";
+
+        std::string line;
+        if (! std::getline (std::cin, line))
+        {
+            // stdin closed (piped input exhausted, Ctrl-Z/Ctrl-D): return the
+            // fallback instead of spinning the validator loop forever.
+            return fallback;
+        }
+
+        juce::String in { juce::CharPointer_UTF8 (line.c_str()) };
+        in = in.trim();
+
+        if (in.isEmpty() && fallback.isNotEmpty())
+            return fallback;
+
+        if (validator == nullptr || validator (in))
+            return in;
+
+        std::cout << retryHint << "\n";
+    }
+}
+
+//==============================================================================
+int cmdInit (const juce::String& presetMaster)
+{
+    if (keysFile().existsAsFile())
+    {
+        std::cout << "A keypair already exists at:\n  " << keysFile().getFullPathName()
+                  << "\nDelete it first if you really want to invalidate all existing serials.\n";
+        return 1;
+    }
+
+    std::cout << "Generating RSA-2048 keypair (this can take a few seconds)...\n";
+
+    // The plugin's public-key header lives in the build tree; the core writes it.
+    const auto init = createKeypair (
+        presetMaster,
+        juce::File::getCurrentWorkingDirectory().getChildFile ("Source/LicenseKeys.h"));
+
+    if (! init.ok)
+    {
+        std::cout << init.error << "\n";
+        return 1;
+    }
+
+    const juce::File keysHeader (juce::File::getCurrentWorkingDirectory().getChildFile ("Source/LicenseKeys.h"));
+
+    std::cout
+        << "\nKeypair written to:  " << keysFile().getFullPathName() << "\n"
+        << "Public key embedded: " << keysHeader.getFullPathName() << " (gitignored)\n"
+        << "\n====================================================================\n"
+        << "  YOUR MASTER KEY (activate any machine, shows only once):\n\n"
+        << "      " << init.masterKey << "\n"
+        << "\n  Store it in your password manager NOW, then delete this window.\n"
+        << "====================================================================\n"
+        << "\nNext: rebuild the plugin so it embeds the public key.\n"
+        << "Keep keys.txt + issued_serials.txt private!\n";
+    return 0;
+}
+
+//==============================================================================
+int cmdGen (const juce::String& idIn, const juce::String& note)
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    const juce::String id = normaliseMachineId (idIn);
+    if (! looksLikeMachineId (id))
+    {
+        std::cout << "That is not a valid 20-char machine id.\n"
+                  << "Ask the buyer to read the MACHINE ID shown on the plugin's\n"
+                  << "activation screen and send it to you.\n"
+                  << "Example: GoaSynthKeygen --gen 1A2B3C4D5E6F70819A2B \"John's studio PC\"\n";
+        return 1;
+    }
+
+    bool alreadyIssued = false;
+    const juce::String serial = recordIssued (keys, id, note, alreadyIssued);
+
+    std::cout << (alreadyIssued ? "Serial was already issued for this machine (ledger entry kept)."
+                                : "Serial issued and logged in " + issuedFile().getFullPathName()) << "\n\n"
+              << "Serial (send this to the buyer):\n\n  " << prettySerial (serial) << "\n"
+              << "\nIt activates ONLY on machine id " << id << ".\n"
+              << "If the buyer re-installs Windows or changes hardware, issue a fresh key.\n";
+    return 0;
+}
+
+//==============================================================================
+// --file <machineId> [note] [out.goalicense]: export a buyer-ready .goalicense
+// file. The serial is issued exactly as with --gen (same signature, same
+// ledger entry) but wrapped as a GOA-LICENSE-1 document the buyer can
+// double-click or IMPORT on the plugin's activation screen.
+// (The file template is written here, not shared with Source/License.cpp,
+// because the keygen must build even before LicenseKeys.h exists.)
+int cmdFile (const std::vector<juce::String>& args)
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    const juce::String id = normaliseMachineId (args[1]);
+    if (! looksLikeMachineId (id))
+    {
+        std::cout << "That is not a valid 20-char machine id.\n"
+                  << "Example: GoaSynthKeygen --file 1A2B3C4D5E6F70819A2B \"John's studio PC\"\n";
+        return 1;
+    }
+
+    // args[2..] is the note; a final token ending in .goalicense names the
+    // output file instead.
+    juce::String note;
+    for (int i = 2; i < (int) args.size(); ++i)
+    {
+        if (i > 2) note << " ";
+        note << args[(size_t) i];
+    }
+
+    juce::File outFile (juce::File::getCurrentWorkingDirectory()
+                            .getChildFile ("GoaSynth-" + id + ".goalicense"));
+
+    if (note.trim().endsWithIgnoreCase (".goalicense"))
+    {
+        const int sp = note.lastIndexOfChar (' ');
+        outFile = juce::File::getCurrentWorkingDirectory()
+                      .getChildFile (note.substring (sp + 1).trim());
+        note = (sp > 0 ? note.substring (0, sp) : juce::String()).trim();
+    }
+
+    // Same ledger handling as --gen (one line per distinct serial).
+    bool alreadyIssued = false;
+    const juce::String serial = recordIssued (keys, id, note, alreadyIssued);
+
+    // GOA-LICENSE-1 layout comes from the shared core (keep in sync with
+    // Source/License.cpp). The parser only needs the serial line; everything
+    // else is documentation for humans.
+    if (! writeLicenseFile (serial, id, note, outFile))
+    {
+        std::cout << "Could not write " << outFile.getFullPathName() << "\n";
+        return 1;
+    }
+
+    std::cout << "License file written:\n  " << outFile.getFullPathName() << "\n\n"
+              << "Serial inside (also logged in " << issuedFile().getFullPathName() << "):\n  "
+              << prettySerial (serial) << "\n\n"
+              << "Send this one file to the buyer - they double-click it (or press\n"
+              << "IMPORT on the activation screen) and GoaSynth activates.\n"
+              << "It activates ONLY on machine id " << id << ".\n";
+    return 0;
+}
+
+//==============================================================================
+// --genfile: same output as --file, but everything is asked interactively -
+// no command-line arguments to remember. Reuses cmdFile() for the actual
+// issuing so both paths stay identical.
+int cmdGenFile()
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    std::cout << "\nIssue a buyer-ready .goalicense file\n"
+              << "----------------------------------\n"
+              << "The buyer reads their 20-char MACHINE ID off the plugin's\n"
+              << "activation screen (COPY button) and sends it to you.\n\n";
+
+    const juce::String id = promptLine ("Buyer's MACHINE ID (20 hex chars)", {},
+                                        looksLikeMachineId,
+                                        "That is not a valid 20-char machine id (hex, no dashes).");
+
+    const juce::String note = promptLine ("Note, e.g. the buyer's name (optional)");
+
+    const juce::String defName = "GoaSynth-" + id + ".goalicense";
+    const juce::String outName = promptLine ("Output file", defName);
+
+    std::cout << "\n";
+    return cmdFile ({ "--file", id, note, outName });
+}
+
+//==============================================================================
+int cmdList()
+{
+    if (! issuedFile().existsAsFile())
+    {
+        std::cout << "No serials issued yet.\n";
+        return 0;
+    }
+
+    int n = 0;
+    for (const auto& line : juce::StringArray::fromLines (issuedFile().loadFileAsString()))
+    {
+        auto t = line.trim();
+        if (t.isEmpty()) continue;
+
+        // Line layout: serial<TAB>machineId<TAB>note
+        const auto c = juce::StringArray::fromTokens (t, "\t", "");
+        const juce::String serial  = c[0];
+        const juce::String machine = c.size() > 1 ? c[1] : juce::String ("?");
+        juce::String note;
+        for (int i = 2; i < c.size(); ++i)
+        {
+            if (i > 2) note << " ";
+            note << c[i];
+        }
+
+        std::cout << juce::String (++n).paddedLeft ('0', 3) << "  "
+                  << machine << "  "
+                  << (note.isEmpty() ? juce::String ("-") : note) << "\n      "
+                  << prettySerial (serial) << "\n";
+    }
+
+    const int revoked = revokedCount();
+
+    std::cout << "\n" << n << " active serial(s)";
+    if (revoked > 0)
+        std::cout << ", " << revoked << " revoked (" << revokedFile().getFileName() << ")";
+    std::cout << ".\n";
+    return 0;
+}
+
+//==============================================================================
+//==============================================================================
+// --unregister <serial>: forget a binding so a buyer can move the key to a
+// new computer (after a re-install, hardware change or resale). The serial
+// itself stays cryptographically valid for its ORIGINAL machine id only — a
+// transferred buyer needs a freshly issued serial, but the old one can no
+// longer be resurrected to dodge a "used elsewhere" block.
+int cmdUnregister (const juce::String& serialIn)
+{
+    const juce::String serial = serialIn.trim().toUpperCase();
+
+    juce::File f = issuedFile();
+    if (! f.existsAsFile())
+    {
+        std::cout << "No serials issued yet.\n";
+        return 1;
+    }
+
+    juce::StringArray kept;
+    int removedCount = 0;
+    int n = 0;
+
+    for (const auto& line : juce::StringArray::fromLines (f.loadFileAsString()))
+    {
+        const juce::String t = line.trim();
+        if (t.isEmpty())
+            continue;
+
+        ++n;
+        if (juce::StringArray::fromTokens (t, "\t", "")[0] == serial)
+        {
+            ++removedCount;   // duplicate ledger lines share one serial
+            continue;
+        }
+        kept.add (t);
+    }
+
+    if (removedCount == 0)
+    {
+        std::cout << "Serial not found in the issued list.\n";
+        return 1;
+    }
+
+    f.replaceWithText (kept.joinIntoString ("\n") + (kept.isEmpty() ? juce::String() : juce::String ("\n")));
+    std::cout << "Unregistered " << removedCount << " ledger line(s); " << kept.size()
+              << " serial(s) remain issued.\n"
+              << "Its machine binding is lifted; issue a fresh serial for the buyer's\n"
+              << "new MACHINE ID if they are moving the license.\n";
+    return 0;
+}
+
+//==============================================================================
+// --revoke <serial> [reason]: pull a serial out of the active ledger because the
+// order was refunded, and keep the reason on the record. Unlike --unregister
+// (a transfer, where erasing the line is the point) this leaves history behind.
+int cmdRevoke (const juce::String& serialIn, const juce::String& reason)
+{
+    const auto r = revokeSerial (serialIn, reason);
+
+    if (! r.ok)
+    {
+        std::cout << r.error << "\n";
+        return 1;
+    }
+
+    if (r.alreadyRevoked)
+    {
+        std::cout << "That serial is already revoked";
+        if (r.reason.isNotEmpty())
+        {
+            std::cout << " (" << r.reason;
+            if (r.revokedAt.isNotEmpty())
+                std::cout << ", " << r.revokedAt;
+            std::cout << ")";
+        }
+        std::cout << " - nothing changed.\n";
+        return 0;
+    }
+
+    std::cout << "Revoked " << prettySerial (r.serial) << "\n\n"
+              << "  machine id : " << (r.machineId.isEmpty() ? juce::String ("?") : r.machineId) << "\n"
+              << "  reason     : " << r.reason << "\n"
+              << "  ledger     : " << r.ledgerLinesRemoved << " line(s) removed from "
+              << issuedFile().getFileName() << "\n"
+              << "  recorded   : " << revokedFile().getFullPathName() << "\n\n"
+              << "The buyer's installed copy keeps working: activation is offline, so nothing\n"
+              << "can switch a serial off remotely. What this changes is that the serial no\n"
+              << "longer counts as a live licence, and that the refund is on the record.\n"
+              << "If the same machine buys again - or a corrected export shows the order as\n"
+              << "paid - the serial is issued again; the signature is deterministic, so the\n"
+              << "buyer gets the identical one back, and GoaSynthFulfil records a restore so\n"
+              << "--list stops counting it as revoked. The refund itself stays in this log.\n";
+    return 0;
+}
+
+//==============================================================================
+int cmdVerify (const juce::String& serial)
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    juce::String id, why;
+    if (verifySerial (serial, keys.pub, id, why))
+    {
+        std::cout << "VALID — signed for machine id " << id << "\n";
+
+        juce::String revId, revReason, revWhen;
+
+        if (revokedEntry (serial, revId, revReason, revWhen))
+            std::cout << "  REVOKED on " << revWhen
+                      << (revReason.isEmpty() ? juce::String() : " - " + revReason) << "\n"
+                      << "  (the signature is still valid and an activated copy keeps working;\n"
+                         "   this serial is simply no longer a live licence)\n";
+        else if (wasRevoked (serial, revReason, revWhen))
+            std::cout << "  was revoked on " << revWhen
+                      << (revReason.isEmpty() ? juce::String() : " - " + revReason)
+                      << ", later restored (" << revocationState (serial).at << ")\n"
+                      << "  (a live licence again: the refund stays on the record, the sale does not)\n";
+
+        return 0;
+    }
+
+    std::cout << "INVALID: " << why << "\n";
+    return 1;
+}
+
+//==============================================================================
+int cmdMasterInfo()
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    std::cout << "Master digest embedded in the plugin:\n  " << keys.masterDigest.toUpperCase() << "\n"
+              << "(The plaintext master key is never stored — only you keep it.)\n";
+    return 0;
+}
+
+//==============================================================================
+void printUsage()
+{
+    std::cout
+        << "GoaSynth key generator\n"
+        << "======================\n"
+        << "Double-click (no arguments) opens an interactive menu.\n"
+        << "Command line:\n"
+        << "  GoaSynthKeygen --init [masterKey]         create keypair + master key (once)\n"
+        << "  GoaSynthKeygen --machine-id               print this machine's id\n"
+        << "  GoaSynthKeygen --gen <machineId> [note]   issue a serial for a buyer's machine\n"
+        << "  GoaSynthKeygen --file <machineId> [note] [out.goalicense]\n"
+        << "                                            issue a serial AND write a buyer-ready\n"
+        << "                                            .goalicense file the buyer double-clicks\n"
+        << "  GoaSynthKeygen --genfile                 issue a .goalicense file, asked\n"
+        << "                                            step by step (no arguments needed)\n"
+        << "  GoaSynthKeygen --list                     list every issued serial\n"
+        << "  GoaSynthKeygen --verify <serial>          check a serial's signature\n"
+        << "  GoaSynthKeygen --master-info              show stored master digest\n"
+        << "  GoaSynthKeygen --unregister <serial>      lift a machine binding (transfers)\n"
+        << "  GoaSynthKeygen --revoke <serial> [reason] pull a serial out of the active\n"
+        << "                                            ledger (refunds) and record why\n\n"
+        << "Master key check: type the master key into the plugin's serial box on\n"
+        << "any machine to activate it (use sparingly!).\n\n"        << "Flow: buyer sends you their MACHINE ID (shown on the plugin's activation\n"
+        << "screen)  ->  you run --gen  ->  you send the serial back.\n"
+        << "One serial = one machine. Second machine = blocked by the plugin.\n";
+}
+
+//==============================================================================
+// Double-click launch (no arguments): an interactive menu instead of a usage
+// dump that vanishes the instant the console window closes.
+int cmdMenu()
+{
+    for (;;)
+    {
+        const bool haveKeys = loadKeys().ok;
+
+        std::cout << "\nGoaSynth key generator\n"
+                  << "======================\n"
+                  << (haveKeys ? "Keypair: ready\n"
+                               : "Keypair: NOT CREATED YET — choose option 1 first\n")
+                  << "\n"
+                  << "  1) " << (haveKeys ? "Show master key info"
+                                         : "Create keypair + master key (once)") << "\n"
+                  << "  2) Issue a buyer-ready .goalicense file (guided)\n"
+                  << "  3) Issue a bare serial (no file)\n"
+                  << "  4) List every serial issued so far\n"
+                  << "  5) Verify a serial\n"
+                  << "  6) Unregister a serial (free it for a new machine)\n"
+                  << "  7) Revoke a serial (refund - keeps a revocation record)\n"
+                  << "  8) Show this machine's id\n"
+                  << "  0) Exit\n\n";
+
+        const juce::String choice = promptLine ("Choose an option");
+        std::cout << "\n";
+
+        if (choice.isEmpty() || choice == "0" || choice.equalsIgnoreCase ("q")
+            || choice.equalsIgnoreCase ("exit"))
+            return 0;
+
+        if (choice == "1")
+        {
+            if (haveKeys)
+            {
+                cmdMasterInfo();
+            }
+            else
+            {
+                // The master key is baked into the plugin build — a silently
+                // generated random one would NOT match it. Ask, don't guess.
+                std::cout << "The master key must MATCH what was embedded in the\n"
+                          << "plugin build (the one you ran --init with originally).\n";
+                const juce::String mk = promptLine (
+                    "Master key (empty = generate a random one instead)");
+                cmdInit (mk);
+            }
+        }
+        else if (choice == "2")
+        {
+            cmdGenFile();
+        }
+        else if (choice == "3")
+        {
+            const juce::String id = promptLine ("Buyer's MACHINE ID (20 hex chars)", {},
+                                                looksLikeMachineId,
+                                                "That is not a valid 20-char machine id (hex, no dashes).");
+            const juce::String note = promptLine ("Note, e.g. the buyer's name (optional)");
+            cmdGen (id, note);
+        }
+        else if (choice == "4")
+        {
+            cmdList();
+        }
+        else if (choice == "5")
+        {
+            const juce::String serial = promptLine ("Serial to verify");
+            cmdVerify (serial);
+        }
+        else if (choice == "6")
+        {
+            const juce::String serial = promptLine ("Serial to unregister");
+            cmdUnregister (serial);
+        }
+        else if (choice == "7")
+        {
+            const juce::String serial = promptLine ("Serial to revoke");
+            const juce::String reason = promptLine ("Reason", "refund");
+            cmdRevoke (serial, reason);
+        }
+        else if (choice == "8")
+        {
+            std::cout << thisMachineId() << "\n";
+        }
+        else
+        {
+            std::cout << "Unknown option: " << choice << "\n";
+        }
+
+        // Keep the result on screen until the user has read it.
+        std::cout << "\nPress Enter for the menu...";
+        std::string pauseLine;
+        std::getline (std::cin, pauseLine);
+    }
+}
+} // namespace
+
+namespace keygen
+{
+int run (int argc, char* argv[])
+{
+    std::vector<juce::String> args;
+    for (int i = 1; i < argc; ++i)
+        args.push_back (argv[i]);
+
+    if (args.empty())
+        return cmdMenu();   // double-click launch: interactive menu
+
+    const juce::String cmd = args[0];
+
+    if (cmd == "--init")       return cmdInit (args.size() > 1 ? args[1] : juce::String());
+    if (cmd == "--machine-id") { std::cout << thisMachineId() << "\n"; return 0; }
+    if (cmd == "--gen")
+    {
+        if (args.size() < 2) { printUsage(); return 1; }
+        return cmdGen (args[1], args.size() > 2 ? args[2] : juce::String());
+    }
+    if (cmd == "--file")
+    {
+        if (args.size() < 2) { printUsage(); return 1; }
+        return cmdFile (args);
+    }
+    if (cmd == "--genfile")    return cmdGenFile();
+    if (cmd == "--list")       return cmdList();
+    if (cmd == "--verify")     return args.size() > 1 ? cmdVerify (args[1]) : (printUsage(), 1);
+    if (cmd == "--master-info") return cmdMasterInfo();
+    if (cmd == "--unregister")  return args.size() > 1 ? cmdUnregister (args[1]) : (printUsage(), 1);
+    if (cmd == "--revoke")
+    {
+        if (args.size() < 2) { printUsage(); return 1; }
+
+        juce::String reason;
+        for (int i = 2; i < (int) args.size(); ++i)
+        {
+            if (i > 2) reason << " ";
+            reason << args[(size_t) i];
+        }
+        return cmdRevoke (args[1], reason);
+    }
+
+    printUsage();
+    return cmd == "--help" ? 0 : 1;
+}
+}
+
+//==============================================================================
+int main (int argc, char* argv[])
+{
+    return keygen::run (argc, argv);
+}

@@ -1,0 +1,219 @@
+// Tests for the website/plugin drift guard.
+//
+// Same reasoning as the publish preflight's self-test: a checker that has never
+// been shown to fail is a checker you cannot trust, and this one's failure mode
+// is a silent pass - the expensive direction. So this builds a throwaway copy of
+// the real docs/ tree and Source/ folder, injects each kind of drift the guard
+// claims to catch, and asserts it notices; then asserts the untouched copy is
+// clean.
+#define GOA_DOCS_CHECK_NO_MAIN
+#include "DocsCheck.cpp"
+
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <vector>
+
+namespace
+{
+int fails = 0;
+
+void expect (bool ok, const std::string& what)
+{
+    if (! ok)
+    {
+        std::printf ("DOCS CHECK: %s\n", what.c_str());
+        ++fails;
+    }
+}
+
+std::string readWhole (const fs::path& p)
+{
+    std::ifstream in (p, std::ios::binary);
+    return std::string (std::istreambuf_iterator<char> (in), std::istreambuf_iterator<char>());
+}
+
+void writeWhole (const fs::path& p, const std::string& text)
+{
+    std::ofstream out (p, std::ios::binary | std::ios::trunc);
+    out << text;
+}
+
+// Replace every occurrence; returns how many were swapped so the test can fail
+// loudly if the text it injects into has moved.
+int replaceAll (const fs::path& p, const std::string& from, const std::string& to)
+{
+    std::string text = readWhole (p);
+    int n = 0;
+
+    for (std::size_t at = text.find (from); at != std::string::npos; at = text.find (from, at + to.size()))
+    {
+        text.replace (at, from.size(), to);
+        ++n;
+    }
+
+    writeWhole (p, text);
+    return n;
+}
+
+bool anyProblemContains (const std::vector<std::string>& problems, const std::string& needle)
+{
+    for (const auto& p : problems)
+        if (p.find (needle) != std::string::npos)
+            return true;
+
+    return false;
+}
+
+void report (const char* what, const std::vector<std::string>& problems, bool expectFinding)
+{
+    if (expectFinding)
+    {
+        expect (! problems.empty(), std::string (what) + ": the guard found nothing to complain about");
+
+        if (! problems.empty())
+            std::printf ("  ok - %s: %s\n", what, problems.front().c_str());
+    }
+    else
+    {
+        for (const auto& p : problems)
+            std::printf ("  unexpected: %s\n", p.c_str());
+
+        expect (problems.empty(), std::string (what) + ": the guard failed a clean tree");
+    }
+}
+} // namespace
+
+//==============================================================================
+int main()
+{
+    const fs::path realDocs = fs::absolute (fs::path (GOA_DOCS_DIR));
+    const fs::path realRepo = fs::absolute (fs::path (GOA_REPO_ROOT));
+
+    const fs::path root = fs::temp_directory_path() / "goasynth_docscheck";
+    const fs::path docs = root / "docs";
+    const fs::path src  = root / "Source";
+
+    // Returns false when the scratch tree could not be built, so every caller
+    // has to stop rather than scan a half-copied tree and blame the site for it.
+    auto buildTree = [&]() -> bool
+    {
+        std::error_code ec;
+        fs::remove_all (root, ec);
+        fs::create_directories (root, ec);
+        fs::copy (realDocs, docs, fs::copy_options::recursive, ec);
+        fs::copy (realRepo / "Source", src, fs::copy_options::recursive, ec);
+
+        if (ec || ! fs::exists (docs / "index.html") || ! fs::exists (src / "Presets.h"))
+        {
+            std::printf ("DOCS CHECK: could not build the scratch tree (%s)\n", ec.message().c_str());
+            return false;
+        }
+
+        return true;
+    };
+
+    // ---- the untouched tree must pass -------------------------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const auto r = scan (docs, root);
+
+        expect (! r.fatal, "clean tree: the guard could not run at all");
+        expect (r.checks == 5, "clean tree: expected 5 checks to run, got " + std::to_string (r.checks));
+        report ("clean docs/ + Source/", r.problems, false);
+    }
+
+    // ---- 1. the price drifts out of step with the config -------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "app.js", std::string (euro) + "15", std::string (euro) + "25");
+        expect (n == 1, "price drift: expected exactly one CONFIG.price to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "would quote two different prices"),
+                "price drift: a page quoting a different price was not reported");
+        expect (anyProblemContains (r.problems, "eula.html") || anyProblemContains (r.problems, "terms.html"),
+                "price drift: the legal pages were not scanned for the price");
+        report ("price drift", r.problems, true);
+    }
+
+    // ---- 2. a preset family changes count in the plugin --------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (src / "Presets.h", "// ACID (15)", "// ACID (14)");
+        expect (n == 1, "preset drift: expected one ACID header, found " + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "ACID"),
+                "preset drift: a family count the site no longer matches was not reported");
+        expect (anyProblemContains (r.problems, "headers total"),
+                "preset drift: the header/array disagreement was not reported");
+        report ("preset drift", r.problems, true);
+    }
+
+    // ---- 3. the default cloud model moves on (the 2.0 Flash story) ---------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html", "3.6", "2.0");
+        expect (n > 0, "model drift: expected the page to name the current Gemini default");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "3.6"),
+                "model drift: a page naming a retired default model was not reported");
+        report ("model drift", r.problems, true);
+    }
+
+    // ---- 4. the plugin starts writing a file the policy never mentions -----
+    if (! buildTree())
+        return 2;
+
+    {
+        std::ofstream out (src / "License.cpp", std::ios::binary | std::ios::app);
+        out << "\n// injected by DocsCheckTest: a new local file\n"
+               "static juce::File scratchCache() { return licenseDir().getChildFile (\"secret_cache.bin\"); }\n";
+        out.close();
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "secret_cache.bin"),
+                "storage drift: a local file missing from the privacy policy was not reported");
+        report ("storage drift", r.problems, true);
+    }
+
+    // ---- 5. the trial length changes --------------------------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (src / "License.h", "trialHours = 24", "trialHours = 48");
+        expect (n == 1, "trial drift: expected one trialHours constant, found " + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "48 hours"),
+                "trial drift: a page still promising the old trial length was not reported");
+        report ("trial drift", r.problems, true);
+    }
+
+    // ---- and clean again, so a sticky failure cannot pass for a fresh one --
+    if (! buildTree())
+        return 2;
+
+    {
+        const auto r = scan (docs, root);
+        report ("clean tree after the injections", r.problems, false);
+    }
+
+    std::error_code ec;
+    fs::remove_all (root, ec);
+
+    std::printf (fails == 0 ? "DOCS CHECK OK\n" : "DOCS CHECK FAILURES: %d\n", fails);
+    return fails == 0 ? 0 : 1;
+}

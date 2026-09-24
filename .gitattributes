@@ -1,0 +1,14 @@
+# Text files are stored and checked out as LF on every OS.
+#
+# This machine's git has core.autocrlf=true, which would hand a fresh clone
+# CRLF working copies while this tree is LF. The checks in tests/ read files
+# line by line (PublishCheck's allowlist and secret scan, DocsCheck's claim
+# extraction), so a silent CRLF checkout would change what they see. Pinning
+# LF here makes every clone byte-identical to the tree these were written
+# against. MSVC handles LF throughout, so nothing is lost on Windows.
+* text=auto eol=lf
+
+# Binary assets: never normalised, never diffed as text.
+*.png binary
+*.exe binary
+*.dll binary

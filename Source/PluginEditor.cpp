@@ -485,11 +485,63 @@ void ToggleCtl::paintOverChildren (juce::Graphics& g)
 }
 
 //==============================================================================
+// The mini-switch skin: a pill track with a sliding thumb, drawn inside the
+// rectangle handed out by ToggleCtl::resized(). Colours come straight from the
+// palette globals so setTheme() + retint() re-skin it with no extra work.
+void SwitchLAF::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b,
+                                  bool highlighted, bool)
+{
+    const auto r = b.getLocalBounds().toFloat();
+    const bool on = b.getToggleState();
+
+    auto track = bgInset;
+    auto borderC = border;
+    if (highlighted)
+    {
+        track = bgInset.brighter (0.05f);
+        borderC = border.brighter (0.25f);
+    }
+
+    g.setColour (track);
+    g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+    g.setColour (borderC);
+    g.drawRoundedRectangle (r.reduced (0.5f), r.getHeight() * 0.5f, 1.0f);
+
+    // Caption of the state the thumb is NOT covering.
+    const juce::String offText = b.getToggleState()
+        ? juce::String() : b.getButtonText();
+    if (offText.isNotEmpty())
+    {
+        g.setColour (textDim);
+        g.setFont (juce::Font (juce::FontOptions (7.0f, juce::Font::bold)));
+        g.drawText (offText, r, juce::Justification::centred);
+    }
+
+    // Thumb: covers the active side; tick drawn only when engaged.
+    const auto thumb = juce::Rectangle<float> (r.getHeight() * 0.64f, r.getHeight())
+                           .translated (on ? r.getRight() - r.getHeight() * 0.82f
+                                           : r.getX() + r.getHeight() * 0.18f,
+                                        r.getY());
+    g.setColour (on ? accent : bgPanel.brighter (0.08f));
+    g.fillRoundedRectangle (thumb, thumb.getHeight() * 0.5f);
+    if (on)
+    {
+        g.setColour (bgDark);
+        const float inset = thumb.getHeight() * 0.30f;
+        const float cy = thumb.getCentreY();
+        g.drawLine (thumb.getX() + inset, cy, thumb.getRight() - inset, cy, 1.4f);
+        g.drawLine (thumb.getCentreX(), thumb.getY() + inset,
+                    thumb.getCentreX(), thumb.getBottom() - inset, 1.4f);
+    }
+}
+
 ToggleCtl::ToggleCtl (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId,
                       const juce::String& text)
     : paramId (paramId), modSource (&apvts)
 {
     btn.setButtonText ({});
+    btn.setLookAndFeel (&laf);           // mini-switch strip skin
+    btn.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     addAndMakeVisible (btn);
 
     // Base tooltip: the parameter's own human name (overridden by MOD dots).
@@ -506,6 +558,11 @@ ToggleCtl::ToggleCtl (juce::AudioProcessorValueTreeState& apvts, const juce::Str
     retint();
 }
 
+ToggleCtl::~ToggleCtl()
+{
+    btn.setLookAndFeel (nullptr);
+}
+
 void ToggleCtl::retint()
 {
     btn.setColour (juce::ToggleButton::textColourId, textDim);
@@ -520,7 +577,24 @@ void ToggleCtl::resized()
 {
     auto b = getLocalBounds();
     label.setBounds (b.removeFromTop (12));
-    btn.setBounds (b.withSizeKeepingCentre (16, 16));
+
+    // Roomy knob cells get a centred full-width mini-switch strip; short
+    // cells (LOCK / QUALITY in the bottom bar) get a compact full-width
+    // strip with the OFF caption riding on the strip itself.
+    auto strip = b.withTrimmedTop (4).withTrimmedBottom (6);
+    if (strip.getHeight() >= 10)
+    {
+        const int h = juce::jmin (18, strip.getHeight());
+        btn.setBounds (juce::Rectangle<int> (strip.getX(), strip.getCentreY() - h / 2,
+                                             strip.getWidth(), h));
+        btn.setButtonText (strip.getWidth() >= 46 ? "OFF" : juce::String());
+    }
+    else
+    {
+        const int h = juce::jlimit (6, 18, b.getHeight());
+        btn.setBounds (b.withSizeKeepingCentre (b.getWidth(), h));
+        btn.setButtonText (b.getWidth() >= 34 ? "OFF" : juce::String());
+    }
 }
 
 //==============================================================================

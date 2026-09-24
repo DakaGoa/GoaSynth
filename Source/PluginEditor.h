@@ -166,10 +166,22 @@ struct Ctl : juce::Component, public Flashable
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> cAtt;
 };
 
+// Mini hardware-switch skin for ToggleCtl: pill track, sliding thumb with a
+// tick when engaged, and an ON/OFF caption beside the strip. Owned per-button
+// (not on the shared GoaLAF) so ordinary checkboxes — e.g. the save dialog's
+// SHARED option — keep the stock tickbox look.
+struct SwitchLAF : juce::LookAndFeel_V4
+{
+    void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
+                           bool shouldDrawButtonAsHighlighted,
+                           bool shouldDrawButtonAsDown) override;
+};
+
 struct ToggleCtl : juce::Component, public Flashable
 {
     ToggleCtl (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId,
                const juce::String& text);
+    ~ToggleCtl() override;
 
     void resized() override;
     void paint (juce::Graphics&) override;
@@ -178,6 +190,7 @@ struct ToggleCtl : juce::Component, public Flashable
     void setTip (const juce::String&);   // dots' hover text -> child widgets
 
     juce::ToggleButton btn;
+    SwitchLAF laf;                       // the strip skin (P.RAND etc.)
     juce::Label label;
     const juce::String paramId;          // for the MOD matrix pick-a-destination mode
     juce::String baseTip;                // parameter name; dots override while active

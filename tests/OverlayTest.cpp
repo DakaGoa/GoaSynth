@@ -562,6 +562,57 @@ int main()
         }
     }
 
+    // The grid toggles (P.RAND etc.) render as mini-switch strips, not stock
+    // tickboxes. Pixel-verified: the strip's thumb is accent-coloured only when
+    // engaged, so flipping the control must swing the accent ink inside the
+    // control's bounds. Two flips leave the original state behind. Runs after
+    // the MOD section: the overlay's dimmed backdrop would otherwise darken
+    // every pixel under the snapshot.
+    if (auto* prand = dynamic_cast<goaui::ToggleCtl*> (
+            findCtlByParam (ed.get(), param::osc1PRand)); prand != nullptr)
+    {
+        // The pick tests leave the MOD overlay up; close it so the strip
+        // isn't shot through its dimmed backdrop.
+        if (auto* mo = findDescendant<goaui::ModOverlay> (ed.get());
+            mo != nullptr && mo->isVisible())
+            if (auto* mb = findButton (ed.get(), "MOD"))
+                press (*mb);
+
+        auto countAccent = [&ed] (juce::Component& c)
+        {
+            // Snapshot regions are in EDITOR coordinates; convert.
+            const auto area = ed->getLocalArea (&c, c.getLocalBounds());
+            const juce::Image shot = ed->createComponentSnapshot (
+                area, false, 1.0f, juce::SoftwareImageType());
+            const auto want = goaui::accent;
+            int hits = 0;
+            for (int y = 0; y < shot.getHeight(); ++y)
+                for (int x = 0; x < shot.getWidth(); ++x)
+                {
+                    const auto px = shot.getPixelAt (x, y);
+                    const int dr = (int) px.getRed()   - (int) want.getRed();
+                    const int dg = (int) px.getGreen() - (int) want.getGreen();
+                    const int db = (int) px.getBlue()  - (int) want.getBlue();
+                    if (dr * dr + dg * dg + db * db < 100 * 100)
+                        ++hits;
+                }
+            return hits;
+        };
+
+        const int first = countAccent (*prand);
+        // Direct state flip: triggerClick() needs a dispatch loop, which this
+        // harness deliberately never runs.
+        prand->btn.setToggleState (! prand->btn.getToggleState(),
+                                   juce::sendNotification);
+        const int second = countAccent (*prand);
+        prand->btn.setToggleState (! prand->btn.getToggleState(),
+                                   juce::sendNotification);   // restore
+
+        EXPECT (juce::jmax (first, second) > 20
+                    && juce::jmax (first, second) > juce::jmin (first, second) * 2,
+                "toggle strips render as mini-switches (thumb ink flips with state)");
+    }
+
     // ---- preset browser ----------------------------------------------------
     {
         auto* browseBtn = findButton (ed.get(), "BROWSE");

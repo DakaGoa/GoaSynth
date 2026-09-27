@@ -334,7 +334,7 @@ juce::String endpointFor (AiCloudGen::Engine engine, const juce::String& key,
     {
         url = "https://generativelanguage.googleapis.com/v1beta/models/"
               + modelIdForLabel (engine, modelOverride) + ":generateContent";
-        auth = "x-goog-api-key: " + cleanKey;
+        auth = "x-goog-api-key: *** " + cleanKey;
         body = juce::JSON::toString (buildGeminiBody ("ping", 0.0));
     }
     else
@@ -733,7 +733,7 @@ AiCloudGen::Response AiCloudGen::generate (const juce::String& brief, Engine eng
     {
         url = "https://generativelanguage.googleapis.com/v1beta/models/"
               + model + ":generateContent";
-        auth = "x-goog-api-key: " + key;
+        auth = "x-goog-api-key: *** " + key;
         body = juce::JSON::toString (buildGeminiBody (clean, temperature));
     }
     else

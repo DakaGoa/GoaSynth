@@ -41,6 +41,7 @@
 #include "PluginEditor.h"
 #include "License.h"
 #include "Parameters.h"
+#include "TestMasterKey.h"   // throwaway master key for the suite (see the header)
 
 // ---- tiny assertion helpers -------------------------------------------------
 
@@ -51,12 +52,12 @@ static int fails = 0;
     {                                                                         \
         if (! (cond))                                                         \
         {                                                                     \
-            std::printf ("FAIL: %s\n", msg);                                  \
+            std::printf ("FAIL: %s\n", juce::String (msg).toRawUTF8());      \
             ++fails;                                                          \
         }                                                                     \
         else                                                                  \
         {                                                                     \
-            std::printf ("ok: %s\n", msg);                                    \
+            std::printf ("ok: %s\n", juce::String (msg).toRawUTF8());        \
         }                                                                     \
     } while (false)
 
@@ -213,7 +214,7 @@ int main()
     goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
     {
         juce::String err;
-        if (! goa::License::activate ("GoaSynthTestMaster!23", err))
+        if (! goa::License::activate (GOA_TEST_MASTER_KEY, err))
         {
             std::printf ("FAIL: license sandbox activation failed: %s\n",
                          (const char*) err.toRawUTF8());
@@ -465,18 +466,20 @@ int main()
             {
                 auto& m = proc.synth.mod;
                 m.slots[0] = { 5, 1, 1.0f };   // VELOCITY -> CUTOFF, amount 1
-                m.computeAll (mvTest, 0, 0, 0, 0, 1.0f, 0);
+                goa::ModMatrix::LagState lagTest;
+                m.computeAll (mvTest, 0, 0, 0, 0, 1.0f, 0, 0.0f, 0.0f, 0.0f, 0.0f,
+                              lagTest, 48000.0f, 1.0 / 128.0);
                 EXPECT (std::abs (mvTest.oct - 4.0f) < 1.0e-4f,
                         "matrix reaches the engine (velocity->cutoff = 4 oct)");
 
                 m.slots[1] = { 1, 15, 0.5f };  // LFO 1 -> DELAY FB, amount 0.5
-                m.publishGlobal (1.0f, 0, 0, 0, 0, 0);   // LFO 1 at full swing
+                m.publishGlobal (1.0f, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
                 EXPECT (std::abs (m.globalFx.delayFb.load() - 0.3f) < 1.0e-4f,
                         "global FX destination publishes (LFO1->delayFb = 0.3)");
 
                 m.slots[0] = { 0, 0, 0.0f };   // leave the slots muted
                 m.slots[1] = { 0, 0, 0.0f };
-                m.publishGlobal (0, 0, 0, 0, 0, 0);
+                m.publishGlobal (0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
             }
 
             // Mod dots: with a slot targeting cutoff, the cutoff knob's dot

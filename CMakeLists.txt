@@ -64,11 +64,12 @@ target_link_libraries(RoundTripTest PRIVATE
     juce::juce_dsp
     juce::juce_cryptography
 )
-target_include_directories(RoundTripTest PRIVATE Source)
+target_include_directories(RoundTripTest PRIVATE Source tests)
 target_compile_definitions(RoundTripTest PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=0
+    GOA_TEST_BUILD=1   # use tests/TestMasterKey.h - never the seller's real key
 )
 target_sources(RoundTripTest PRIVATE
     Source/License.cpp
@@ -80,6 +81,17 @@ target_sources(RoundTripTest PRIVATE
     Source/AiCloudGen.cpp
     Source/LearnedPatches.h
 )
+if (GOA_ASAN)
+    target_compile_options(RoundTripTest PRIVATE /fsanitize=address)
+    target_link_options(RoundTripTest PRIVATE /INCREMENTAL:NO)
+    target_compile_definitions(RoundTripTest PRIVATE GOA_ASAN=1)
+endif()
+# Windows gives the main thread a 1 MB stack; the factory-preset table's
+# static initializer (135 presets, built from a huge braced init-list) uses a
+# frame large enough that calling it late in main overflowed the stack once
+# the phase-18 render buffers joined main's scope. A 16 MB main stack removes
+# the whole class of problem for every phase.
+target_link_options(RoundTripTest PRIVATE "/STACK:16777216")
 add_test(NAME RoundTripTest COMMAND RoundTripTest)
 
 # Overlay smoke test: builds the real editor offscreen and drives the header
@@ -94,11 +106,12 @@ target_link_libraries(OverlayTest PRIVATE
     juce::juce_dsp
     juce::juce_cryptography
 )
-target_include_directories(OverlayTest PRIVATE Source)
+target_include_directories(OverlayTest PRIVATE Source tests)
 target_compile_definitions(OverlayTest PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=0
+    GOA_TEST_BUILD=1   # use tests/TestMasterKey.h - never the seller's real key
     GOASYNTH_DOCS_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/docs/assets"
 )
 target_sources(OverlayTest PRIVATE

@@ -16,6 +16,7 @@
 #include "AiPatchGen.h"
 #include "Tuning.h"
 #include "Presets.h"
+#include "TestMasterKey.h"   // throwaway master key for the suite (see the header)
 
 // A valid serial for this dev machine, issued by the keygen during --init
 // self-tests. Uses a raw literal so MSVC's 4100-analyser rules stay quiet.
@@ -41,6 +42,10 @@ int main()
     // Progress markers: prints the block about to run, so a hard crash (this
     // test has died with 0xc0000409 intermittently) names its own location.
     auto phase = [] (const char* what) { std::printf ("[phase] %s\n", what); };
+
+    // The linker grants this test a 16 MB main stack (see CMakeLists.txt): the
+    // factory-preset table's static initializer and the phase render buffers
+    // together overflowed the default 1 MB Windows main-thread stack.
 
     // ---- license sandbox: activate once up front so every processor below
     // renders; the dedicated licensing block re-tests all paths explicitly.
@@ -71,12 +76,12 @@ int main()
     goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
     {
         juce::String err;
-        if (! goa::License::activate ("GoaSynthTestMaster!23", err))
+        if (! goa::License::activate (GOA_TEST_MASTER_KEY, err))
         {
             std::printf ("license: master activation failed: %s\n", (const char*) err.toRawUTF8());
             ++fails;
         }
-        if (goa::License::storedSerial().contains ("GoaSynthTestMaster!23"))
+        if (goa::License::storedSerial().contains (GOA_TEST_MASTER_KEY))
             std::printf ("license: master key leaked to disk\n"), ++fails;
     }
 
@@ -1101,6 +1106,7 @@ int main()
     }
 
     phase ("theme engine");
+
     // ---- theme engine: switching rewrites the palette, state rides along ----
     {
         if (goaui::activeTheme != goaui::themeUv)
@@ -1187,7 +1193,7 @@ int main()
         goa::License::deactivate();
         goa::License::setTestMachineId ("ABCD0123456789EFABCD");
         juce::String err4;
-        if (! goa::License::activate ("GoaSynthTestMaster!23", err4))
+        if (! goa::License::activate (GOA_TEST_MASTER_KEY, err4))
         {
             std::printf ("license: master key refused: %s\n", (const char*) err4.toRawUTF8());
             ++fails;
@@ -1284,7 +1290,7 @@ int main()
         }
 
         // A real license supersedes the trial readout entirely.
-        goa::License::activate ("GoaSynthTestMaster!23", errF);
+        goa::License::activate (GOA_TEST_MASTER_KEY, errF);
         if (goa::License::trialTimeLeft() != "active")
             std::printf ("license: trial readout not 'active' when licensed\n"), ++fails;
         goa::License::deactivate();
@@ -1293,7 +1299,7 @@ int main()
         // 9) Stuck-note rescue: a UI note-on that never sees its note-off
         //    (editor window closed mid-note, swallowed mouse-up) must still
         //    be silenced by the queued note-off rescue.
-        goa::License::activate ("GoaSynthTestMaster!23", errF);
+        goa::License::activate (GOA_TEST_MASTER_KEY, errF);
         {
             GoaSynthAudioProcessor r;
             r.prepareToPlay (48000.0, 512);
@@ -1661,7 +1667,7 @@ int main()
     {
         juce::String probeErr;
         goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
-        goa::License::activate ("GoaSynthTestMaster!23", probeErr);   // before construction:
+        goa::License::activate (GOA_TEST_MASTER_KEY, probeErr);   // before construction:
         GoaSynthAudioProcessor probe;                      // ctor snapshots license
         probe.prepareToPlay (48000.0, 512);
 
@@ -1809,10 +1815,307 @@ int main()
         setF (param::masterGain, -6.0f);
     }
 
+    phase ("18) macros / curve-lag / bank B / chord / shimmer & duck");
+    {
+        GoaSynthAudioProcessor r;
+        r.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buf (2, 512);
+
+        auto setF = [&r] (const char* id, float v)
+        { if (auto* p = r.apvts.getRawParameterValue (id)) p->store (v); };
+        auto setP = [&r] (const char* id, float v)
+        {
+            if (auto* p = r.apvts.getParameter (id))
+                p->setValueNotifyingHost (p->convertTo0to1 (v));
+        };
+
+        // Voice accounting for the note-off symmetry checks below: a note-off
+        // that addresses the wrong note leaves the voice sounding forever.
+        auto activeVoices = [&r]
+        {
+            int n = 0;
+            for (int i = 0; i < r.synth.getNumVoices(); ++i)
+                if (r.synth.getVoice (i)->isVoiceActive())
+                    ++n;
+            return n;
+        };
+
+        // Runs the midi events, then keeps rendering so any release tail has
+        // finished before the next voice count. JUCE's Synthesiser::noteOn stops
+        // a same-note voice with a tail, so a replaced voice stays active for a
+        // few blocks - counting too early would read it as a leak.
+        auto render = [&r, &buf] (juce::MidiBuffer& m, int blocks)
+        {
+            for (int i = 0; i < blocks; ++i)
+            {
+                buf.clear();
+                r.processBlock (buf, m);
+                m.clear();
+            }
+        };
+
+        auto voicesPlaying = [&r] (int note)
+        {
+            int n = 0;
+            for (int i = 0; i < r.synth.getNumVoices(); ++i)
+                if (r.synth.getVoice (i)->isVoiceActive()
+                      && r.synth.getVoice (i)->getCurrentlyPlayingNote() == note)
+                    ++n;
+            return n;
+        };
+
+        // MACRO A drives the matrix: velocity->cutoff amounts must move the
+        // render when the macro knob moves (the same path MIDI CC 14 feeds).
+        setF (param::modSrc (0).toRawUTF8(), 9.0f);    // MACRO A
+        setF (param::modDst (0).toRawUTF8(), 1.0f);    // CUTOFF
+        setF (param::modAmt (0).toRawUTF8(), 1.0f);
+        juce::AudioBuffer<float> low (2, 512), high (2, 512);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            setF (param::macroA, pass == 0 ? 0.0f : 1.0f);
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            r.processBlock (pass == 0 ? low : high, m);
+        }
+        double macroDiff = 0.0, macroPeak = 0.0;
+        for (int i = 0; i < 512; ++i)
+        {
+            macroDiff += std::abs (low.getSample (0, i) - high.getSample (0, i));
+            macroPeak = juce::jmax (macroPeak,
+                (double) std::fabs (high.getSample (0, i)));
+        }
+        if (macroDiff < 1.0e-5)
+            std::printf ("macros: MACRO A source had no effect on the render\n"), ++fails;
+        if (macroPeak < 1.0e-4 || macroPeak > 4.0)
+            std::printf ("macros: level out of range\n"), ++fails;
+
+        // Curve shaping: EXP must differ from LIN at the same partial setting.
+        setF (param::macroA, 0.5f);
+        juce::AudioBuffer<float> lin (2, 512), expc (2, 512);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            setF (param::modCurve (0).toRawUTF8(), pass == 0 ? 0.0f : 1.0f);
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            r.processBlock (pass == 0 ? lin : expc, m);
+        }
+        double curveDiff = 0.0;
+        for (int i = 0; i < 512; ++i)
+            curveDiff += std::abs (lin.getSample (0, i) - expc.getSample (0, i));
+        if (curveDiff < 1.0e-5)
+            std::printf ("modcurve: EXP shaping did not change the render\n"), ++fails;
+        setF (param::modCurve (0).toRawUTF8(), 0.0f);
+
+        // Lag: a jump in the macro value must slew when lag is high.
+        juce::AudioBuffer<float> tight (2, 512), laggy (2, 512);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            setF (param::modLag (0).toRawUTF8(), pass == 0 ? 0.0f : 0.95f);
+            setF (param::macroA, 0.0f);
+            { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+              r.processBlock (pass == 0 ? tight : laggy, m); }
+            setF (param::macroA, 1.0f);
+            { juce::MidiBuffer m; r.processBlock (pass == 0 ? tight : laggy, m); }
+        }
+        double lagDiff = 0.0;
+        for (int i = 0; i < 512; ++i)
+            lagDiff += std::abs (tight.getSample (0, i) - laggy.getSample (0, i));
+        if (lagDiff < 1.0e-5)
+            std::printf ("modlag: lag had no smoothing effect\n"), ++fails;
+        setF (param::modLag (0).toRawUTF8(), 0.0f);
+
+        // Bank B: a routing that lives only in bank B must pass through only
+        // when the bank switch is on (bank A stays empty throughout).
+        setF (param::modSrc (0).toRawUTF8(), 9.0f);
+        setF (param::modAmt (0).toRawUTF8(), 0.0f);
+        setF (param::modBSrc (0).toRawUTF8(), 5.0f);   // VELOCITY
+        setF (param::modBDst (0).toRawUTF8(), 1.0f);   // CUTOFF
+        setF (param::modBAmt (0).toRawUTF8(), 1.0f);
+        juce::AudioBuffer<float> bankA (2, 512), bankB (2, 512);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            setF (param::modBank, pass == 0 ? 0.0f : 1.0f);
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            r.processBlock (pass == 0 ? bankA : bankB, m);
+        }
+        double bankDiff = 0.0;
+        for (int i = 0; i < 512; ++i)
+            bankDiff += std::abs (bankA.getSample (0, i) - bankB.getSample (0, i));
+        if (bankDiff < 1.0e-5)
+            std::printf ("modbank: bank B routing did not take over\n"), ++fails;
+        setF (param::modBank, 0.0f);
+        setF (param::modBSrc (0).toRawUTF8(), 0.0f);
+        setF (param::modBAmt (0).toRawUTF8(), 0.0f);
+
+        // Chord memory + supersaw character + S&H + aftertouch sources: the
+        // full new surface must render finite, audible and bounded.
+        setF (param::chordMode, 3.0f);     // MAJOR
+        setF (param::uniMode, 2.0f);       // HYPER
+        setF (param::modSrc (1).toRawUTF8(), 7.0f);    // S&H
+        setF (param::modDst (1).toRawUTF8(), 1.0f);
+        setF (param::modAmt (1).toRawUTF8(), 0.8f);
+        setF (param::modSrc (2).toRawUTF8(), 8.0f);    // AFTERTOUCH
+        setF (param::modDst (2).toRawUTF8(), 9.0f);
+        setF (param::modAmt (2).toRawUTF8(), 0.5f);
+        {
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            m.addEvent (juce::MidiMessage::channelPressureChange (1, 0.8f), 0);
+            double pk = 0.0;
+            bool fin = true;
+            for (int blk = 0; blk < 8; ++blk)
+            {
+                buf.clear();
+                r.processBlock (buf, m);
+                m.clear();
+                for (int i = 0; i < 512; ++i)
+                {
+                    const float s = buf.getSample (0, i);
+                    fin &= std::isfinite (s);
+                    pk = juce::jmax (pk, (double) std::fabs (s));
+                }
+            }
+            if (! fin || pk < 1.0e-4 || pk > 4.0)
+                std::printf ("chords/uni/sh: render out of range (pk %f)\n", pk), ++fails;
+        }
+
+        // Shimmer + duck with a wet reverb: finite, audible, bounded, and the
+        // whole chain must stay silent-safe when the note stops.
+        setF (param::chordMode, 0.0f);
+        setF (param::uniMode, 0.0f);
+        setF (param::modSrc (1).toRawUTF8(), 0.0f);
+        setF (param::modAmt (1).toRawUTF8(), 0.8f);
+        setF (param::modSrc (2).toRawUTF8(), 0.0f);
+        setF (param::modAmt (2).toRawUTF8(), 0.5f);
+        setF (param::revMix, 0.6f);
+        setF (param::revShimmer, 0.7f);
+        setF (param::duckAmt, 0.9f);
+        {
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            double pk = 0.0;
+            bool fin = true;
+            for (int blk = 0; blk < 12; ++blk)
+            {
+                buf.clear();
+                r.processBlock (buf, m);
+                m.clear();
+                for (int i = 0; i < 512; ++i)
+                {
+                    const float s = buf.getSample (0, i);
+                    fin &= std::isfinite (s);
+                    pk = juce::jmax (pk, (double) std::fabs (s));
+                }
+            }
+            if (! fin || pk < 1.0e-4 || pk > 4.0)
+                std::printf ("shimmer/duck: render out of range (pk %f)\n", pk), ++fails;
+        }
+        setF (param::revMix, 0.0f);
+        setF (param::revShimmer, 0.0f);
+        setF (param::duckAmt, 0.0f);
+        setF (param::masterGain, -6.0f);
+
+        // ---- note-off symmetry (all three shipped as stuck/vanishing notes) --
+        // Several phases above note-on without a matching note-off, so clear the
+        // synth first: the voice counts below must be about this block alone.
+        r.synth.allNotesOff (1, false);
+
+        setF (param::voicing, 0.0f);            // POLY
+        setF (param::ampR, 0.02f);              // short tail, so silence is reachable
+        setF (param::filtR, 0.02f);
+        setF (param::chordMode, 0.0f);
+        setF (param::scaleLock, 0.0f);
+
+        // (a) Scale Lock: noteOn snaps an out-of-scale key onto the scale, so
+        // noteOff has to snap identically or the snapped voice is never stopped.
+        setF (param::arpScale, 1.0f);           // MINOR
+        setF (param::arpRoot, 0.0f);            // C: note 61 is out of scale, snaps to 60
+        setF (param::scaleLock, 1.0f);
+        {
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 61, 0.9f), 0);
+            render (m, 4);
+
+            if (activeVoices() != 1)
+                std::printf ("scale lock: note-on started %d voices, expected 1\n",
+                             activeVoices()), ++fails;
+
+            m.addEvent (juce::MidiMessage::noteOff (1, 61), 0);
+            render (m, 16);
+
+            if (activeVoices() != 0)
+                std::printf ("scale lock: note-off left the snapped voice stuck (%d active)\n",
+                             activeVoices()), ++fails;
+        }
+        setF (param::scaleLock, 0.0f);
+
+        // (b) Chord memory: releasing a key that is also another held key's
+        // chord tone must not silence that tone. It used to, because releasing
+        // the directly-played 5th stopped the voice the root's chord tone was
+        // sounding through.
+        setF (param::chordMode, 1.0f);          // 5TH
+        {
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            render (m, 4);
+
+            m.addEvent (juce::MidiMessage::noteOn (1, 67, 0.9f), 0);  // the 5th, played directly
+            render (m, 4);
+
+            // 60 (root) + 67 (its 5th) + 74 (the 5th's own 5th, since every key
+            // gets chord memory).
+            if (voicesPlaying (60) != 1 || voicesPlaying (67) != 1 || voicesPlaying (74) != 1)
+                std::printf ("chord memory: expected 60/67/74 to sound, got 60:%d 67:%d 74:%d\n",
+                             voicesPlaying (60), voicesPlaying (67), voicesPlaying (74)), ++fails;
+
+            m.addEvent (juce::MidiMessage::noteOff (1, 67), 0);
+            render (m, 4);
+
+            // The regression: the root's 5th survives releasing the key that
+            // plays it, while that key's own chord tone is released with it.
+            if (voicesPlaying (67) != 1)
+                std::printf ("chord memory: releasing the 5th silenced the root's chord tone\n"), ++fails;
+            if (voicesPlaying (74) != 0)
+                std::printf ("chord memory: the released key's own chord tone kept sounding\n"), ++fails;
+            if (voicesPlaying (60) != 1)
+                std::printf ("chord memory: the still-held root was stopped early\n"), ++fails;
+
+            m.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            render (m, 16);
+
+            if (activeVoices() != 0)
+                std::printf ("chord memory: %d voice(s) leaked after release\n",
+                             activeVoices()), ++fails;
+        }
+
+        // (c) The chord tones are remembered per root, so changing CHORD while a
+        // key is still down cannot strand the tones that key already started.
+        setF (param::chordMode, 4.0f);          // OCT
+        {
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            render (m, 4);
+
+            setF (param::chordMode, 0.0f);      // OFF, key still down
+
+            m.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            render (m, 16);
+
+            if (activeVoices() != 0)
+                std::printf ("chord memory: a CHORD change stranded %d voice(s)\n",
+                             activeVoices()), ++fails;
+        }
+        setF (param::chordMode, 0.0f);
+    }
+
+    // Factory presets block follows (outside phase 18's scope)
+
     // Factory presets: every LEAD and RISER must enable master quality (2x
     // oversampling), and no other category should force it on.
     {
         int leadBad = 0, riserBad = 0, otherOn = 0, leads = 0, risers = 0;
+        int presetIdx = 0;
         for (const auto& pr : getPresets())
         {
             const auto hq = pr.values.find ("masterHQ");
@@ -1835,6 +2138,7 @@ int main()
     }
 
     std::printf (fails == 0 ? "ROUND TRIP OK\n" : "FAILURES: %d\n", fails);
+    std::fflush (stdout);
     std::fflush (stdout);
     return fails == 0 ? 0 : 1;
 }

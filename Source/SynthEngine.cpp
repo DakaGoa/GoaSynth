@@ -464,6 +464,7 @@ void GoaVoice::startNote (int midiNote, float vel, juce::SynthesiserSound*, int)
 {
     velocity = juce::jlimit (0.0f, 1.0f, vel);
     mv = ModMatrix::Values();
+    modLag.reset();
     latchedL1 = latchedL2 = latchedFe = latchedAe = 0.0f;
     currentNote = midiNote;
     targetFreq = engine->noteFreq (midiNote);   // SCL microtuning + fine offset
@@ -710,7 +711,13 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     mv = ModMatrix::Values();
     engine->mod.computeAll (mv, latchedL1, latchedL2,
                             latchedFe, latchedAe, velocity,
-                            engine->modWheel.load (std::memory_order_relaxed));
+                            engine->modWheel.load (std::memory_order_relaxed),
+                            engine->uiAt.load (std::memory_order_relaxed),
+                            engine->shValue.load (std::memory_order_relaxed),
+                            engine->macroA.load (std::memory_order_relaxed),
+                            engine->macroB.load (std::memory_order_relaxed),
+                            modLag, sr,
+                            (double) numSamples / juce::jmax (1.0, (double) sr));
     const float driftC = driftOffset * ld (p.drift) * 14.0f;
 
     // Analog character: slow tape wow (~0.4 Hz) + irregular flutter, and a
@@ -721,9 +728,18 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     const float fltC = an * 6.0f;
     const float drift2C = an * driftOffset * 10.0f;   // reuses the walk above
 
+    // Unison character reshapes the detune/pan field across voices:
+    // CLASSIC = linear spread, PHASED = voices bunch at the centre (hollow
+    // edges, phased-chorus feel), HYPER = exaggerated outer voices (fatter,
+    // wider stack).
+    const int um = juce::jlimit (0, 2, (int) ld (p.uniMode));
     for (int u = 0; u < uni; ++u)
     {
-        const float norm = (uni > 1) ? (float) u / (float) (uni - 1) * 2.0f - 1.0f : 0.0f;
+        float norm = (uni > 1) ? (float) u / (float) (uni - 1) * 2.0f - 1.0f : 0.0f;
+        if (um == 1 && uni > 2)
+            norm *= std::abs (norm);                       // centre bunching
+        else if (um == 2 && uni > 2)
+            norm = std::copysign (std::pow (std::abs (norm), 0.55f), norm);
         const float cents1 = fine1 + norm * spreadC + driftC * (u % 2 == 0 ? 1.0f : -1.0f);
         const float cents2 = fine2 + norm * spreadC;
         detune1F[u] = std::exp2 (cents1 / 1200.0f);
@@ -765,7 +781,11 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
         if ((i & 63) == 0)
         {
             engine->mod.publishGlobal (l1, l2, fe, a, velocity,
-                                       engine->modWheel.load (std::memory_order_relaxed));
+                                       engine->modWheel.load (std::memory_order_relaxed),
+                                       engine->uiAt.load (std::memory_order_relaxed),
+                                       engine->shValue.load (std::memory_order_relaxed),
+                                       engine->macroA.load (std::memory_order_relaxed),
+                                       engine->macroB.load (std::memory_order_relaxed));
             engine->uiLfo1.store (l1, std::memory_order_relaxed);
             engine->uiLfo2.store (l2, std::memory_order_relaxed);
             engine->uiEnvF.store (fe, std::memory_order_relaxed);
@@ -1065,6 +1085,11 @@ GoaSynth::GoaSynth()
     for (int i = 0; i < 16; ++i)
         addVoice (new GoaVoice (this));
 
+    // -1 = "this root started no chord tone" (0 is a valid note number).
+    for (auto& root : chordTones)
+        for (auto& tone : root)
+            tone = -1;
+
     p.osc1User = &userA;
     p.osc2User = &userB;
     userA.reset();
@@ -1081,9 +1106,16 @@ void GoaSynth::commitWaves()
     if (b) bankB.rebuild (userB, maskB);
 }
 
+// Chord-memory intervals stacked above the played note, indexed by chordMode-1
+// (1 5TH, 2 MINOR, 3 MAJOR, 4 OCT; -1 = unused slot). Snapped into the current
+// scale at use, so the harmony follows the loaded SCALE/ROOT.
+static constexpr int chordIv[4][3] =
+    { { 7, -1, -1 }, { 3, 7, -1 }, { 4, 7, -1 }, { 12, -1, -1 } };
+
 void GoaSynth::noteOn (int midiChannel, int midiNoteNumber, float velocity)
 {
     const int mode = (int) ld (p.voicing); // 0 = poly, 1 = mono, 2 = legato
+    midiNoteNumber = juce::jlimit (0, 127, midiNoteNumber); // heldRefs/chordTones are indexed by note
 
     // Scale Lock: live notes snap into the arp scale (root = arp root pitch
     // class), so a keyboardist noodling in Phrygian always sounds in key.
@@ -1113,12 +1145,38 @@ void GoaSynth::noteOn (int midiChannel, int midiNoteNumber, float velocity)
             victim->stopNote (0.5f, true);
             --active;
         }
-        heldNotes.addIfNotAlreadyThere (midiNoteNumber);
+        addHeldNote (midiNoteNumber);
         Synthesiser::noteOn (midiChannel, midiNoteNumber, velocity);
+
+        // Chord memory: each key also sounds scale-snapped chord intervals
+        // above it (poly voicing only). Snapped so the harmony follows the
+        // loaded scale rather than fighting it. The tones actually started are
+        // remembered per root so noteOff can release exactly those.
+        for (auto& tone : chordTones[midiNoteNumber])
+            tone = -1;
+
+        const int cm = juce::jlimit (0, 4, (int) ld (p.chordMode));
+        if (cm > 0)
+        {
+            int slot = 0;
+            for (const int semi : chordIv[cm - 1])
+            {
+                if (semi < 0)
+                    continue;
+                const int cn = tuning::nearestScaleNote (
+                    juce::jlimit (0, 127, midiNoteNumber + semi),
+                    (int) ld (p.arpScale), (int) ld (p.arpRoot));
+                if (cn == midiNoteNumber)
+                    continue;                        // snapped back onto the key
+                addHeldNote (cn);
+                Synthesiser::noteOn (midiChannel, cn, velocity);
+                chordTones[midiNoteNumber][slot++] = cn;
+            }
+        }
         return;
     }
 
-    heldNotes.addIfNotAlreadyThere (midiNoteNumber);
+    addHeldNote (midiNoteNumber);
 
     for (auto* v : voices)
     {
@@ -1138,14 +1196,36 @@ void GoaSynth::noteOn (int midiChannel, int midiNoteNumber, float velocity)
 
 void GoaSynth::noteOff (int midiChannel, int midiNoteNumber, float velocity, bool allowTailOff)
 {
+    // Mirror noteOn's Scale Lock: noteOn snaps an out-of-scale key onto the
+    // scale, so noteOff has to snap identically or it would address a note that
+    // was never started and leave the voice stuck on.
+    midiNoteNumber = juce::jlimit (0, 127, midiNoteNumber);
+    if (ld (p.scaleLock) > 0.5f)
+        midiNoteNumber = tuning::nearestScaleNote (midiNoteNumber,
+            (int) ld (p.arpScale), (int) ld (p.arpRoot));
+
     if (pedalDown)
     {
+        // The key is physically up now, so drop its claim; the note keeps
+        // sounding from sustainedNotes until the pedal is released.
+        releaseHeldNote (midiNoteNumber);
         sustainedNotes.addIfNotAlreadyThere (midiNoteNumber);
+
+        for (auto& tone : chordTones[midiNoteNumber])
+        {
+            const int cn = tone;
+            tone = -1;
+            if (cn >= 0)
+            {
+                releaseHeldNote (cn);
+                sustainedNotes.addIfNotAlreadyThere (cn);
+            }
+        }
         return;
     }
     if ((int) ld (p.voicing) != 0) // mono / legato: return to still-held notes
     {
-        heldNotes.removeFirstMatchingValue (midiNoteNumber);
+        releaseHeldNote (midiNoteNumber);
 
         GoaVoice* active = nullptr;
         for (auto* v : voices)
@@ -1171,7 +1251,21 @@ void GoaSynth::noteOff (int midiChannel, int midiNoteNumber, float velocity, boo
             active->retrig();
         return;
     }
-    Synthesiser::noteOff (midiChannel, midiNoteNumber, velocity, allowTailOff);
+
+    // Another held key may still claim this note as one of its chord tones, in
+    // which case releasing it here must not silence it.
+    if (releaseHeldNote (midiNoteNumber))
+        Synthesiser::noteOff (midiChannel, midiNoteNumber, velocity, allowTailOff);
+
+    // Release exactly the chord tones noteOn started for this root (remembered,
+    // so changing CHORD or SCALE while the key was down cannot strand a voice).
+    for (auto& tone : chordTones[midiNoteNumber])
+    {
+        const int cn = tone;
+        tone = -1;
+        if (cn >= 0 && releaseHeldNote (cn))
+            Synthesiser::noteOff (midiChannel, cn, velocity, allowTailOff);
+    }
 }
 
 void GoaSynth::handleController (int midiChannel, int controllerNumber, int controllerValue)
@@ -1189,6 +1283,17 @@ void GoaSynth::handleController (int midiChannel, int controllerNumber, int cont
         modWheel.store ((float) controllerValue / 127.0f, std::memory_order_relaxed);
         return;
     }
+    // Performance macros: MIDI-learnable out of the box on CC 14 / CC 15.
+    if (controllerNumber == 14)
+    {
+        macroA.store ((float) controllerValue / 127.0f, std::memory_order_relaxed);
+        return;
+    }
+    if (controllerNumber == 15)
+    {
+        macroB.store ((float) controllerValue / 127.0f, std::memory_order_relaxed);
+        return;
+    }
     Synthesiser::handleController (midiChannel, controllerNumber, controllerValue);
 }
 
@@ -1197,19 +1302,63 @@ void GoaSynth::handlePitchWheel (int, int wheelValue)
     pitchBend.store ((float) (wheelValue - 8192) / 8192.0f, std::memory_order_relaxed);
 }
 
+// Channel aftertouch (channel pressure) is matrix source 8.
+void GoaSynth::handleChannelPressure (int midiChannel, int channelPressureValue)
+{
+    juce::ignoreUnused (midiChannel);
+    uiAt.store (juce::jlimit (0.0f, 1.0f, channelPressureValue / 127.0f),
+                std::memory_order_relaxed);
+}
+
 void GoaSynth::allNotesOff (int midiChannel, bool allowTailOff)
 {
     sustainedNotes.clear();
     heldNotes.clear();
+    for (auto& ref : heldRefs)
+        ref = 0;
+    for (auto& root : chordTones)
+        for (auto& tone : root)
+            tone = -1;
     pedalDown = false;
     Synthesiser::allNotesOff (midiChannel, allowTailOff);
 }
 
 void GoaSynth::pedalUp()
 {
+    // Only notes whose key was released while the pedal was down are in here,
+    // and each has a single voice (the Synthesiser keeps one per note), so one
+    // note-off each lifts the pedal cleanly.
     for (auto n : sustainedNotes)
         Synthesiser::noteOff (1, n, 0.0f, true);
     sustainedNotes.clear();
+}
+
+// A note can be sounding because it is held directly *and* because it is a
+// chord-memory interval of another held key, so claims on it are counted: the
+// voice is only stopped once the last one is released. (JUCE's Synthesiser
+// keeps at most one voice per note - noteOn replaces the existing one - so a
+// single note-off on the transition to zero is what keeps starts and stops
+// balanced.)
+void GoaSynth::addHeldNote (int note)
+{
+    if (note < 0 || note > 127)
+        return;
+    if (heldRefs[note]++ == 0)
+        heldNotes.addIfNotAlreadyThere (note);
+}
+
+bool GoaSynth::releaseHeldNote (int note)
+{
+    if (note < 0 || note > 127 || heldRefs[note] == 0)
+        return false;
+
+    if (--heldRefs[note] == 0)
+    {
+        heldNotes.removeFirstMatchingValue (note);
+        return true;   // last claim gone: this is the note-off
+    }
+
+    return false;
 }
 
 } // namespace goa

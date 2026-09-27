@@ -655,3 +655,26 @@ html[data-theme="warm"] .code-block pre { background: #1b1108; }
   /* phones: a 14-item contents list would push §1 off the first two screens */
   .legal-toc { display: none; }
 }
+
+/* ---- Play section: interactive trancegate demo + patch of the week ------- */
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 4px;
+  margin: 1rem 0 .9rem;
+}
+.demo-grid button {
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  cursor: pointer;
+}
+.demo-grid button[data-on="1"] { background: var(--accent, #9b6cff); border-color: var(--accent, #9b6cff); }
+.demo-grid button.demo-bcat { border-style: dashed; opacity: .55; }
+.demo-grid button.demo-hcat { margin-bottom: 10px; }
+.demo-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.demo-controls .demo-bpm { display: flex; align-items: center; gap: .5rem; font-size: .85rem; color: inherit; }
+.demo-controls input[type="range"] { accent-color: var(--accent, #9b6cff); width: 110px; }

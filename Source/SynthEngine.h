@@ -212,6 +212,17 @@ struct EngineParams
     std::atomic<float>* vowelRes   = nullptr;
     std::atomic<float>* vowelMix   = nullptr;
 
+    // FX duck (0 = off) and reverb shimmer (0 = off). Duck is consumed in
+    // the processor's FX chain; shimmer is a processor-side send.
+    std::atomic<float>* duckAmt    = nullptr;
+    std::atomic<float>* revShimmer = nullptr;
+
+    // Performance macros (0..1 knobs; also MIDI CC 14 / CC 15) and the
+    // A/B matrix bank switch.
+    std::atomic<float>* macroA = nullptr;
+    std::atomic<float>* macroB = nullptr;
+    std::atomic<float>* modBank = nullptr;
+
     // Sidechain pump (processor-side: choice sync + depth; OFF by default).
     std::atomic<float>* pumpSync  = nullptr;
     std::atomic<float>* pumpDepth = nullptr;
@@ -219,6 +230,11 @@ struct EngineParams
     // Global microtuning fine offset in cents (-100..+100); the .scl table
     // itself lives in GoaSynth::scala (loaded from the UI, not a parameter).
     std::atomic<float>* tuningFine = nullptr;
+
+    // Supersaw character (uniMode: 0 CLASSIC, 1 PHASED, 2 HYPER) and chord
+    // memory (chordMode: 0 OFF, 1 5TH, 2 MINOR, 3 MAJOR, 4 OCT).
+    std::atomic<float>* uniMode   = nullptr;
+    std::atomic<float>* chordMode = nullptr;
 };
 
 struct PolyOsc
@@ -270,13 +286,17 @@ struct ModMatrix
         int   src = 0;        // modSourceName() index (0 = OFF)
         int   dst = 0;        // modDestList() index (0 = OFF)
         float amt = 0.0f;     // -1..+1, scaled by ModDest::range
+        int   curve = 0;      // 0 LIN, 1 EXP, 2 SIN — shapes |source| response
+        float lag = 0.0f;     // 0..1 slew: 0 = none, 1 = ~0.5 s one-pole lag
     };
 
     Slot slots[param::modSlots];
 
     // Summed, range-scaled modulation on every destination for one voice at
-    // one sample: one pass over the slots (replaces the old per-destination
-    // amountFor() that no caller ever used — the matrix was UI-only before).
+    // one sample: one pass over the slots. New sources: 7 = sample & hold
+    // (block-rate dice via engine->shValue), 8 = channel aftertouch,
+    // 9/10 = MACRO A/B. Curve shapes, lag slews per slot (memory lives in
+    // the owning voice's LagState, so polyphony keeps one ramp per voice).
     struct Values
     {
         float oct = 0.0f;       // mdCutoff (octaves)
@@ -288,42 +308,73 @@ struct ModMatrix
         float lfoRate1 = 0.0f, lfoRate2 = 0.0f; // Hz
     };
 
-    void computeAll (Values& out, float lfo1v, float lfo2v,
-                     float envF, float envA, float vel, float mw) const noexcept
+    // Per-voice lag memory: one smoothed value per slot. Zero-initialized =
+    // no lag applied on the first block (sources start at 0 anyway).
+    struct LagState
     {
+        float v[param::modSlots] = {};
+        void reset() noexcept { for (auto& x : v) x = 0.0f; }
+    };
+
+    void computeAll (Values& out, float lfo1v, float lfo2v,
+                     float envF, float envA, float vel, float mw,
+                     float at, float sh, float macA, float macB,
+                     LagState& lag, float sr, double dt) const noexcept
+    {
+        int idx = 0;
         for (const auto& s : slots)
         {
-            if (s.dst == 0 || s.src == 0 || s.amt == 0.0f)
-                continue;
-            float v = 0.0f;
-            switch (s.src)
+            if (s.dst != 0 && s.src != 0 && s.amt != 0.0f)
             {
-                case 1: v = lfo1v; break;
-                case 2: v = lfo2v; break;
-                case 3: v = envF;  break;
-                case 4: v = envA;  break;
-                case 5: v = vel;   break;
-                case 6: v = mw;    break;
-                default: break;
+                float v = 0.0f;
+                switch (s.src)
+                {
+                    case 1: v = lfo1v; break;
+                    case 2: v = lfo2v; break;
+                    case 3: v = envF;  break;
+                    case 4: v = envA;  break;
+                    case 5: v = vel;   break;
+                    case 6: v = mw;    break;
+                    case 7: v = sh;    break;
+                    case 8: v = at;    break;
+                    case 9: v = macA;  break;
+                    case 10: v = macB; break;
+                    default: break;
+                }
+                // Curve shaping (bipolar-preserving: |x|^p keeps the sign).
+                const float av = std::abs (v);
+                if      (s.curve == 1) v = std::copysign (av * av, v);
+                else if (s.curve == 2) v = std::sin (av * 1.5707963f)
+                                          * (v < 0.0f ? -1.0f : 1.0f);
+                float a = s.amt * v;
+                // Lag: one-pole slew on the final scaled amount, per slot.
+                if (s.lag > 0.001f && sr > 0.0f)
+                {
+                    const float g = 1.0f - (float) std::exp (-dt / juce::jmax (1.0e-4f,
+                        0.15f * s.lag * s.lag));
+                    float& mem = lag.v[idx];
+                    mem += g * (a - mem);
+                    a = mem;
+                }
+                switch (s.dst)
+                {
+                    case 1:  out.oct += a * 4.0f; break;
+                    case 2:  out.cents1 += a * 1200.0f; break;
+                    case 3:  out.cents2 += a * 1200.0f; break;
+                    case 4:  out.lvl1 += a; break;
+                    case 5:  out.lvl2 += a; break;
+                    case 6:  out.wt1 += a; break;
+                    case 7:  out.wt2 += a; break;
+                    case 8:  out.reso += a; break;
+                    case 9:  out.drive += a; break;
+                    case 10: out.pan1 += a; break;
+                    case 11: out.pan2 += a; break;
+                    case 12: out.lfoRate1 += a * 6.0f; break;
+                    case 13: out.lfoRate2 += a * 6.0f; break;
+                    default: break;   // global FX destinations: handled per block
+                }
             }
-            const float a = s.amt * v;
-            switch (s.dst)
-            {
-                case 1:  out.oct += a * 4.0f; break;
-                case 2:  out.cents1 += a * 1200.0f; break;
-                case 3:  out.cents2 += a * 1200.0f; break;
-                case 4:  out.lvl1 += a; break;
-                case 5:  out.lvl2 += a; break;
-                case 6:  out.wt1 += a; break;
-                case 7:  out.wt2 += a; break;
-                case 8:  out.reso += a; break;
-                case 9:  out.drive += a; break;
-                case 10: out.pan1 += a; break;
-                case 11: out.pan2 += a; break;
-                case 12: out.lfoRate1 += a * 6.0f; break;
-                case 13: out.lfoRate2 += a * 6.0f; break;
-                default: break;   // global FX destinations: handled per block
-            }
+            ++idx;
         }
     }
 
@@ -342,7 +393,8 @@ struct ModMatrix
     Global globalFx;
 
     void publishGlobal (float lfo1v, float lfo2v,
-                        float envF, float envA, float vel, float mw) noexcept
+                        float envF, float envA, float vel, float mw,
+                        float at, float sh, float macA, float macB) noexcept
     {
         float dt = 0.0f, df = 0.0f, rs = 0.0f, dm = 0.0f, pm = 0.0f, rm = 0.0f;
         for (const auto& s : slots)
@@ -358,6 +410,10 @@ struct ModMatrix
                 case 4: v = envA;  break;
                 case 5: v = vel;   break;
                 case 6: v = mw;    break;
+                case 7: v = sh;    break;
+                case 8: v = at;    break;
+                case 9: v = macA;  break;
+                case 10: v = macB; break;
                 default: break;
             }
             const float a = s.amt * v;
@@ -433,6 +489,7 @@ private:
     // One block of latency on the mod path; the envelopes being 0 on the very
     // first block after note-on is inaudible.
     ModMatrix::Values mv;
+    ModMatrix::LagState modLag;
     float latchedL1 = 0.0f, latchedL2 = 0.0f;
     float latchedFe = 0.0f, latchedAe = 0.0f;
     float targetFreq = 440.0f;
@@ -477,7 +534,16 @@ public:
     // only: whichever voice writes last wins, ordering doesn't matter for a
     // pulsing dot).
     std::atomic<float> uiLfo1 { 0.0f }, uiLfo2 { 0.0f }, uiEnvF { 0.0f },
-                       uiEnvA { 0.0f }, uiVelocity { 0.0f };
+                       uiEnvA { 0.0f }, uiVelocity { 0.0f },
+                       uiAt { 0.0f }, uiSH { 0.0f },
+                       uiMacroA { 0.0f }, uiMacroB { 0.0f };
+
+    // Block-rate sample & hold for matrix source 7: one random -1..1 value
+    // per audio block (all voices share the same dice).
+    std::atomic<float> shValue { 0.0f };
+
+    // Performance macros (0..1), also driven by MIDI CC 14 / CC 15.
+    std::atomic<float> macroA { 0.0f }, macroB { 0.0f };
 
     // Modulation matrix snapshot, rebuilt from the choice/int params each block
     // (host side) and read per-voice (audio side). Plain struct: slots are
@@ -511,14 +577,32 @@ public:
     void noteOff (int midiChannel, int midiNoteNumber, float velocity, bool allowTailOff) override;
     void handleController (int midiChannel, int controllerNumber, int controllerValue) override;
     void handlePitchWheel (int midiChannel, int wheelValue) override;
+    void handleChannelPressure (int midiChannel, int channelPressureValue) override;
     void allNotesOff (int midiChannel, bool allowTailOff) override;
 
 private:
     void pedalUp();
 
+    // A note can be sounding because it is held directly *and* because it is a
+    // chord-memory interval of another held key. It is reference counted so the
+    // voice is only stopped once the LAST claim on it is released - releasing a
+    // key that is also another key's chord tone must not silence that tone.
+    // (A count, not a set, because a key can be pressed twice while still
+    // claimed; JUCE's Synthesiser keeps at most one voice per note, so the
+    // note-off is sent on the transition to zero.)
+    // Indexed by MIDI note number, so this costs no allocation on the audio thread.
+    void addHeldNote (int note);
+    bool releaseHeldNote (int note);   // true when the last claim was released
+
     bool pedalDown = false;
     juce::Array<int> sustainedNotes;
     juce::Array<int> heldNotes; // most-recent-first tracking for mono/legato return
+    int heldRefs[128] = {};
+
+    // Chord tones noteOn actually started for each held root (-1 = none), so
+    // noteOff releases exactly those instead of recomputing them from the live
+    // CHORD/SCALE parameters, which may have changed while the key was down.
+    int chordTones[128][3];
 };
 
 } // namespace goa

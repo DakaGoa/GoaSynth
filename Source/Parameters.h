@@ -32,6 +32,20 @@ inline constexpr const char* uniDetune  = "uniDetune";
 inline constexpr const char* uniSpread  = "uniSpread";
 inline constexpr const char* drift      = "drift";
 
+// Supersaw character: how the unison detune/pan field is shaped.
+// CLASSIC = linear spread, PHASED = voices bunch at the centre with hollow
+// edges, HYPER = exaggerated outer voices (fatter, wider stack).
+inline constexpr const char* uniMode = "uniMode";
+
+// Chord memory: each note-on also sounds scale-snapped chord intervals
+// (poly voicing only). 0 = off.
+inline constexpr const char* chordMode = "chordMode";
+
+// Performance macros: plain 0..1 knobs meant as modulation-matrix SOURCES
+// (matrix source ids 9/10) and MIDI-learnable to CC 14 / CC 15 out of the box.
+inline constexpr const char* macroA = "macroA";
+inline constexpr const char* macroB = "macroB";
+
 inline constexpr const char* filterType = "filterType";
 inline constexpr const char* cutoff     = "cutoff";
 inline constexpr const char* reso       = "reso";
@@ -86,6 +100,14 @@ inline constexpr const char* delayMix  = "delayMix";
 inline constexpr const char* revSize = "revSize";
 inline constexpr const char* revDamp = "revDamp";
 inline constexpr const char* revMix  = "revMix";
+
+// Shimmer: an octave-up pitch-shifted copy of the reverb tail, blended back
+// in (0 = off). Classic trance "sky" reverb.
+inline constexpr const char* revShimmer = "revShimmer";
+
+// FX duck: ducks the delay + reverb wet level with the dry signal's peak
+// envelope, so leads stay clear while the tail swells in the gaps.
+inline constexpr const char* duckAmt = "duckAmt";
 
 // OTT-style multiband compressor: per-band depth, crossBand crossover and
 // output level. Depth 0 = transparent, 1 = the classic aggressive upward+downward
@@ -158,20 +180,30 @@ inline constexpr const char* fFeedback = "fFeedback";
 // (halves aliasing in the audible band) at the cost of extra CPU.
 inline constexpr const char* masterHQ = "masterHQ";
 
-// Modulation matrix: 8 slots, each a source + destination + bipolar amount.
-// Source ids index modSourceName(), dest ids index modDestParam().
+// Modulation matrix: 8 slots, each a source + destination + bipolar amount,
+// plus a per-slot curve (LIN/EXP/SIN) and lag (slew) amount. A second "B"
+// bank stores an alternate src/dst/amt set per slot; the modBank switch
+// chooses which bank feeds the engine (curve/lag are shared).
 inline constexpr int modSlots = 8;
 inline juce::String modSrc (int i) { return juce::String ("mod") + juce::String (i + 1) + "Src"; }
 inline juce::String modDst (int i) { return juce::String ("mod") + juce::String (i + 1) + "Dst"; }
 inline juce::String modAmt (int i) { return juce::String ("mod") + juce::String (i + 1) + "Amt"; }
+inline juce::String modCurve (int i) { return juce::String ("mod") + juce::String (i + 1) + "Curve"; }
+inline juce::String modLag  (int i) { return juce::String ("mod") + juce::String (i + 1) + "Lag"; }
+inline juce::String modBSrc (int i) { return juce::String ("modB") + juce::String (i + 1) + "Src"; }
+inline juce::String modBDst (int i) { return juce::String ("modB") + juce::String (i + 1) + "Dst"; }
+inline juce::String modBAmt (int i) { return juce::String ("modB") + juce::String (i + 1) + "Amt"; }
+inline constexpr const char* modBank = "modBank";   // false = bank A, true = bank B
 
 // Modulation sources (matrix + existing fixed rows share this vocabulary).
 // 0 = OFF, 1 = LFO 1, 2 = LFO 2, 3 = ENV F, 4 = ENV A, 5 = velocity,
-// 6 = modwheel.
+// 6 = modwheel, 7 = sample & hold (block-rate dice), 8 = aftertouch
+// (channel pressure), 9/10 = MACRO A/B (also MIDI CC 14/15).
 inline const juce::StringArray& modSourceName()
 {
     static const juce::StringArray names { "OFF", "LFO 1", "LFO 2", "ENV F",
-                                           "ENV A", "VELOCITY", "MODWHEEL" };
+                                           "ENV A", "VELOCITY", "MODWHEEL",
+                                           "S&H", "AFTERTOUCH", "MACRO A", "MACRO B" };
     return names;
 }
 

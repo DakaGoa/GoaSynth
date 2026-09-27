@@ -122,7 +122,8 @@ const std::vector<Tripwire>& tripwires()
           "seller-side fulfilment output, which carries buyer names and addresses", nullptr },
 
         { R"(GOA1-)",
-          "a real signed serial - a buyer's licence, not a documentation example", nullptr },
+          "a real signed serial - a buyer's licence, not a documentation example",
+          R"(<machine-id>|<signature>|serial:)" },
 
         { R"(ghp_|github_pat_)",
           "a GitHub access token", nullptr },

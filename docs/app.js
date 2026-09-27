@@ -356,3 +356,190 @@
   initOsTabs();
   initSkins();
 })();
+
+/* =========================================================
+   Play section — interactive trancegate demo.
+   Same idea as the plugin's strip: click steps, hear the chop.
+   No samples: a two-osc detuned saw through a lowpass, gated
+   per step, with a tempo-synced feedback delay. Everything is
+   synthesised in the browser with the Web Audio API.
+   ========================================================= */
+(function () {
+  'use strict';
+
+  var grid = document.getElementById('demo-gate');
+  if (!grid) return;
+
+  /* Gate shape rows: UPLIFT (3-on/1-off), OFF-BEAT, ROLLER, 16THS.
+     Category cells (cols 0/4/8/12, dashed) hold the shape name and
+     re-apply its pattern - they don't gate. Row 5 is the arp sequence. */
+  var ROWS = 5, COLS = 16;
+  var SHAPES = [
+    [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],   // UPLIFT
+    [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],   // OFF-BEAT
+    [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],   // ROLLER
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]    // 16THS
+  ];
+  var NAMES = ['UPLIFT', 'OFF-BEAT', 'ROLLER', '16THS'];
+  var CAT_COLS = [0, 4, 8, 12];
+  // Arp seed: A minor pentatonic run, one semitone-offset per 16th.
+  var ARP_SEED = [0, 3, 7, 10, 12, 10, 7, 3, 0, 3, 7, 10, 12, 10, 7, 3];
+  // Live state: [row][col] 0/1 for gate rows, semitone offset for the arp row.
+  var state = [];
+  var cells = [];
+  var playBtn = document.querySelector('[data-demo-play]');
+  var bpmInput = document.querySelector('[data-demo-bpm]');
+  var bpmVal = document.querySelector('[data-demo-bpm-val]');
+  var arpInput = document.querySelector('[data-demo-arp]');
+
+  function cellAt(r, c) { return cells[r * COLS + c]; }
+
+  function isCategory(r, c) { return r < SHAPES.length && CAT_COLS.indexOf(c) >= 0; }
+
+  function applyShape(r) {
+    for (var c = 0; c < COLS; ++c)
+      if (!isCategory(r, c)) setCell(r, c, SHAPES[r][c]);
+  }
+
+  function setCell(r, c, v) {
+    state[r][c] = v;
+    cellAt(r, c).setAttribute('data-on', v ? '1' : '0');
+  }
+
+  function buildGrid() {
+    for (var r = 0; r < ROWS; ++r) {
+      state.push([]);
+      for (var c = 0; c < COLS; ++c) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        if (r < SHAPES.length && isCategory(r, c)) {
+          b.className = 'demo-bcat demo-hcat';
+          b.textContent = c === 0 ? NAMES[r] : '';
+          b.setAttribute('aria-label', NAMES[r] + ' shape');
+          b.addEventListener('click', makeShapeHandler(r));
+          b.removeAttribute('data-on');
+        } else {
+          b.setAttribute('aria-label', 'step ' + (c + 1) + ', row ' + (r + 1));
+          b.addEventListener('click', makeToggleHandler(r, c));
+          b.className = r === ROWS - 1 ? 'demo-arow' : '';
+        }
+        grid.appendChild(b);
+        cells.push(b);
+        state[r].push(0);
+      }
+    }
+    for (var s = 0; s < SHAPES.length; ++s) applyShape(s);
+    for (var a = 0; a < COLS; ++a) setCell(ROWS - 1, a, ARP_SEED[a]);
+  }
+
+  function makeShapeHandler(r) {
+    return function () { applyShape(r); };
+  }
+
+  function makeToggleHandler(r, c) {
+    return function () {
+      var v = state[r][c] ? 0 : 1;
+      // The arp row stores semitone offsets: toggling off silences the step.
+      setCell(r, c, r === ROWS - 1 ? (v ? ARP_SEED[c] : 0) : v);
+    };
+  }
+
+  buildGrid();
+
+  /* ---- audio ---- */
+  var ctx = null, master = null, lp = null, dly = null, dlyFb = null, dlyWet = null;
+  var playing = false, step = 0, nextTime = 0, timer = null;
+  var queue = [];   // scheduled {t, col} for the playhead flash
+
+  function ensureAudio() {
+    if (ctx) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = 0.2;
+    lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+    dly = ctx.createDelay(1.0);
+    dlyFb = ctx.createGain(); dlyFb.gain.value = 0.3;
+    dlyWet = ctx.createGain(); dlyWet.gain.value = 0.22;
+    lp.connect(master);
+    lp.connect(dly); dly.connect(dlyFb); dlyFb.connect(dly);
+    dly.connect(dlyWet); dlyWet.connect(master);
+    master.connect(ctx.destination);
+  }
+
+  function bpm() { return parseInt(bpmInput.value, 10) || 138; }
+  function stepDur() { return 60 / bpm() / 4; }
+
+  function voice(t, freq, dur) {
+    var o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth';
+    o1.frequency.value = freq; o2.frequency.value = freq * 1.007;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.004);
+    g.gain.setTargetAtTime(0, t + dur * 0.85, 0.02);
+    o1.connect(g); o2.connect(g); g.connect(lp);
+    o1.start(t); o2.start(t);
+    o1.stop(t + dur + 0.15); o2.stop(t + dur + 0.15);
+  }
+
+  function schedule() {
+    var ahead = ctx.currentTime + 0.12;
+    while (nextTime < ahead) {
+      var c = step % COLS;
+      var dur = stepDur() * 0.92;
+      var anyGate = false;
+      for (var r = 0; r < SHAPES.length; ++r)
+        if (state[r][c]) { anyGate = true; break; }
+      if (anyGate) {
+        var arp = arpInput.checked;
+        var semi = arp ? (state[ROWS - 1][c] || ARP_SEED[c]) : 0;
+        if (arp && !state[ROWS - 1][c]) semi = 0;
+        var freq = 110 * Math.pow(2, semi / 12);   // A2 root
+        voice(nextTime, freq, dur);
+      }
+      dly.delayTime.setTargetAtTime(stepDur() * 3, ctx.currentTime, 0.05);
+      queue.push({ t: nextTime, col: c });
+      nextTime += stepDur();
+      ++step;
+    }
+  }
+
+  function playhead() {
+    if (!playing) return;
+    var now = ctx.currentTime;
+    while (queue.length && queue[0].t <= now) {
+      var ev = queue.shift();
+      for (var r = 0; r < ROWS; ++r) {
+        var el = cellAt(r, ev.col);
+        el.style.outline = '2px solid currentColor';
+        (function (e) {
+          setTimeout(function () { e.style.outline = ''; }, 110);
+        })(el);
+      }
+    }
+    requestAnimationFrame(playhead);
+  }
+
+  function start() {
+    ensureAudio();
+    if (ctx.state === 'suspended') ctx.resume();
+    playing = true; step = 0; queue.length = 0;
+    nextTime = ctx.currentTime + 0.06;
+    timer = setInterval(schedule, 25);
+    playBtn.textContent = 'STOP';
+    requestAnimationFrame(playhead);
+  }
+
+  function stop() {
+    playing = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    queue.length = 0;
+    playBtn.textContent = 'PLAY';
+  }
+
+  playBtn.addEventListener('click', function () {
+    if (playing) stop(); else start();
+  });
+  bpmInput.addEventListener('input', function () {
+    bpmVal.textContent = bpmInput.value;
+  });
+})();

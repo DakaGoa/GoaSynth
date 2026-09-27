@@ -42,6 +42,7 @@
       <a href="#buy">Pricing</a>
       <a href="#themes">Themes</a>
       <a href="#install">Install</a>
+      <a href="#play">Play</a>
       <a href="#faq">FAQ</a>
       <a href="#contrib">Contributing</a>
     </nav>
@@ -323,7 +324,8 @@
             <dl class="kv">
               <dt>Sub oscillator</dt><dd>Square / sine / triangle, 0–2 octaves below the note</dd>
               <dt>Noise</dt><dd>White, level-controlled — hats, wind, riser beds</dd>
-              <dt>Unison</dt><dd>1–7 detuned voices around both oscillators with stereo spread — the DETUNE and WIDTH knobs live in the MOVEMENT panel and move the whole stack</dd>
+              <dt>Unison</dt><dd>1–7 detuned voices around both oscillators with stereo spread — the DETUNE and WIDTH knobs live in the MOVEMENT panel and move the whole stack, and a CHAR cell picks the detune curve (CLASSIC / PHASED / HYPER)</dd>
+              <dt>Chord memory</dt><dd>every key also sounds scale-snapped chord intervals (5th / minor / major / octave) in poly voicing</dd>
               <dt>Analog drift</dt><dd>Slow random pitch wander per voice</dd>
               <dt>Analog character</dt><dd>Tape-style wow and flutter on top of the drift — the pitch sags and steadies the way a tape machine does, not the way a plugin wobbles</dd>
               <dt>Master quality</dt><dd>A <b>QUALITY</b> switch renders the oscillator and filter path at <b>2× oversampling</b>, halving audible aliasing when a lead is screaming. Every LEAD and RISER preset ships with it already on</dd>
@@ -454,7 +456,11 @@
           <h4>Matrix sources</h4>
           <ul class="chips">
             <li>LFO 1</li><li>LFO 2</li><li>Filter env</li><li>Amp env</li><li>Velocity</li><li>Mod wheel</li>
+            <li>S&amp;H <span>random</span></li><li>Aftertouch</li><li>MACRO A / B <span>CC 14/15</span></li>
           </ul>
+          <p class="fine">Eight slots with per-slot <b>curve</b> (LIN / EXP / SIN) and <b>lag</b> (slew),
+             plus <b>A/B routing banks</b> — program a second set of routings and switch the whole
+             matrix live with the BANK B switch.</p>
         </div>
         <div class="matrix-arrow" aria-hidden="true">→</div>
         <div class="matrix-col">
@@ -521,14 +527,20 @@
         <article class="card">
           <h3>Reverb</h3>
           <p>Size and damping into a straightforward mix control. Long, dark tails for morning pads;
-             barely there for tight bass.</p>
+             barely there for tight bass. <b>SHIM</b> grows an octave-up pitch-shifted copy of the
+             tail — the shimmer that hangs over a breakdown — so a held pad keeps rising after the
+             note has stopped.</p>
         </article>
         <article class="card">
           <h3>Movement &amp; noise</h3>
-          <p>Two more panels sit on the FX row. <b>MOVEMENT</b> gathers the analog drift amount and the
-             unison detune and stereo width in one place — the slow per-voice wander that stops a
-             supersaw sounding like a photocopy. <b>NOISE</b> is the voice's white-noise level on its own
-             knob, for hats, wind and riser beds without borrowing an oscillator.</p>
+          <p>Three more panels sit on the FX row. <b>MOVEMENT</b> gathers the analog drift amount, the
+             unison detune and stereo width, and the FX duck in one place — the slow per-voice wander that stops a
+             supersaw sounding like a photocopy. <b>MACRO</b> holds two performance knobs meant as
+             modulation-matrix sources: MIDI CC 14 / CC 15 drive them out of the box, so a single
+             controller sweep can move any routed destination. <b>NOISE</b> is the voice's white-noise level on its own
+             knob, for hats, wind and riser beds without borrowing an oscillator. The SUB panel's
+             <b>CHAR</b> cell reshapes the unison field itself (CLASSIC spread, PHASED centre bunching,
+             HYPER widened edges) and <b>CHORD</b> makes single keys sound scale-snapped chords.</p>
         </article>
         <article class="card card-wide">
           <h3>OTT multiband compressor</h3>
@@ -974,8 +986,8 @@
         <div><dt>Vowel filter</dt><dd>3-formant bank (AH · EH · EE · OH · OO), morph / resonance / mix, LFO-targetable</dd></div>
         <div><dt>Envelopes</dt><dd>2 ADSR (amp + filter), velocity-sensitive</dd></div>
         <div><dt>LFOs</dt><dd>2, seven destinations each (pitch, cutoff, PWM, volume, WT POS A/B, vowel morph), free or tempo-synced</dd></div>
-        <div><dt>Mod matrix</dt><dd>8 slots, bipolar amounts</dd></div>
-        <div><dt>FX</dt><dd>Pump → Chorus → Phaser → OTT → Tempo delay → Reverb → Master → Limiter</dd></div>
+        <div><dt>Mod matrix</dt><dd>8 slots × 2 routing banks (A/B), bipolar amounts, per-slot curve (LIN/EXP/SIN) and lag</dd></div>
+        <div><dt>FX</dt><dd>Pump → Chorus → Phaser → OTT → Tempo delay → Reverb (with SHIM) → Master → Limiter</dd></div>
         <div><dt>Sidechain pump</dt><dd>Host-synced output duck on 1/4, 1/8, 1/8T, 1/16 or 1/16T, with depth — no DAW sidechain routing needed</dd></div>
         <div><dt>Sequencers</dt><dd>16-step trancegate + 16-step arp (velocity per step), scale-quantised and phase-locked to the transport</dd></div>
         <div><dt>Scales</dt><dd>9 tables — chromatic (off), minor, Phrygian, harmonic minor, Hungarian minor, double harmonic, Dorian, major, minor pentatonic — in any of 12 roots, with LOCK for live playing</dd></div>
@@ -1148,6 +1160,61 @@ cmake --build build --config Release --target GoaSynth_VST3 --parallel</code></p
           <figure class="shot">
             <img src="assets/mod-pick-flash.png" alt="Pick-to-assign: the just-routed DST cell flashing, with a brief arrow pointing at the target knob" loading="lazy">
           </figure>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PLAY ================= -->
+  <section class="section" id="play">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Try it</p>
+        <h2>Play the trancegate, right here</h2>
+        <p class="section-lede">
+          A tiny slice of the plugin running in your browser: four of the gate shapes
+          the sequencer ships with, clicking steps just like the real
+          strip. No audio files, no samples — every note is synthesised live in your
+          browser the way the synth does it.
+        </p>
+      </header>
+
+      <div class="two-col">
+        <article class="deep demo-card">
+          <h3>Interactive demo</h3>
+          <div class="demo-grid" id="demo-gate" aria-label="Trancegate step grid">
+          </div>
+          <div class="demo-controls">
+            <button class="btn btn-primary" data-demo-play type="button">PLAY</button>
+            <label class="demo-bpm">BPM <input data-demo-bpm type="range" min="90" max="180" value="138">
+              <b data-demo-bpm-val>138</b></label>
+            <label class="demo-bpm"><input data-demo-arp type="checkbox" checked> ARPEGGIO</label>
+          </div>
+          <p class="fine">
+            The top four rows are the gate shapes (UPLIFT, OFF-BEAT, ROLLER, 16THS) —
+            click any cell to toggle it. The bottom row drives the arp sequence through
+            the scale quantizer. Headphones recommended; the real plugin adds the
+            supersaw, the filter and the rest of the FX chain.
+          </p>
+        </article>
+
+        <article class="deep">
+          <h3>Patch of the week</h3>
+          <p class="fine">A preset from the shipped bank, refreshed by hand with each
+             release. Load it from the PRESETS browser.</p>
+          <dl class="kv">
+            <dt>This week</dt><dd><b data-preset="BASS PSY ROLLER">BASS PSY ROLLER</b> — the rolling full-on bass:
+             a saw an octave down with a sub under it, driven into the 24&nbsp;dB
+             ladder at 380&nbsp;Hz and worked by the filter envelope, mono with a
+             20&nbsp;ms glide</dd>
+            <dt>Hear it</dt><dd>Load the patch, set PUMP to 1/8 and hold a low E —
+             the bass breathes on its own</dd>
+            <dt>Next week</dt><dd><b data-preset="LEAD SUPERSAW">LEAD SUPERSAW</b> — two saws 12 cents apart
+             stacked into seven detuned voices and spread wide, through a 12&nbsp;dB
+             lowpass with chorus and a quarter-note delay, rendered with QUALITY on</dd>
+          </dl>
+          <p class="fine">All 135 patches ship inside the plugin — browse, randomise
+             from them, or overwrite with your own.</p>
         </article>
       </div>
     </div>

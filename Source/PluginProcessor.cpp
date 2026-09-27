@@ -17,6 +17,8 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
     BIND (osc1Wave); BIND (osc1Oct); BIND (osc1Fine); BIND (osc1Level);
     BIND (osc2Wave); BIND (osc2Oct); BIND (osc2Fine); BIND (osc2Level);
     BIND (osc1WtPos); BIND (osc2WtPos);
+    BIND (osc1Pan); BIND (osc1Phase); BIND (osc1PRand);
+    BIND (osc2Pan); BIND (osc2Phase); BIND (osc2PRand);
     BIND (fmAmount); BIND (subWave); BIND (subOct); BIND (subLevel); BIND (noiseLevel);
     BIND (uniVoices); BIND (uniDetune); BIND (uniSpread); BIND (drift);
     BIND (filterType); BIND (cutoff); BIND (reso); BIND (envAmt);
@@ -40,6 +42,10 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
     BIND (analogAmt);
     BIND (fDrive); BIND (fFeedback);
     BIND (masterHQ);
+    BIND (uniMode); BIND (chordMode);
+    BIND (revShimmer); BIND (duckAmt);
+    BIND (macroA); BIND (macroB);
+    BIND (modBank);
 #undef BIND
 
     // Restore the microtuning (.scl) from the last session, if any.
@@ -84,6 +90,11 @@ void GoaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     delayR.setMaximumDelayInSamples (maxDelaySamples); delayR.prepare (mono); delayR.reset();
     delayTimeSmoothed.reset (sampleRate, 0.06);
     delayTimeSmoothed.setCurrentAndTargetValue (computeDelaySamples());
+    shRing.setSize (2, (int) sampleRate / 8 + 8, false, false, true);  // 125 ms ring
+    shRing.clear();
+    shW = 0;
+    shPhase = 0.0;
+    duckEnv = 0.0f;
 }
 
 //==============================================================================
@@ -333,13 +344,25 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // Choice/int params -> ModMatrix slots; done once per block before voices
     // render. Slot 0 amount means "slot muted" and skips work in the voice.
     {
+        // Bank selection: modBank false = A, true = B. B mirrors A's layout.
+        const bool bankB = goa::ld (apvts.getRawParameterValue (param::modBank)) > 0.5f;
         for (int i = 0; i < param::modSlots; ++i)
         {
             auto& s = synth.mod.slots[(size_t) i];
-            s.src = (int) goa::ld (apvts.getRawParameterValue (param::modSrc (i)));
-            s.dst = (int) goa::ld (apvts.getRawParameterValue (param::modDst (i)));
-            s.amt = goa::ld (apvts.getRawParameterValue (param::modAmt (i)));
+            s.src = (int) goa::ld (apvts.getRawParameterValue (
+                bankB ? param::modBSrc (i) : param::modSrc (i)));
+            s.dst = (int) goa::ld (apvts.getRawParameterValue (
+                bankB ? param::modBDst (i) : param::modDst (i)));
+            s.amt = goa::ld (apvts.getRawParameterValue (
+                bankB ? param::modBAmt (i) : param::modAmt (i)));
+            s.curve = (int) goa::ld (apvts.getRawParameterValue (param::modCurve (i)));
+            s.lag = goa::ld (apvts.getRawParameterValue (param::modLag (i)));
         }
+        // Macros ride their own atomics so CC 14/15 and the knobs agree.
+        synth.macroA.store (goa::ld (apvts.getRawParameterValue (param::macroA)),
+                            std::memory_order_relaxed);
+        synth.macroB.store (goa::ld (apvts.getRawParameterValue (param::macroB)),
+                            std::memory_order_relaxed);
     }
 
     // ---- 16-step arp sequencer: injects transposed notes from the held key ----
@@ -448,6 +471,28 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     buffer.clear();
     synth.renderNextBlock (buffer, midi, 0, numSamples);
+
+    // Block-rate sample & hold for matrix source 7: one dice per block.
+    synth.shValue.store (juce::Random::getSystemRandom().nextFloat() * 2.0f - 1.0f,
+                         std::memory_order_relaxed);
+
+    // ---- FX duck (envelope only; the dip is applied to delay + reverb below)
+    // Tracks the DRY synth peak (the buffer at this point is pre-FX), so the
+    // wet tail ducks while a lead plays and swells in the gaps. Block-rate
+    // one-pole: fast enough to follow phrases, slow enough to breathe.
+    float duckDip = 1.0f;
+    {
+        float peak = 0.0f;
+        const float* dl = buffer.getReadPointer (0);
+        const float* dr = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : dl;
+        for (int i = 0; i < numSamples; ++i)
+            peak = juce::jmax (peak, std::abs (dl[i]), std::abs (dr[i]));
+        duckEnv += (peak - duckEnv) * (peak > duckEnv ? 0.55f : 0.06f);
+        const float duck = goa::ld (apvts.getRawParameterValue (param::duckAmt));
+        if (duck > 0.001f)
+            duckDip = 1.0f - juce::jlimit (0.0f, 0.9f,
+                duck * juce::jlimit (0.0f, 1.0f, duckEnv * 1.4f));
+    }
 
     // ---- trancegate: 16-step volume pattern, sample-accurate, phase-locked ---
     // Active whenever at least one step is switched off (all-on = bypass).
@@ -596,8 +641,8 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             fbR += (dl - fbR) * g;
             delayL.pushSample (0, left[i] + fbL * fb);
             delayR.pushSample (0, right[i] + fbR * fb);
-            left[i] += dr * mix;
-            right[i] += dl * mix;
+            left[i] += dr * mix * duckDip;
+            right[i] += dl * mix * duckDip;
         }
     }
 
@@ -610,8 +655,68 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     rp.dryLevel = juce::jlimit (0.0f, 1.0f, 1.0f - (goa::ld (p.revMix) + modRm));
     rp.width = 0.9f;
     rp.freezeMode = 0.0f;
+    rp.wetLevel *= duckDip;     // FX duck: reverb tail ducks with the delay
+
     reverb.setParameters (rp);
     reverb.process (ctx);
+
+    // ---- shimmer ------------------------------------------------------------
+    // An octave-up copy of the reverb tail, blended back in by SHIM. A dual-
+    // tap crossfade pitch shifter over a 125 ms ring of the post-reverb mix:
+    // two read taps chase the write head at 2x speed, half a window apart,
+    // each enveloped by a complementary raised cosine so the sum is unity and
+    // neither tap's wrap-around click is ever audible. Silent unless
+    // revMix > 0 and SHIM > 0.
+    {
+        const float shim = goa::ld (apvts.getRawParameterValue (param::revShimmer));
+        const float revWet = goa::ld (apvts.getRawParameterValue (param::revMix));
+        if (shim > 0.001f && revWet > 0.001f)
+        {
+            const int ring = shRing.getNumSamples();
+            const int win = ring / 2;                 // crossfade window length
+            const int baseAge = juce::jmin (512, ring / 4);
+            const float w = 0.35f * shim;             // sparkle behind the tail
+
+            float* outL = buffer.getWritePointer (0);
+            float* outR = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : outL;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    shRing.setSample (ch, shW, (ch == 0 ? outL : outR)[i]);
+
+                // Tap phases drift forward (rate 2 vs write 1) and wrap every
+                // `win` samples; the cos envelopes hit zero at each wrap.
+                const double p1 = shPhase;
+                const double p2 = std::fmod (shPhase + win / 2, (double) win);
+                const float g1 = 0.5f - 0.5f * (float) std::cos (juce::MathConstants<double>::twoPi * p1 / (double) win);
+                const float g2 = 0.5f - 0.5f * (float) std::cos (juce::MathConstants<double>::twoPi * p2 / (double) win);
+
+                const int writePos = shW;
+                auto tap = [ring, win, baseAge, writePos, &shRing = shRing] (int ch, double phase)
+                {
+                    const double age = baseAge + ((double) win - phase);
+                    const double pos = std::fmod ((double) writePos - age + (double) ring * 2.0,
+                                                  (double) ring);
+                    const int i0 = (int) pos;
+                    const float fr = (float) (pos - i0);
+                    const int i1 = (i0 + 1) % ring;
+                    return shRing.getSample (ch, i0) * (1.0f - fr)
+                         + shRing.getSample (ch, i1) * fr;
+                };
+
+                const float shimmer = tap (0, p1) * g1 + tap (0, p2) * g2;
+                const float shimmerR = tap (1, p1) * g1 + tap (1, p2) * g2;
+                outL[i] += shimmer * w;
+                if (outR != outL)
+                    outR[i] += shimmerR * w;
+
+                shPhase += 1.0;
+                if (shPhase >= (double) win)
+                    shPhase -= (double) win;
+                shW = (shW + 1) % ring;
+            }
+        }
+    }
 
     masterGain.setGainDecibels (goa::ld (p.masterGain));
     masterGain.process (ctx);

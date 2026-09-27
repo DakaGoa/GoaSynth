@@ -29,6 +29,16 @@ namespace
  #error "Source/LicenseKeys.h is missing. Run: GoaSynthKeygen --init"
 #endif
 
+// Test builds (GOA_TEST_BUILD, set by CMakeLists.txt for the test targets) swap
+// in a throwaway master digest from tests/TestMasterKey.h, so the suite never
+// has to reference the seller's real master key. Production builds define
+// nothing here and use the digest from LicenseKeys.h unchanged.
+#ifdef GOA_TEST_BUILD
+ #include "TestMasterKey.h"
+ #undef  GOA_MASTER_DIGEST
+ #define GOA_MASTER_DIGEST GOA_TEST_MASTER_DIGEST
+#endif
+
 // The master key is verified by stretching a salted SHA-256 (GOA_MASTER_STRETCH_ROUNDS
 // extra hash rounds) so the value stored in the binary cannot be replayed as a
 // serial and an offline guess of the key is expensive.

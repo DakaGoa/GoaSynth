@@ -158,6 +158,23 @@ int main()
         report ("preset drift", r.problems, true);
     }
 
+    // ---- 2b. the page cites a preset the bank does not contain -------------
+    // The counts above cannot catch this: the real site once shipped a "Patch
+    // of the week" naming PSYTRANCE BASS 4 and UPLIFTING LEAD 2, neither of
+    // which was ever in Presets.h.
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html", "BASS PSY ROLLER", "PSYTRANCE BASS 4");
+        expect (n > 0, "preset-name drift: expected the page to cite a factory preset by name");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "PSYTRANCE BASS 4"),
+                "preset-name drift: a page citing a preset that does not ship was not reported");
+        report ("preset-name drift", r.problems, true);
+    }
+
     // ---- 3. the default cloud model moves on (the 2.0 Flash story) ---------
     if (! buildTree())
         return 2;

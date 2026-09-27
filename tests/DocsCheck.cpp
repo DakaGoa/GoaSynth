@@ -10,7 +10,8 @@
 // own source for facts the pages restate and fails when they disagree:
 //
 //   1. the price          - CONFIG.price vs every euro amount in every page
-//   2. the preset bank    - the family counts in Presets.h vs the preset grid
+//   2. the preset bank    - the family counts in Presets.h vs the preset grid,
+//                           plus every preset the page cites by name
 //   3. the AI engines     - the default model of each cloud table vs the page
 //   4. local storage      - every path the plugin writes vs the privacy policy
 //   5. the trial length   - License.h's trialHours vs the copy
@@ -201,6 +202,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         static const std::regex entry  (R"(^\s*\}, "[a-z]+" \},)");
 
         int headerTotal = 0, arrayEntries = 0, families = 0;
+        std::vector<std::string> familyNames;
 
         for (const auto& line : readLines (presetsH))
         {
@@ -210,6 +212,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
             {
                 ++families;
                 const std::string name = m[1].str();
+                familyNames.push_back (name);
                 const int count = std::stoi (m[2].str());
                 headerTotal += count;
 
@@ -240,6 +243,59 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
             if (! std::regex_search (index.begin(), index.end(), phrase))
                 r.problems.push_back ("docs/index.html: never says \"" + std::to_string (headerTotal)
                     + " patches\", which is how many the factory bank actually holds");
+
+            // Every preset the page names has to exist in the bank. The counts
+            // above cannot catch this: the site once shipped a "Patch of the
+            // week" citing PSYTRANCE BASS 4 / UPLIFTING LEAD 2, neither of which
+            // was ever in Presets.h. Presets cite themselves with
+            // data-preset="NAME" so the guard has something exact to compare.
+            auto isFamilyName = [&familyNames] (const std::string& n)
+            {
+                for (const auto& f : familyNames)
+                    if (n.compare (0, f.size() + 1, f + " ") == 0)
+                        return true;
+                return false;
+            };
+
+            // The bank: every quoted multi-word ALL-CAPS name in Presets.h that
+            // starts with a family name (so parameter ids and tags never match).
+            std::set<std::string> bank;
+            {
+                static const std::regex quoted (R"rx("([A-Z][A-Z0-9]*(?: [A-Z0-9][A-Z0-9+\-]*)+)")rx");
+                const std::string src = readFile (presetsH);
+
+                for (std::sregex_iterator it (src.begin(), src.end(), quoted), end; it != end; ++it)
+                {
+                    const std::string name = (*it)[1].str();
+                    if (isFamilyName (name))
+                        bank.insert (name);
+                }
+            }
+
+            if (bank.empty())
+            {
+                r.problems.push_back ("Source/Presets.h: no preset names could be read - the "
+                                      "preset-name check would silently pass, so fix this checker");
+            }
+            else
+            {
+                static const std::regex cited (R"rx(data-preset="([^"]+)")rx");
+                int citedCount = 0;
+
+                for (std::sregex_iterator it (index.begin(), index.end(), cited), end; it != end; ++it)
+                {
+                    ++citedCount;
+                    const std::string name = (*it)[1].str();
+                    if (bank.count (name) == 0)
+                        r.problems.push_back ("docs/index.html: cites the preset \"" + name
+                            + "\", which Source/Presets.h does not contain");
+                }
+
+                if (citedCount == 0)
+                    r.problems.push_back ("docs/index.html: no data-preset=\"...\" citations found - "
+                                          "the preset-name check would silently pass, so fix this "
+                                          "checker, not the site");
+            }
         }
     }
 

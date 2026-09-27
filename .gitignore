@@ -5,6 +5,7 @@ _build/
 
 # Agent/tooling state, not project source
 .freebuff/
+.workbuddy-ai/
 
 # licensing secrets — never commit
 Source/LicenseKeys.h

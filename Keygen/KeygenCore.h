@@ -78,7 +78,8 @@ inline juce::String machineSeed()
     juce::String s;
     s << juce::SystemStats::getComputerName() << "|"
       << juce::SystemStats::getFullUserName() << "|"
-      << juce::SystemStats::getLogonName() << "|";
+      << juce::SystemStats::getLogonName() << "|"
+      << juce::SystemStats::getUniqueDeviceID() << "|";
 
     for (const auto& mac : juce::MACAddress::getAllAddresses())
         s << mac.toString() << ";";
@@ -169,7 +170,7 @@ inline InitResult createKeypair (const juce::String& presetMaster, const juce::F
         return r;
     }
 
-    // Master key: either the one given (e.g. --init GoaSynthTestMaster!23) or a random
+    // Master key: either the one given (e.g. --init YOUR-MASTER-KEY) or a random
     // printable 12-char secret.
     juce::String master = presetMaster.trim();
 

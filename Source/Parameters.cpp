@@ -66,6 +66,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addF (param::uniSpread,  "Unison Width", unitRange, 0.7f);
     addF (param::drift,      "Analog Drift", unitRange, 0.08f);
 
+    // Supersaw character: how the detune/pan field is shaped across voices.
+    addC (param::uniMode, "Unison Character", { "CLASSIC", "PHASED", "HYPER" }, 0);
+
+    // Chord memory: single keys sound scale-snapped chord intervals.
+    addC (param::chordMode, "Chord Mode", { "OFF", "5TH", "MINOR", "MAJOR", "OCT" }, 0);
+
     addC (param::filterType, "Filter Type", fTypes, 1);
     addF (param::cutoff,     "Cutoff (Hz)", cutRange, 1500.0f);
     addF (param::reso,       "Resonance", unitRange, 0.25f);
@@ -122,6 +128,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addF (param::revSize, "Reverb Size", unitRange, 0.6f);
     addF (param::revDamp, "Reverb Damp", unitRange, 0.5f);
     addF (param::revMix,  "Reverb Mix",  unitRange, 0.0f);
+
+    // Shimmer: octave-up pitch-shifted copy of the reverb tail (0 = off).
+    addF (param::revShimmer, "Reverb Shimmer", unitRange, 0.0f);
+
+    // FX duck: ducks delay + reverb wet with the dry signal's peak envelope.
+    addF (param::duckAmt, "FX Duck", unitRange, 0.0f);
 
     // OTT multiband compressor: 0..1 depth per band (0 = transparent), output trim.
     addF (param::ottDepth, "OTT Depth", unitRange, 0.0f);
@@ -188,6 +200,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     // Analog character: tape-style wow + flutter and slow per-voice drift.
     addF (param::analogAmt, "Analog Character", unitRange, 0.0f);
 
+    // Performance macros: plain 0..1 knobs meant as matrix SOURCES and
+    // MIDI-learnable to CC 14 / CC 15 out of the box.
+    addF (param::macroA, "Macro A", unitRange, 0.0f);
+    addF (param::macroB, "Macro B", unitRange, 0.0f);
+
     // Filter character: pre-filter drive and one-sample feedback into the
     // main filter (self-oscillation character at high settings).
     addF (param::fDrive, "Filter Drive", unitRange, 0.0f);
@@ -196,7 +213,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     // Master quality: 2x oversampled oscillator + filter path (antialiasing).
     addB (param::masterHQ, "Master Quality (2x oversampling)", false);
 
-    // Modulation matrix: 8 routed slots (source -> destination, bipolar amount).
+    // Modulation matrix: 8 routed slots (source -> destination, bipolar amount)
+    // plus a per-slot curve + lag, and a full B bank of alternate routings.
     for (int i = 0; i < param::modSlots; ++i)
     {
         const String n = String (i + 1);
@@ -209,7 +227,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
               (int) param::modDestList().size() - 1, 0);
         addF (param::modAmt (i).toRawUTF8(), ("Mod " + n + " Amount").toRawUTF8(),
               NormalisableRange<float>(-1.0f, 1.0f, 0.0f), 0.0f);
+        addC (param::modCurve (i).toRawUTF8(), ("Mod " + n + " Curve").toRawUTF8(),
+              { "LIN", "EXP", "SIN" }, 0);
+        addF (param::modLag (i).toRawUTF8(), ("Mod " + n + " Lag").toRawUTF8(),
+              unitRange, 0.0f);
+        // Bank B mirrors A (all OFF/zero by default: no double routing).
+        addC (param::modBSrc (i).toRawUTF8(), ("Mod B" + n + " Source").toRawUTF8(),
+              param::modSourceName(), 0);
+        addI (param::modBDst (i).toRawUTF8(),
+              ("Mod B" + n + " Dest").toRawUTF8(), 0,
+              (int) param::modDestList().size() - 1, 0);
+        addF (param::modBAmt (i).toRawUTF8(), ("Mod B" + n + " Amount").toRawUTF8(),
+              NormalisableRange<float>(-1.0f, 1.0f, 0.0f), 0.0f);
     }
+
+    // A/B routing bank switch (macro buttons / automation momentary).
+    addB (param::modBank, "Mod Matrix Bank B", false);
 
     return l;
 }

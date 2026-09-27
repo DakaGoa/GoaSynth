@@ -135,7 +135,13 @@ redesign waves, octaves and groove density wholesale.
 - **Sub oscillator** (square / sine / triangle, 0-2 octaves below the note) and **white noise**.
 - **Unison** up to 7 detuned voices around both oscillators with stereo spread —
   classic supersaw/trance lead. UNI / DETUNE / WIDTH in the OSC panels and
-  DRIFT / DETUNE / WIDTH in the MOVEMENT panel edit the same global stack.
+  DRIFT / DETUNE / WIDTH in the MOVEMENT panel edit the same global stack, and
+  the SUB panel's **CHAR** cell reshapes the detune/pan field itself (CLASSIC
+  linear spread, PHASED centre bunching, HYPER widened outer voices).
+- **Chord memory**: the SUB panel's **CHORD** cell makes every key also
+  sound scale-snapped intervals (5TH / MINOR / MAJOR / OCT) in POLY voicing.
+  Notes are reference counted, so a key that is both held and sounded as
+  another key's chord tone only stops when the last claim on it is released.
 - **Sound quality**: saw/square/PWM are polyBLEP band-limited, the sub square
   too; wavetables are mip-mapped with raised-cosine band fades so nothing
   aliases up the keyboard. Cutoff smoothing is log-domain (identical glide
@@ -150,8 +156,11 @@ redesign waves, octaves and groove density wholesale.
   LP keeps the classic cascade), **PARALLEL** (A and B summed 50/50 — e.g. LP+HP
   = band limiter), and **SPLIT** (A filtered to the left channel, B to the
   right, for wide stereo filter movement).
-- **Mod matrix** (MOD button): 8 freely routable slots. Sources: LFO 1/2,
-  filter env, amp env, velocity, modwheel. Destinations: cutoff (±4 oct),
+- **Mod matrix** (MOD button): 8 freely routable slots with **A/B routing banks** (edit bank B
+  from the card header, flip the live bank with the BANK B switch in the bottom bar), a per-slot
+  **curve** (LIN/EXP/SIN) and **lag** (slew) cell. Sources: LFO 1/2,
+  filter env, amp env, velocity, modwheel, **S&H** (block-rate random), **aftertouch**, and
+  **MACRO A/B** (also MIDI CC 14 / CC 15 out of the box). Destinations: cutoff (±4 oct),
   osc fine tune (±1200 ct), osc levels, wavetable positions, reso, drive,
   osc pan, LFO rates, and the shared FX (delay time ±2 oct, feedback, mix,
   phaser mix, reverb size/mix — the deepest voice wins). Click a cell to cycle values (right-click goes backwards), click the
@@ -159,7 +168,8 @@ redesign waves, octaves and groove density wholesale.
   (shift-drag for fine changes), double-click amount/src/dst to reset it
   (0 / OFF); negative amounts reverse the response. Faster assigning: click a
   row's DST cell and then click any knob in the synth UI to route it (same DST
-  again or ESC cancels; non-routable knobs are refused).
+  again or ESC cancels; non-routable knobs are refused), or a SRC cell and an
+  LFO scope, ENV graph or MACRO knob.
 - **2 ADSR envelopes** (amp + filter), velocity-sensitive, with draggable graphs.
 - **2 LFOs** (sine/triangle/square/random S&H) routable to Pitch, Cutoff,
   PWM width or Volume, with animated displays; free HZ or **host-tempo BPM sync**
@@ -173,7 +183,9 @@ redesign waves, octaves and groove density wholesale.
   (4th-order crossovers) and applies the classic fast upward+downward squeeze to
   each band — DEPTH blends from transparent to full psy squeeze, per-band LOW /
   MID / HIGH trim the response, OUT is an output pad. Depth 0 is a true DSP
-  bypass.
+  bypass. The reverb grows a **SHIM** (octave-up pitch-shifted tail) and the
+  delay + reverb duck under the dry signal with **DUCK**, so leads stay clear
+  while the tails swell in the gaps.
 - **Trancegate**: 16-step volume pattern with 1/32 ... 1/4 step lengths (incl.
   dotted/triplet), sample-accurate and phase-locked to the host transport bar —
   start playback mid-pattern and the gate is already on the right step. Click or
@@ -255,8 +267,9 @@ F-FB and the vowel bank), envelopes/LFOs, the mod matrix, the FX chain and OTT, 
 microtuning), pump / analog character / QUALITY, the AI patch designer (the offline LOCAL engine, the
 optional cloud engines, the correction round and the learned memory), preset browser/packs, the three
 skins, full specifications, per-OS install steps, the activation and 24-hour trial flow (machine ID →
-serial → `.goalicense`), the pricing and licence position, and an FAQ — and embeds three screenshots in
-`docs/assets/`.
+serial → `.goalicense`), the pricing and licence position, and an FAQ — plus an interactive **Play**
+section (the trancegate demo, synthesised in the browser with the Web Audio API, no samples) — and
+embeds five screenshots in `docs/assets/`.
 
 The plugin is sold: one personal licence for **€15**, one-time, with the source staying public under
 the AGPLv3. The site therefore has a **Pricing** section and Buy buttons everywhere, and every price
@@ -328,7 +341,11 @@ the facts the pages restate, and fails when they disagree:
 
 It compares five things: the **price** (`CONFIG.price` in `docs/app.js` against every euro amount on
 every page, legal pages included); the **preset bank** (the `// FAMILY (n)` headers in
-`Source/Presets.h` against the preset grid, plus the `N patches` headline); the **AI defaults** (the
+`Source/Presets.h` against the preset grid, plus the `N patches` headline, and every
+preset the page cites by name — the site's "Patch of the week" card marks its
+patches with `data-preset="NAME"`, which is checked against the real bank; the
+counts alone once let a card advertise `PSYTRANCE BASS 4` and `UPLIFTING LEAD 2`,
+neither of which ships); the **AI defaults** (the
 first model in each cloud table in `Source/AiCloudGen.cpp`, so a retired default like the 2.0 Flash
 era cannot linger on the page); **local storage** (every path the plugin creates via `getChildFile()`
 against the privacy policy, which is what makes the policy self-maintaining); and the **trial length**
@@ -360,7 +377,9 @@ build/GoaSynth_artefacts/Release/VST3/GoaSynth.vst3
 
 Run the tests with `ctest --test-dir build -C Release`: `RoundTripTest` (preset
 and state round-trip, the licensing paths, cloud-reply sanitising, scale
-quantiser, Scala microtuning, vowel filter, pump and filter drive),
+quantiser, Scala microtuning, vowel filter, pump and filter drive, and
+note-off symmetry — that Scale Lock and chord memory never strand or silence a
+voice),
 `OverlayTest` (builds the real editor offscreen: every overlay must open on
 screen with laid-out children, the MOD pick/flash/dot workflow, and a unit-map
 sweep over every knob's value formatting),
@@ -411,7 +430,7 @@ files, list/verify/unregister serials, all numbered options; commands below are
 the equivalent one-liners:
 
 ```bash
-GoaSynthKeygen --init GoaSynthTestMaster!23     # ONCE: creates the RSA keypair + master digest
+GoaSynthKeygen --init <master-key>   # ONCE: creates the RSA keypair + master digest
 GoaSynthKeygen --machine-id          # your own machine id
 GoaSynthKeygen --gen <machineId> "John's studio PC"   # issue one serial
 GoaSynthKeygen --genfile            # issue a .goalicense file, asked step
@@ -427,6 +446,13 @@ GoaSynthKeygen --revoke <serial> [reason]
                                      # --unregister, which erases the line)
 GoaSynthKeygen --master-info         # show the embedded master digest
 ```
+
+> **Keep the master key out of the repository.** It is a universal unlock for
+> every shipped copy of the plugin, so it belongs in a password manager — never
+> in a commit, an issue, a build log, or a screenshot. `Source/LicenseKeys.h`
+> (the public key + master digest) is gitignored for the same reason, and the
+> test suite activates with a throwaway key in `tests/TestMasterKey.h` so it
+> never needs the real one.
 
 ### Fulfilling orders in bulk
 

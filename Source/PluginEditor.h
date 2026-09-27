@@ -257,10 +257,14 @@ struct ModOverlay : juce::Component
     bool keyPressed (const juce::KeyPress&) override;   // ESC cancels / closes
 
 private:
-    struct RowGeo { juce::Rectangle<float> src, dst, amt; };
+    struct RowGeo { juce::Rectangle<float> src, dst, amt, curve, lag; };
     juce::Rectangle<float> rowsRect() const;
     RowGeo rowGeo (int row) const;
     int rowAt (juce::Point<float>) const;
+    // Curve and lag are per physical slot (shared by both banks); src/dst/amt
+    // resolve against the bank the card is currently editing.
+    int slotRow (int i) const { return i; }
+    bool editingBankB = false;
     void cycleAtCell (juce::Point<float> pos);
     void setDestIndex (int row, int index);   // write a destination id + repaint
     void setSlotIndex (int row, bool src, int index);   // generic cell write
@@ -826,13 +830,19 @@ private:
     goaui::Panel delayFrame  { "DELAY",  goaui::roleB };
     goaui::Panel reverbFrame { "REVERB", goaui::roleNeutral };
     goaui::Panel moveFrame   { "MOVEMENT", goaui::roleA };
+    goaui::Panel macroFrame  { "MACRO", goaui::roleAccent };
     goaui::Panel ottFrame    { "OTT",    goaui::roleAccent };
     std::unique_ptr<goaui::Ctl> chRateCtl, chDepthCtl, chMixCtl,
         phRateCtl, phDepthCtl, phMixCtl,
         dSyncCtl, dTimeCtl, dFbCtl, dMixCtl,
         rSizeCtl, rDampCtl, rMixCtl,
         oDepthCtl, oLowCtl, oMidCtl, oHighCtl, oOutCtl,
-        driftCtl, uniDetCtl, uniSpreadCtl;
+        driftCtl, uniDetCtl, uniSpreadCtl,
+        charCtl, chordCtl, shimCtl, duckCtl;
+
+    // Performance macros: plain 0..1 knobs meant as matrix SOURCES (also
+    // MIDI CC 14 / CC 15 out of the box).
+    std::unique_ptr<goaui::Ctl> macroACtl, macroBCtl;
 
     // bottom bar
     juce::TextButton octDown { "OCT-", "Octave down" }, octUp { "OCT+", "Octave up" };

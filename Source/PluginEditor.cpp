@@ -132,10 +132,14 @@ int modDotSources (juce::AudioProcessorValueTreeState& apvts,
                    int outSlot[3])
 {
     int n = 0;
+    const bool bankB = apvts.getRawParameterValue (param::modBank) != nullptr
+                    && apvts.getRawParameterValue (param::modBank)->load() > 0.5f;
     for (int i = 0; i < param::modSlots && n < 3; ++i)
     {
-        auto* dst = apvts.getParameter (param::modDst (i));
-        auto* amt = apvts.getParameter (param::modAmt (i));
+        auto* dst = apvts.getParameter (
+            bankB ? param::modBDst (i) : param::modDst (i));
+        auto* amt = apvts.getParameter (
+            bankB ? param::modBAmt (i) : param::modAmt (i));
         if (dst == nullptr || amt == nullptr)
             continue;
         const int dstIdx = (int) dst->getNormalisableRange().convertFrom0to1 (dst->getValue());
@@ -145,7 +149,8 @@ int modDotSources (juce::AudioProcessorValueTreeState& apvts,
         const float a = amt->getNormalisableRange().convertFrom0to1 (amt->getValue());
         if (paramId != row.param || std::abs (a) < 0.003f)
             continue;
-        auto* src = apvts.getParameter (param::modSrc (i));
+        auto* src = apvts.getParameter (
+            bankB ? param::modBSrc (i) : param::modSrc (i));
         if (src == nullptr)
             continue;
         outSrc[n] = (int) src->getNormalisableRange().convertFrom0to1 (src->getValue());
@@ -168,6 +173,8 @@ bool modDotTip (juce::AudioProcessorValueTreeState& apvts,
     const int n = modDotSources (apvts, paramId, src, amt, slot);
     if (n == 0)
         return false;
+    const bool bankB = apvts.getRawParameterValue (param::modBank) != nullptr
+                    && apvts.getRawParameterValue (param::modBank)->load() > 0.5f;
 
     // The control's own label, best-effort: the destination display name
     // (from the dest list) is the authoritative long name.
@@ -178,7 +185,7 @@ bool modDotTip (juce::AudioProcessorValueTreeState& apvts,
 
     juce::StringArray lines;
     for (int k = 0; k < n; ++k)
-        lines.add ("MOD " + juce::String (slot[k] + 1)
+        lines.add ((bankB ? "MOD B" : "MOD ") + juce::String (slot[k] + 1)
                    + ": " + param::modSourceName()[(size_t) src[k]]
                    + " -> " + dstName
                    + " (" + (amt[k] >= 0.0f ? "+" : "")
@@ -246,6 +253,9 @@ static void paintModDot (juce::Graphics& g, juce::Point<float> centre,
         case 1:    c = accentA; break;
         case 2:    c = accentB; break;
         case 3:    case 4: c = accent; break;
+        case 7:    c = accentB.brighter (0.2f); break;
+        case 8:    c = accentA.brighter (0.2f); break;
+        case 9:    case 10: c = textBright; break;
         default:   c = textDim; break;
     }
     g.setColour (c.withAlpha (0.28f + 0.6f * pulse));
@@ -347,6 +357,8 @@ juce::String liveValueText (juce::AudioProcessorValueTreeState& apvts,
                         : (v >= 0.0f ? "+" : "") + f (v, 1) + unit ("ct");
     if (id == param::uniVoices || id == param::polyMax || id == param::bendRange)
         return juce::String (juce::roundToInt (v));
+    if (id == param::duckAmt || id == param::revShimmer)
+        return juce::String (juce::roundToInt (v * 100.0f)) + unit ("%");
     // Everything else is a 0..1 amount (mixes, depths, sizes, phases):
     // percentage is the honest unit for both the tooltip and the readout.
     return juce::String (juce::roundToInt (v * 100.0f)) + unit ("%");
@@ -419,6 +431,75 @@ void Ctl::paint (juce::Graphics& g)
     for (int k = 0; k < n; ++k)
         paintModDot (g, { (float) getWidth() - 8.0f - k * 8.0f, 6.0f },
                      src[k], amt[k], liveEngine);
+
+    // Mod-depth arcs: for each routing into this knob, a short arc around the
+    // knob's perimeter showing where the source pushes the value RIGHT NOW —
+    // the corner dot says WHAT modulates, the arc says HOW FAR it swings.
+    // Same 9-to-3-over-the-top sweep as the value arc, radius just outside it.
+    if (! useCombo && getWidth() >= 34)
+    {
+        auto* par = modSource->getParameter (paramId);
+        if (par != nullptr)
+        {
+        // The arcs mirror the LAF's rotary geometry, which is drawn inside
+        // the slider's bounds — so centre + radius come from there.
+        const auto sb = slider.getBounds().toFloat();
+        const float knobRad = juce::jmin (sb.getWidth(), sb.getHeight()) * 0.42f;
+        const auto centre = sb.getCentre();
+        const float rad = knobRad + 7.0f;
+        const float startA = juce::MathConstants<float>::pi;
+        const float endA = juce::MathConstants<float>::twoPi;
+        const float base = par->getNormalisableRange().convertFrom0to1 (par->getValue());
+        const float span = endA - startA;
+        const auto angleOf = [&] (float x01) -> float
+        {
+            const float nv = par->getNormalisableRange().convertTo0to1 (x01);
+            if (! (nv == nv))          // NaN guard (log ranges below range start)
+                return startA;
+            return startA + span * juce::jlimit (0.0f, 1.0f, nv);
+        };
+        for (int k = 0; k < n; ++k)
+        {
+            // Live source value (last-writer-wins engine snapshot, same as the
+            // dots); modwheel and macros are always-live.
+            float live = 0.0f;
+            if (liveEngine != nullptr)
+                switch (src[k])
+                {
+                    case 1: live = liveEngine->uiLfo1.load (std::memory_order_relaxed); break;
+                    case 2: live = liveEngine->uiLfo2.load (std::memory_order_relaxed); break;
+                    case 3: live = liveEngine->uiEnvF.load (std::memory_order_relaxed); break;
+                    case 4: live = liveEngine->uiEnvA.load (std::memory_order_relaxed); break;
+                    case 5: live = liveEngine->uiVelocity.load (std::memory_order_relaxed); break;
+                    case 6: live = liveEngine->modWheel.load (std::memory_order_relaxed); break;
+                    case 7: live = liveEngine->shValue.load (std::memory_order_relaxed); break;
+                    case 8: live = liveEngine->uiAt.load (std::memory_order_relaxed); break;
+                    case 9: live = liveEngine->macroA.load (std::memory_order_relaxed); break;
+                    case 10: live = liveEngine->macroB.load (std::memory_order_relaxed); break;
+                    default: break;
+                }
+            const float range = [&] {
+                const auto& list = param::modDestList();
+                for (int i = 1; i < (int) list.size(); ++i)
+                    if (paramId == list[(size_t) i].param)
+                        return list[(size_t) i].range;
+                return 1.0f;
+            }();
+            const float depth = std::abs (amt[k]) * range;
+            if (depth < 1.0e-4f)
+                continue;
+            const float a0 = angleOf (base - depth);
+            const float a1 = angleOf (base + depth);
+            juce::Path arc;
+            arc.addCentredArc (centre.x, centre.y, rad, rad, 0.0f,
+                               juce::jmin (a0, a1), juce::jmax (a0, a1), true);
+            juce::Colour c = src[k] == 1 ? accentA : src[k] == 2 ? accentB : accent;
+            g.setColour (c.withAlpha (0.75f));
+            g.strokePath (arc, juce::PathStrokeType (2.0f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        }
+    }
 
     // Serum-style readout: the live value under the name, in compact units
     // (1.5k, 12.0ct, 85, 250m). Drawn here (not in the Label child) so the
@@ -2467,7 +2548,7 @@ ModOverlay::ModOverlay (GoaSynthAudioProcessor& p) : proc (p)
     setAlwaysOnTop (true);
     setWantsKeyboardFocus (true);   // so ESC can cancel pick mode / close
 
-    head.setText ("MOD MATRIX", juce::dontSendNotification);
+    head.setText ("MOD MATRIX \u2014 BANK A", juce::dontSendNotification);
     head.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
     head.setColour (juce::Label::textColourId, accent);
     head.setJustificationType (juce::Justification::centredLeft);
@@ -2532,10 +2613,14 @@ ModOverlay::RowGeo ModOverlay::rowGeo (int row) const
     auto r = all.withTrimmedTop (h * (float) row).withHeight (h)
                 .reduced (0.0f, 2.0f);
     RowGeo g;
-    g.src = r.removeFromLeft (110.0f).reduced (2.0f);
-    r.removeFromLeft (6.0f);
-    g.dst = r.removeFromLeft (110.0f).reduced (2.0f);
-    r.removeFromLeft (6.0f);
+    g.src = r.removeFromLeft (96.0f).reduced (2.0f);
+    r.removeFromLeft (4.0f);
+    g.dst = r.removeFromLeft (96.0f).reduced (2.0f);
+    r.removeFromLeft (4.0f);
+    g.curve = r.removeFromLeft (38.0f).reduced (1.0f);
+    r.removeFromLeft (4.0f);
+    g.lag = r.removeFromLeft (38.0f).reduced (1.0f);
+    r.removeFromLeft (4.0f);
     g.amt = r.reduced (2.0f);
     return g;
 }
@@ -2581,16 +2666,18 @@ void ModOverlay::paint (juce::Graphics& g)
     };
 
     const auto rows = rowsRect();
-    labelled ({ rows.getX(), rows.getY() - 16.0f, 110.0f, 14.0f }, "SOURCE", textDim, false);
-    labelled ({ rows.getX() + 116.0f, rows.getY() - 16.0f, 110.0f, 14.0f }, "DEST", textDim, false);
-    labelled ({ rows.getX() + 232.0f, rows.getY() - 16.0f,
-                rows.getWidth() - 232.0f, 14.0f },
+    labelled ({ rows.getX(), rows.getY() - 16.0f, 96.0f, 14.0f }, "SOURCE", textDim, false);
+    labelled ({ rows.getX() + 100.0f, rows.getY() - 16.0f, 96.0f, 14.0f }, "DEST", textDim, false);
+    labelled ({ rows.getX() + 200.0f, rows.getY() - 16.0f, 38.0f, 14.0f }, "CURVE", textDim, false);
+    labelled ({ rows.getX() + 242.0f, rows.getY() - 16.0f, 38.0f, 14.0f }, "LAG", textDim, false);
+    labelled ({ rows.getX() + 284.0f, rows.getY() - 16.0f,
+                rows.getWidth() - 284.0f, 14.0f },
               "AMOUNT  (drag, bipolar)", textDim, false);
 
     // Pick mode banner: sits between the title strip and the column labels.
     if (pickRow >= 0)
         labelled ({ rows.getX(), rows.getY() - 32.0f, rows.getWidth(), 14.0f },
-                  pickSrc ? "PICK A SOURCE: click an LFO scope or envelope graph to route it here \u2014"
+                  pickSrc ? "PICK A SOURCE: click an LFO scope, ENV graph or MACRO knob \u2014"
                             " same SRC or ESC cancels"
                           : "PICK A KNOB: click any control in the synth to route it here \u2014"
                             " same DST or ESC cancels",
@@ -2599,21 +2686,36 @@ void ModOverlay::paint (juce::Graphics& g)
     for (int i = 0; i < param::modSlots; ++i)
     {
         const auto g_ = rowGeo (i);
-        auto* src = proc.apvts.getParameter (param::modSrc (i));
-        auto* dst = proc.apvts.getParameter (param::modDst (i));
-        auto* amt = proc.apvts.getParameter (param::modAmt (i));
-        if (src == nullptr || dst == nullptr || amt == nullptr)
+        auto* src = proc.apvts.getParameter (
+            editingBankB ? param::modBSrc (i) : param::modSrc (i));
+        auto* dst = proc.apvts.getParameter (
+            editingBankB ? param::modBDst (i) : param::modDst (i));
+        auto* amt = proc.apvts.getParameter (
+            editingBankB ? param::modBAmt (i) : param::modAmt (i));
+        auto* cur = proc.apvts.getParameter (param::modCurve (i));
+        auto* lag = proc.apvts.getParameter (param::modLag (i));
+        if (src == nullptr || dst == nullptr || amt == nullptr
+            || cur == nullptr || lag == nullptr)
             continue;
 
         const int srcIdx = (int) src->getNormalisableRange().convertFrom0to1 (src->getValue());
         const int dstIdx = (int) dst->getNormalisableRange().convertFrom0to1 (dst->getValue());
         const float amtV = amt->getNormalisableRange().convertFrom0to1 (amt->getValue());
         const bool active = srcIdx != 0 && dstIdx != 0;
+        const int curIdx = (int) cur->getNormalisableRange().convertFrom0to1 (cur->getValue());
+        const float lagV = lag->getNormalisableRange().convertFrom0to1 (lag->getValue());
 
         labelled (g_.src, param::modSourceName()[(size_t) srcIdx],
                   active ? accentA : textDim);
         labelled (g_.dst, param::modDestList()[(size_t) dstIdx].label,
                   active ? accent : textDim);
+        static const char* curveNames[3] = { "LIN", "EXP", "SIN" };
+        labelled (g_.curve, curveNames[juce::jlimit (0, 2, curIdx)],
+                  curIdx != 0 ? textBright : textDim);
+        labelled (g_.lag, lagV > 0.005f
+                              ? juce::String (juce::roundToInt (lagV * 100.0f))
+                              : juce::String ("\u2013"),
+                  lagV > 0.005f ? textBright : textDim);
 
         // Armed row: outline the cell awaiting a click assignment.
         if (pickRow == i)
@@ -2710,6 +2812,25 @@ void ModOverlay::paint (juce::Graphics& g)
 
 void ModOverlay::mouseDown (const juce::MouseEvent& e)
 {
+    // BANK A/B tabs: click the card header to switch which bank the card
+    // edits (the engine reads the live modBank switch in the bottom bar —
+    // editing here never changes what the engine runs until you flip it).
+    const auto card = cardBounds();
+    if (e.position.y < (float) card.getY() + 26.0f)
+    {
+        const bool wantB = e.position.x > (float) card.getCentreX();
+        if (editingBankB != wantB)
+        {
+            editingBankB = wantB;
+            head.setText (editingBankB ? "MOD MATRIX \u2014 BANK B"
+                                       : "MOD MATRIX \u2014 BANK A",
+                          juce::dontSendNotification);
+            repaintCtlPaints (getParentComponent());   // dots read the edited bank
+            repaint();
+        }
+        return;
+    }
+
     if (! cardBounds().contains (e.getPosition()))
     {
         // Outside the card while picking: the click "passes through" to the
@@ -2733,7 +2854,8 @@ void ModOverlay::mouseDown (const juce::MouseEvent& e)
     const auto g_ = rowGeo (dragRow);
     if (g_.amt.contains (e.position))
     {
-        auto* amt = proc.apvts.getParameter (param::modAmt (dragRow));
+        auto* amt = proc.apvts.getParameter (
+            editingBankB ? param::modBAmt (dragRow) : param::modAmt (dragRow));
         if (amt == nullptr) { dragRow = -1; return; }
         cancelPick();   // interacting with the row ends a pending pick
         if (e.mods.isShiftDown())
@@ -2802,7 +2924,8 @@ void ModOverlay::mouseDoubleClick (const juce::MouseEvent& e)
     const auto g_ = rowGeo (row);
     if (g_.amt.contains (e.position))
     {
-        if (auto* amt = proc.apvts.getParameter (param::modAmt (row)))
+        if (auto* amt = proc.apvts.getParameter (
+                editingBankB ? param::modBAmt (row) : param::modAmt (row)))
         {
             amt->beginChangeGesture();
             amt->setValueNotifyingHost (amt->getNormalisableRange().convertTo0to1 (0.0f));
@@ -2834,11 +2957,33 @@ void ModOverlay::cycleAtCell (juce::Point<float> pos)
         p->endChangeGesture();
     };
     if (g_.src.contains (pos))
-        cycle (proc.apvts.getParameter (param::modSrc (row)),
+        cycle (proc.apvts.getParameter (
+            editingBankB ? param::modBSrc (row) : param::modSrc (row)),
                param::modSourceName().size());
     else if (g_.dst.contains (pos))
-        cycle (proc.apvts.getParameter (param::modDst (row)),
+        cycle (proc.apvts.getParameter (
+            editingBankB ? param::modBDst (row) : param::modDst (row)),
                (int) param::modDestList().size());
+    else if (g_.curve.contains (pos))
+        cycle (proc.apvts.getParameter (param::modCurve (row)), 3);
+    else if (g_.lag.contains (pos))
+    {
+        // Lag cycles through sensible presets rather than a free sweep:
+        // 0, 25, 50, 75, 100 %.
+        auto* p = proc.apvts.getParameter (param::modLag (row));
+        if (p != nullptr)
+        {
+            const float v = p->getNormalisableRange().convertFrom0to1 (p->getValue());
+            static constexpr float steps[] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+            int idx = 0;
+            for (int s = 0; s < 5; ++s)
+                if (v <= steps[s] + 0.01f) { idx = s; break; }
+            const float next = steps[(idx + (fine ? -1 : 1) + 5) % 5];
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->getNormalisableRange().convertTo0to1 (next));
+            p->endChangeGesture();
+        }
+    }
     repaint();
 }
 
@@ -2846,7 +2991,8 @@ void ModOverlay::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragRow < 0)
         return;
-    auto* amt = proc.apvts.getParameter (param::modAmt (dragRow));
+    auto* amt = proc.apvts.getParameter (
+        editingBankB ? param::modBAmt (dragRow) : param::modAmt (dragRow));
     if (amt == nullptr)
         return;
     // Shift = fine: 560 px for the full sweep instead of 140 (queried live,
@@ -2908,7 +3054,9 @@ void ModOverlay::setDestIndex (int row, int index) { setSlotIndex (row, false, i
 
 void ModOverlay::setSlotIndex (int row, bool src, int index)
 {
-    auto* p = proc.apvts.getParameter (src ? param::modSrc (row) : param::modDst (row));
+    auto* p = proc.apvts.getParameter (
+        src ? (editingBankB ? param::modBSrc (row) : param::modSrc (row))
+            : (editingBankB ? param::modBDst (row) : param::modDst (row)));
     if (p == nullptr)
         return;
     p->beginChangeGesture();
@@ -2960,6 +3108,20 @@ bool ModOverlay::tryAssignDestination (juce::Point<float> pos, bool rightButton)
         const juce::String* id = nullptr;
         if (ctl != nullptr)      id = &ctl->paramId;
         else if (tg != nullptr)  id = &tg->paramId;
+        // MACRO A/B knobs are SOURCES, not destinations: picking with a SRC
+        // cell armed and clicking a macro knob routes the macro into the row.
+        if (pickSrc && ctl != nullptr && id != nullptr
+            && (*id == param::macroA || *id == param::macroB))
+        {
+            setSlotIndex (row, true, *id == param::macroA ? 9 : 10);
+            ctl->triggerFlash();
+            cellFlashRow = row; cellFlashSrc = true;
+            cellFlashUntil = juce::Time::getMillisecondCounter() + 700;
+            flashPointerLine = {};
+            cellFlashTarget = targetPointFor (hit);
+            repaintCtlPaints (getParentComponent());
+            return true;
+        }
         if (id != nullptr)
         {
             if (id->isEmpty())
@@ -4380,10 +4542,23 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     pumpDepthCtl = knob (param::pumpDepth, "DEPTH");
     analogCtl    = knob (param::analogAmt, "ANALOG");
 
+    // Supersaw character: shapes the unison detune/pan field (CLASSIC / PHASED
+    // / HYPER) and chord memory (OFF / 5TH / MINOR / MAJOR / OCT).
+    charCtl  = knob (param::uniMode,   "CHAR", true);
+    chordCtl = knob (param::chordMode, "CHORD", true);
+
+    // FX-duck + reverb-shimmer send.
+    shimCtl = knob (param::revShimmer, "SHIM");
+    duckCtl = knob (param::duckAmt,    "DUCK");
+
     subWaveCtl = knob (param::subWave,   "WAVE", true);
     subOctCtl  = knob (param::subOct,    "OCT");
     subCtl     = knob (param::subLevel,  "LEVEL");
     noiseCtl   = knob (param::noiseLevel, "LEVEL");
+
+    // Performance macros (matrix SOURCES; also MIDI CC 14 / CC 15).
+    macroACtl = knob (param::macroA, "A");
+    macroBCtl = knob (param::macroB, "B");
 
     // ENV / LFO row
     addAndMakeVisible (ampEnvFrame);
@@ -4425,6 +4600,7 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     addAndMakeVisible (delayFrame);
     addAndMakeVisible (reverbFrame);
     addAndMakeVisible (moveFrame);
+    addAndMakeVisible (macroFrame);
     addAndMakeVisible (ottFrame);
     addAndMakeVisible (noiseFrame);
 
@@ -4993,10 +5169,17 @@ void GoaSynthAudioProcessorEditor::resized()
     {
         auto inner = subFrame.getBounds().reduced (7, 24);
         subWaveCtl->setBounds (inner.removeFromTop (20));
+        // 2x2 knob grid: output (LEVEL, OCT) on top, character (CHAR, CHORD)
+        // below — the combos need no readout width, so the narrow panel holds
+        // four cells comfortably.
         auto band = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (130, inner.getHeight()));
         const int kh = band.getHeight() / 2;
-        subCtl->setBounds (band.removeFromTop (kh));
-        subOctCtl->setBounds (band);
+        const int kw = band.getWidth() / 2;
+        auto kr1 = band.removeFromTop (kh);
+        subCtl->setBounds    (kr1.removeFromLeft (kw).reduced (1));
+        subOctCtl->setBounds (kr1.reduced (1));
+        charCtl->setBounds   (band.removeFromLeft (kw).reduced (1));
+        chordCtl->setBounds  (band.reduced (1));
     }
 
     filtFrame.setBounds (row1.removeFromRight (300).withTrimmedRight (gap));
@@ -5168,7 +5351,8 @@ void GoaSynthAudioProcessorEditor::resized()
     // (An earlier draft split 24/18 of the width across the six frames and
     // silently squeezed NOISE to a sliver — found by the extremes sweep.)
     const int noiseW = juce::jmin (140, juce::jmax (64, row3.getWidth() / 8));
-    const int shared = juce::jmax (360, row3.getWidth() - noiseW - 6 * gap);
+    // MACRO takes a fixed slice too; eight frames mean seven gaps.
+    const int shared = juce::jmax (360, row3.getWidth() - noiseW - 110 - 7 * gap);
     chorusFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
     row3.removeFromLeft (gap);
     phaserFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
@@ -5180,6 +5364,9 @@ void GoaSynthAudioProcessorEditor::resized()
     ottFrame.setBounds (row3.removeFromLeft (shared * 5 / 21));
     row3.removeFromLeft (gap);
     moveFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
+    row3.removeFromLeft (gap);
+    // MACRO: fixed narrow panel for the two performance knobs.
+    macroFrame.setBounds (row3.removeFromLeft (110));
     row3.removeFromLeft (gap);
     noiseFrame.setBounds (row3);
 
@@ -5196,13 +5383,23 @@ void GoaSynthAudioProcessorEditor::resized()
     row (chorusFrame, { chRateCtl.get(), chDepthCtl.get(), chMixCtl.get() });
     row (phaserFrame, { phRateCtl.get(), phDepthCtl.get(), phMixCtl.get() });
     row (delayFrame,  { dSyncCtl.get(), dTimeCtl.get(), dFbCtl.get(), dMixCtl.get() });
-    row (reverbFrame, { rSizeCtl.get(), rDampCtl.get(), rMixCtl.get() });
+    row (reverbFrame, { rSizeCtl.get(), rDampCtl.get(), rMixCtl.get(),
+                        shimCtl.get() });
+    row (moveFrame,   { duckCtl.get(),
+                        driftCtl.get(), uniDetCtl.get(), uniSpreadCtl.get() });
+    row (macroFrame,  { macroACtl.get(), macroBCtl.get() });
     row (ottFrame,    { oDepthCtl.get(), oLowCtl.get(), oMidCtl.get(), oHighCtl.get(), oOutCtl.get() });
-    row (moveFrame,   { driftCtl.get(), uniDetCtl.get(), uniSpreadCtl.get() });
     // NOISE panel is the narrowest in the row: give its LEVEL knob the full
     // inner width (the 3-digit 100% readout has to fit alongside a mod dot).
     noiseCtl->setBounds (noiseFrame.getBounds().reduced (8, 24)
                              .withSizeKeepingCentre (noiseFrame.getWidth() - 16, 66));
+    // MACRO: a taller band so A / B stack comfortably in the narrow panel.
+    {
+        auto inner = macroFrame.getBounds().reduced (7, 24);
+        const int kh = juce::jmin (70, inner.getHeight() / 2);
+        macroACtl->setBounds (inner.removeFromTop (kh).reduced (1));
+        macroBCtl->setBounds (inner.reduced (1));
+    }
 
     // ---- bottom bar ----
     auto bb = bottom.reduced (6, 5);

@@ -154,6 +154,13 @@ private:
     juce::dsp::Phaser<float> phaser;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayL, delayR;
     juce::dsp::Reverb reverb;
+    // FX duck: block-rate envelope of the dry synth peak (audio-thread only).
+    float duckEnv = 0.0f;
+    // Shimmer: dual-tap crossfade pitch shifter (x2 = octave up) over a small
+    // ring of the post-reverb mix, blended back in by revShimmer.
+    juce::AudioBuffer<float> shRing;
+    int shW = 0;
+    double shPhase = 0.0;
     juce::dsp::Gain<float> masterGain;
     juce::dsp::Limiter<float> limiter;
     juce::SmoothedValue<float> delayTimeSmoothed;

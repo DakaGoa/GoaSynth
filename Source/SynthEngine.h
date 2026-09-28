@@ -128,6 +128,12 @@ struct EngineParams
     std::atomic<float>* osc2WtPos = nullptr;
     UserWave* osc2User = nullptr;
     std::atomic<float>* fmAmount = nullptr;
+    // Manual PWM duty cycle plus oscillator inter-modulation (hard sync /
+    // ring mod). Sync resets OSC A's phase on every OSC B cycle; ringMod
+    // blends the product of the two oscillators into the output.
+    std::atomic<float>* pulseWidth = nullptr;
+    std::atomic<float>* oscSync = nullptr;
+    std::atomic<float>* ringMod = nullptr;
     std::atomic<float>* subWave = nullptr;
     std::atomic<float>* subOct = nullptr;
     std::atomic<float>* subLevel = nullptr;
@@ -300,10 +306,14 @@ struct ModMatrix
     struct Values
     {
         float oct = 0.0f;       // mdCutoff (octaves)
+        float oct2 = 0.0f;      // mdCutoff2 (octaves, FILTER B)
         float cents1 = 0.0f, cents2 = 0.0f;
         float lvl1 = 0.0f, lvl2 = 0.0f;   // 0..1 add/mul on the knob value
         float wt1 = 0.0f, wt2 = 0.0f;
-        float reso = 0.0f, drive = 0.0f;
+        float reso = 0.0f, reso2 = 0.0f, drive = 0.0f;
+        float pulseW = 0.0f;              // duty-cycle offset (added to PW knob)
+        float vowelMorph = 0.0f;          // formant morph position offset
+        float analog = 0.0f;              // tape wow/flutter depth offset
         float pan1 = 0.0f, pan2 = 0.0f;   // -1..1
         float lfoRate1 = 0.0f, lfoRate2 = 0.0f; // Hz
     };
@@ -356,21 +366,29 @@ struct ModMatrix
                     mem += g * (a - mem);
                     a = mem;
                 }
+                // Named enum cases, not bare indices: the destination list grew
+                // (FILTER B, PW, VOWEL, ANALOG), and a bare `case 9` silently
+                // retargets when a row is inserted above it.
                 switch (s.dst)
                 {
-                    case 1:  out.oct += a * 4.0f; break;
-                    case 2:  out.cents1 += a * 1200.0f; break;
-                    case 3:  out.cents2 += a * 1200.0f; break;
-                    case 4:  out.lvl1 += a; break;
-                    case 5:  out.lvl2 += a; break;
-                    case 6:  out.wt1 += a; break;
-                    case 7:  out.wt2 += a; break;
-                    case 8:  out.reso += a; break;
-                    case 9:  out.drive += a; break;
-                    case 10: out.pan1 += a; break;
-                    case 11: out.pan2 += a; break;
-                    case 12: out.lfoRate1 += a * 6.0f; break;
-                    case 13: out.lfoRate2 += a * 6.0f; break;
+                    case param::mdCutoff:     out.oct += a * 4.0f; break;
+                    case param::mdCutoff2:    out.oct2 += a * 4.0f; break;
+                    case param::mdFin1:       out.cents1 += a * 1200.0f; break;
+                    case param::mdFin2:       out.cents2 += a * 1200.0f; break;
+                    case param::mdLvl1:       out.lvl1 += a; break;
+                    case param::mdLvl2:       out.lvl2 += a; break;
+                    case param::mdWt1:        out.wt1 += a; break;
+                    case param::mdWt2:        out.wt2 += a; break;
+                    case param::mdReso:       out.reso += a; break;
+                    case param::mdReso2:      out.reso2 += a; break;
+                    case param::mdDrive:      out.drive += a; break;
+                    case param::mdPulseW:     out.pulseW += a * 0.45f; break;
+                    case param::mdVowelMorph: out.vowelMorph += a; break;
+                    case param::mdAnalogAmt:  out.analog += a; break;
+                    case param::mdPan1:       out.pan1 += a; break;
+                    case param::mdPan2:       out.pan2 += a; break;
+                    case param::mdLfo1Rate:   out.lfoRate1 += a * 6.0f; break;
+                    case param::mdLfo2Rate:   out.lfoRate2 += a * 6.0f; break;
                     default: break;   // global FX destinations: handled per block
                 }
             }
@@ -388,7 +406,8 @@ struct ModMatrix
     struct Global
     {
         std::atomic<float> delayTime { 0.0f }, delayFb { 0.0f }, revSize { 0.0f },
-                           delayMix { 0.0f }, phMix { 0.0f }, revMix { 0.0f };
+                           delayMix { 0.0f }, phMix { 0.0f }, revMix { 0.0f },
+                           ottDepth { 0.0f }, pumpDepth { 0.0f };
     };
     Global globalFx;
 
@@ -397,9 +416,10 @@ struct ModMatrix
                         float at, float sh, float macA, float macB) noexcept
     {
         float dt = 0.0f, df = 0.0f, rs = 0.0f, dm = 0.0f, pm = 0.0f, rm = 0.0f;
+        float od = 0.0f, pd = 0.0f;
         for (const auto& s : slots)
         {
-            if (s.dst < 14 || s.src == 0 || s.amt == 0.0f)
+            if (s.dst < param::mdFirstGlobalDest || s.src == 0 || s.amt == 0.0f)
                 continue;
             float v = 0.0f;
             switch (s.src)
@@ -417,16 +437,19 @@ struct ModMatrix
                 default: break;
             }
             const float a = s.amt * v;
-            // Range multipliers mirror modDestList(): delay time ±2 octaves of
-            // length, the mix/fb/size knobs ±0.6/±0.4 of their own travel.
+            // Range multipliers mirror modDestList(): delay time +/-2 octaves of
+            // length, the mix/fb/size knobs +/-0.6/+/-0.4 of their own travel,
+            // OTT/pump depth a straight 0..1 travel.
             switch (s.dst)
             {
-                case 14: { const float m = a;         if (std::abs (m) > std::abs (dt)) dt = m; break; }
-                case 15: { const float m = a * 0.6f;  if (std::abs (m) > std::abs (df)) df = m; break; }
-                case 16: { const float m = a * 0.4f;  if (std::abs (m) > std::abs (rs)) rs = m; break; }
-                case 17: { const float m = a * 0.6f;  if (std::abs (m) > std::abs (dm)) dm = m; break; }
-                case 18: { const float m = a * 0.6f;  if (std::abs (m) > std::abs (pm)) pm = m; break; }
-                case 19: { const float m = a * 0.6f;  if (std::abs (m) > std::abs (rm)) rm = m; break; }
+                case param::mdDelayTime:  { const float m = a;        if (std::abs (m) > std::abs (dt)) dt = m; break; }
+                case param::mdDelayFb:    { const float m = a * 0.6f; if (std::abs (m) > std::abs (df)) df = m; break; }
+                case param::mdRevSize:    { const float m = a * 0.4f; if (std::abs (m) > std::abs (rs)) rs = m; break; }
+                case param::mdDelayMix:   { const float m = a * 0.6f; if (std::abs (m) > std::abs (dm)) dm = m; break; }
+                case param::mdPhMix:      { const float m = a * 0.6f; if (std::abs (m) > std::abs (pm)) pm = m; break; }
+                case param::mdRevMix:     { const float m = a * 0.6f; if (std::abs (m) > std::abs (rm)) rm = m; break; }
+                case param::mdOttDepth:   { const float m = a;        if (std::abs (m) > std::abs (od)) od = m; break; }
+                case param::mdPumpDepth:  { const float m = a;        if (std::abs (m) > std::abs (pd)) pd = m; break; }
                 default: break;
             }
         }
@@ -436,6 +459,8 @@ struct ModMatrix
         globalFx.delayMix.store (dm, std::memory_order_relaxed);
         globalFx.phMix.store    (pm, std::memory_order_relaxed);
         globalFx.revMix.store   (rm, std::memory_order_relaxed);
+        globalFx.ottDepth.store (od, std::memory_order_relaxed);
+        globalFx.pumpDepth.store(pd, std::memory_order_relaxed);
     }
 };
 

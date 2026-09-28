@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <set>
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -60,11 +62,18 @@ int main()
     led.deleteFile();
     trial.deleteFile();
 
+    // juce_core has no portable setter for the process environment. On Windows
+    // _putenv stores the pointer it is given rather than copying the string, so
+    // the text has to outlive the call: a std::deque keeps every element's
+    // address stable as more are added. (Passing a temporary String's buffer
+    // "works" only until the allocator reuses it - which would silently undo
+    // the sandbox these overrides exist to create.)
     auto putEnv = [] (const char* name, const juce::String& value)
     {
-        const juce::String kv = juce::String (name) + "=" + value;
+        static std::deque<juce::String> storage;
+        storage.push_back (juce::String (name) + "=" + value);
        #if JUCE_WINDOWS
-        _putenv (kv.toRawUTF8());
+        _putenv (const_cast<char*> (storage.back().toRawUTF8()));
        #else
         setenv (name, value.toRawUTF8(), 1);
        #endif
@@ -72,6 +81,29 @@ int main()
     putEnv ("GOASYNTH_LICENSE_FILE", lic.getFullPathName());
     putEnv ("GOASYNTH_LEDGER_FILE",  led.getFullPathName());
     putEnv ("GOASYNTH_TRIAL_FILE",   trial.getFullPathName());
+
+    // Preset-bank sandbox. Several blocks below save presets into the bank to
+    // exercise the scan / shadow / shared rules. Without these overrides those
+    // writes land in the developer's real %APPDATA%/GoaSynth/Presets and, for
+    // the shared-bank block, in C:\Users\Public\Documents\GoaSynth - which is
+    // machine-wide, so a crash would leave junk patches for every account.
+    const juce::File bankRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                    .getChildFile ("goasynth_roundtrip_test_root");
+    bankRoot.deleteRecursively();
+    const juce::File bank = bankRoot.getChildFile ("Presets");
+    bank.createDirectory();
+    const juce::File shared = bankRoot.getChildFile ("Shared");
+    shared.createDirectory();
+    putEnv ("GOASYNTH_PRESET_DIR", bank.getFullPathName());
+    putEnv ("GOASYNTH_SHARED_PRESET_DIR", shared.getFullPathName());
+
+    if (userpresets::presetsDir() != bank || userpresets::sharedPresetsDir() != shared)
+    {
+        std::printf ("preset sandbox not honoured (presetsDir=%s) - refusing to write "
+                     "into the real bank\n",
+                     (const char*) userpresets::presetsDir().getFullPathName().toRawUTF8());
+        return 1;
+    }
 
     goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
     {
@@ -187,6 +219,54 @@ int main()
                        - a.apvts.getParameter ("cutoff")->getValue()) > 1.0e-4f)
         {
             std::printf ("state with PRESETINFO block failed to restore\n");
+            ++fails;
+        }
+
+        // Re-saving the SAME file with different tags is the rename / retag path
+        // and it is the one that used to corrupt the file: savePresetTo blindly
+        // appended a second PRESETINFO, readTagsFromXml() takes the first, so the
+        // new tags were silently ignored and clearing tags was impossible.
+        if (! userpresets::savePresetTo (file, *xml, { "retagged" }))
+        {
+            std::printf ("re-save (retag) failed\n");
+            ++fails;
+        }
+        const auto retagged = userpresets::readTags (file);
+        if (retagged != juce::StringArray ({ "retagged" }))
+        {
+            std::printf ("retag did not replace the old tags (got '%s')\n",
+                         retagged.joinIntoString (",").toRawUTF8());
+            ++fails;
+        }
+        if (auto after = juce::parseXML (file))
+        {
+            int infoBlocks = 0;
+            for (int i = 0; i < after->getNumChildElements(); ++i)
+                if (after->getChildElement (i)->hasTagName ("PRESETINFO"))
+                    ++infoBlocks;
+            if (infoBlocks != 1)
+            {
+                std::printf ("retag left %d PRESETINFO blocks (want exactly 1)\n",
+                             infoBlocks);
+                ++fails;
+            }
+        }
+        else
+        {
+            std::printf ("retagged preset file is not valid XML\n");
+            ++fails;
+        }
+
+        // Clearing the tags entirely must work too - that is only possible if the
+        // old block was removed rather than shadowed.
+        if (! userpresets::savePresetTo (file, *xml, {}))
+        {
+            std::printf ("re-save (clear tags) failed\n");
+            ++fails;
+        }
+        if (! userpresets::readTags (file).isEmpty())
+        {
+            std::printf ("clearing tags did not remove the PRESETINFO block\n");
             ++fails;
         }
     }
@@ -1349,17 +1429,17 @@ int main()
         }
         goa::License::deactivate();
 
-        auto clearEnv = [] (const char* name)
-        {
-           #if JUCE_WINDOWS
-            _putenv ((juce::String (name) + "=").toRawUTF8());
-           #else
-            unsetenv (name);
-           #endif
-        };
-        clearEnv ("GOASYNTH_LICENSE_FILE");
-        clearEnv ("GOASYNTH_LEDGER_FILE");
-        clearEnv ("GOASYNTH_TRIAL_FILE");
+        // Reset the sandbox FILES, but keep the env overrides in place.
+        //
+        // This used to also _putenv each variable to empty, which dropped the
+        // process back onto the real paths for the remaining ~400 lines of the
+        // suite. Everything below still activates (see the vowel-filter probe),
+        // so that silently wrote the developer's own
+        // %APPDATA%/GoaSynth/license.txt and - worse - bound test serials into
+        // the MACHINE-WIDE ledger at C:\Users\Public\Documents\GoaSynth\License
+        // \machines.txt, which every Windows account on the PC shares. A test
+        // must not spend a real machine binding. Deleting the temp files is all
+        // that is needed to put the store back to "not licensed".
         lic.deleteFile();
         led.deleteFile();
         trial.deleteFile();
@@ -2125,8 +2205,8 @@ int main()
             else if (cat == "riser") { ++risers; if (! on) ++riserBad; }
             else if (on)            ++otherOn;
         }
-        if (leads != 15 || risers != 15)
-            std::printf ("presets: expected 15 LEAD and 15 RISER, got %d/%d\n",
+        if (leads != 20 || risers != 19)
+            std::printf ("presets: expected 20 LEAD and 19 RISER, got %d/%d\n",
                          leads, risers), ++fails;
         if (leadBad != 0)
             std::printf ("presets: %d LEAD patches missing masterHQ\n", leadBad), ++fails;
@@ -2135,6 +2215,213 @@ int main()
         if (otherOn != 0)
             std::printf ("presets: %d non-lead/riser patches force masterHQ on\n",
                          otherOn), ++fails;
+    }
+
+    // Every key a factory preset writes must be a real parameter id. applyPreset()
+    // skips unknown ids silently (it only sets a parameter when
+    // apvts.getParameter(id) is non-null), so a typo in a hand-written patch
+    // would simply do nothing - indistinguishable from a patch that just sounds
+    // odd, and invisible in every other test. With ~175 patches that is far too
+    // easy to get wrong by hand, so pin it down.
+    {
+        GoaSynthAudioProcessor probe;
+        std::set<juce::String> unknown;
+        int values = 0;
+
+        for (const auto& pr : getPresets())
+            for (const auto& [id, v] : pr.values)
+            {
+                juce::ignoreUnused (v);
+                ++values;
+                if (probe.apvts.getParameter (id) == nullptr)
+                    unknown.insert (id);
+            }
+
+        if (! unknown.empty())
+        {
+            std::printf ("presets: %d parameter id(s) do not exist:",
+                         (int) unknown.size());
+            for (const auto& id : unknown)
+                std::printf (" %s", (const char*) id.toRawUTF8());
+            std::printf ("\n");
+            ++fails;
+        }
+        else
+        {
+            std::printf ("presets: all %d values map to real parameters\n", values);
+        }
+    }
+
+    // Every factory preset must carry browser tags. The TAG filter is built from
+    // getFactoryTags(), so a preset with no entry simply shows no tags - a silent
+    // gap in the browser rather than an error anywhere.
+    {
+        const auto& tags = getFactoryTags();
+        std::vector<juce::String> untagged;
+
+        for (const auto& pr : getPresets())
+            if (tags.find (pr.name) == tags.end())
+                untagged.push_back (pr.name);
+
+        if (! untagged.empty())
+        {
+            std::printf ("presets: %d factory preset(s) have no browser tags:",
+                         (int) untagged.size());
+            for (const auto& n : untagged)
+                std::printf (" %s", (const char*) n.toRawUTF8());
+            std::printf ("\n");
+            ++fails;
+        }
+        else
+        {
+            std::printf ("presets: all %d factory presets are tagged\n",
+                         (int) getPresets().size());
+        }
+    }
+
+    // ---- new parameters, mod destinations, host program list, MIDI output ----
+    // Guards the features added in this round. Each check is here because the
+    // failure mode is otherwise invisible: parameters are looked up by string
+    // (a typo silently does nothing), the program list is stubbed by default,
+    // and the MIDI output buffer is easy to fill with an echo by accident.
+    {
+        GoaSynthAudioProcessor probe;
+        int bad = 0;
+
+        // (1) The new parameters must exist with the defaults the DSP assumes.
+        struct PDef { const char* id; float def; };
+        const PDef defs[] = {
+            { param::pulseWidth, 0.5f }, { param::ringMod, 0.0f },
+            { param::eqLow, 0.0f }, { param::eqMid, 0.0f },
+            { param::eqMidFreq, 1200.0f }, { param::eqHigh, 0.0f },
+        };
+        for (const auto& d : defs)
+        {
+            auto* p = probe.apvts.getParameter (d.id);
+            if (p == nullptr)
+            {
+                std::printf ("new params: missing parameter id '%s'\n", d.id);
+                ++bad;
+                continue;
+            }
+            const float got = p->getNormalisableRange().convertFrom0to1 (p->getDefaultValue());
+            if (std::abs (got - d.def) > 1.0e-3f)
+            {
+                std::printf ("new params: '%s' defaults to %.4f, expected %.4f\n",
+                             d.id, got, d.def);
+                ++bad;
+            }
+        }
+        if (auto* p = probe.apvts.getParameter (param::oscSync))
+        {
+            if (p->getDefaultValue() > 0.5f)
+            {
+                std::printf ("new params: oscSync defaults ON\n");
+                ++bad;
+            }
+        }
+        else
+        {
+            std::printf ("new params: missing parameter id '%s'\n", param::oscSync);
+            ++bad;
+        }
+
+        // (2) Every mod destination must name a real parameter, or a matrix
+        // slot aimed at it would move nothing at all.
+        const int nDests = (int) param::modDestList().size();
+        for (int i = 1; i < nDests; ++i)
+        {
+            const char* pid = param::modDestList()[(size_t) i].param;
+            if (probe.apvts.getParameter (pid) == nullptr)
+            {
+                std::printf ("mod dests: destination %d ('%s') is not a parameter\n", i, pid);
+                ++bad;
+            }
+        }
+
+        // (3) The host program list must expose the whole factory bank.
+        const int nProg    = probe.getNumPrograms();
+        const int nFactory = (int) getPresets().size();
+        if (nProg != nFactory + 1)
+        {
+            std::printf ("programs: getNumPrograms() = %d, expected %d (Init + %d factory)\n",
+                         nProg, nFactory + 1, nFactory);
+            ++bad;
+        }
+        if (probe.getProgramName (0) != "Init Patch")
+        {
+            std::printf ("programs: program 0 is '%s', expected 'Init Patch'\n",
+                         (const char*) probe.getProgramName (0).toRawUTF8());
+            ++bad;
+        }
+        for (int i = 0; i < nFactory; ++i)
+            if (probe.getProgramName (i + 1) != juce::String (getPresets()[(size_t) i].name))
+            {
+                std::printf ("programs: name %d is '%s', expected '%s'\n", i + 1,
+                             (const char*) probe.getProgramName (i + 1).toRawUTF8(),
+                             getPresets()[(size_t) i].name);
+                ++bad;
+                break;
+            }
+
+        // Loading a program must actually move the parameters onto that patch
+        // (the message-thread load is driven directly here - no message loop).
+        probe.setCurrentProgram (1);
+        probe.applyPendingProgram();
+        {
+            const auto& pr = getPresets()[0];
+            int mismatch = 0;
+            for (const auto& [id, v] : pr.values)
+                if (auto* p = probe.apvts.getParameter (id))
+                {
+                    const float got = p->getNormalisableRange().convertFrom0to1 (p->getValue());
+                    if (std::abs (got - v) > 1.0e-2f)
+                        ++mismatch;
+                }
+            if (mismatch > 0)
+            {
+                std::printf ("programs: program 1 ('%s') left %d value(s) wrong\n",
+                             pr.name, mismatch);
+                ++bad;
+            }
+        }
+        if (probe.getCurrentProgram() != 1)
+        {
+            std::printf ("programs: getCurrentProgram() = %d after loading program 1\n",
+                         probe.getCurrentProgram());
+            ++bad;
+        }
+
+        // (4) producesMidi() must be true, and processBlock must NOT echo the
+        // host's own notes back out - that is the whole point of collecting the
+        // arp's events into a separate buffer.
+        if (! probe.producesMidi())
+        {
+            std::printf ("midi out: producesMidi() is false\n");
+            ++bad;
+        }
+        {
+            probe.prepareToPlay (48000.0, 512);
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 0);
+            midi.addEvent (juce::MidiMessage::noteOff (1, 60), 256);
+            probe.processBlock (buf, midi);
+            // The transport is not playing, so the arp generates nothing: the
+            // output must be empty rather than a copy of the input.
+            if (! midi.isEmpty())
+            {
+                std::printf ("midi out: %d event(s) echoed back from the input\n",
+                             midi.getNumEvents());
+                ++bad;
+            }
+        }
+
+        if (bad == 0)
+            std::printf ("new features: parameters + %d mod destinations + %d host programs "
+                         "+ MIDI out (no echo) all OK\n", nDests - 1, nProg);
+        else
+            ++fails;
     }
 
     std::printf (fails == 0 ? "ROUND TRIP OK\n" : "FAILURES: %d\n", fails);

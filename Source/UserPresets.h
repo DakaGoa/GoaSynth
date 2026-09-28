@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <juce_core/juce_core.h>
 
 // User preset bank: patches live as .goapreset files (XML written by the
@@ -10,6 +11,19 @@ namespace userpresets
 
 inline juce::File presetsDir()
 {
+    // Test override, same convention as the licence store (GOASYNTH_LICENSE_FILE
+    // and friends). Without it a test that saves or renames a preset would write
+    // straight into the real user's bank. Tests assert this is honoured before
+    // touching anything.
+    if (const char* over = std::getenv ("GOASYNTH_PRESET_DIR"))
+        if (*over != 0)
+        {
+            const juce::File dir (juce::String::fromUTF8 (over));
+            if (! dir.exists())
+                dir.createDirectory();
+            return dir;
+        }
+
     auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                    .getChildFile ("GoaSynth").getChildFile ("Presets");
     if (! dir.exists())
@@ -22,6 +36,18 @@ inline juce::File presetsDir()
 // shared machines can trade sounds without copying files by hand.
 inline juce::File sharedPresetsDir()
 {
+    // Test override. The shared bank is machine-wide, so a test that writes here
+    // and then crashes leaves junk patches for EVERY account on the machine -
+    // including a studio's. Same convention as GOASYNTH_PRESET_DIR.
+    if (const char* over = std::getenv ("GOASYNTH_SHARED_PRESET_DIR"))
+        if (*over != 0)
+        {
+            const juce::File dir (juce::String::fromUTF8 (over));
+            if (! dir.exists())
+                dir.createDirectory();
+            return dir;
+        }
+
     auto dir = juce::File::getSpecialLocation (juce::File::commonDocumentsDirectory)
                    .getChildFile ("GoaSynth");
     if (! dir.exists())
@@ -85,6 +111,16 @@ inline bool savePresetTo (const juce::File& f, const juce::XmlElement& stateXml,
 
     // Sidecar metadata block: tags for the browser's tag filter. Stored in the
     // same file so bank sharing / backups carry the tags with the patches.
+    //
+    // Strip any existing block FIRST. This function is also used to rewrite a
+    // preset that already has one (rename, retag), and blindly appending would
+    // leave two PRESETINFO children - readTagsFromXml() takes the first, so the
+    // new tags would be silently ignored and clearing tags impossible.
+    for (int i = xml->getNumChildElements(); --i >= 0;)
+        if (auto* child = xml->getChildElement (i))
+            if (child->hasTagName ("PRESETINFO"))
+                xml->removeChildElement (child, true);
+
     juce::StringArray clean;
     for (const auto& tag : tags)
         if (tag.trim().isNotEmpty())
@@ -145,6 +181,7 @@ inline bool deletePreset (const juce::File& f)
 // ---- preset packs (.goapack = a plain zip of .goapreset files) -------------
 
 constexpr const char* packExtension = "goapack";
+constexpr const char* presetExtension = "goapreset";
 
 inline juce::File withPackExtension (juce::File f)
 {
@@ -263,6 +300,72 @@ inline PackImportResult importPack (const juce::File& packFile, const juce::File
     if (r.imported == 0 && r.skipped == 0 && r.error.isEmpty())
         r.error = "No .goapreset patches found in this pack.";
     return r;
+}
+
+// ---- browser state: favourites + last filter -------------------------------
+// Kept deliberately OUT of the patch files. A "favourite" flag written into a
+// .goapreset would mutate the user's own data, would not survive a re-save from
+// an older build, and could never work at all for factory patches, which have
+// no file behind them. One small JSON next to the bank instead.
+struct BrowserState
+{
+    juce::StringArray favourites;   // stable keys, see favouriteKey()
+    int folder = 0;                 // 0 ALL, 1 FACTORY, 2 USER, 3 FAVOURITES
+    int sortMode = 0;               // 0 name A-Z, 1 name Z-A, 2 newest, 3 bank order
+    juce::String tag, search;
+};
+
+inline juce::File browserStateFile()
+{
+    // Sibling of Presets/, so the preset folder stays purely patches.
+    return presetsDir().getParentDirectory().getChildFile ("browser.json");
+}
+
+// Identity of a preset across sessions. User patches are identified by their
+// file name (they have one); factory patches by name (they do not).
+inline juce::String favouriteKey (bool isUser, const juce::String& name,
+                                  const juce::File& f)
+{
+    return isUser ? "u:" + f.getFileName() : "f:" + name;
+}
+
+inline BrowserState loadBrowserState()
+{
+    BrowserState s;
+    const auto f = browserStateFile();
+    if (! f.existsAsFile())
+        return s;
+
+    const auto v = juce::JSON::parse (f.loadFileAsString());
+    const auto* o = v.getDynamicObject();
+    if (o == nullptr)
+        return s;   // unreadable/corrupt: fall back to defaults, never throw
+
+    if (const auto* arr = o->getProperty ("favourites").getArray())
+        for (const auto& e : *arr)
+            if (e.toString().isNotEmpty())
+                s.favourites.addIfNotAlreadyThere (e.toString());
+
+    s.folder   = juce::jlimit (0, 3, (int) o->getProperty ("folder"));
+    s.sortMode = juce::jlimit (0, 3, (int) o->getProperty ("sort"));
+    s.tag      = o->getProperty ("tag").toString();
+    s.search   = o->getProperty ("search").toString();
+    return s;
+}
+
+inline void saveBrowserState (const BrowserState& s)
+{
+    auto* o = new juce::DynamicObject();
+    juce::Array<juce::var> favs;
+    for (const auto& k : s.favourites)
+        favs.add (k);
+    o->setProperty ("favourites", favs);
+    o->setProperty ("folder", s.folder);
+    o->setProperty ("sort", s.sortMode);
+    o->setProperty ("tag", s.tag);
+    o->setProperty ("search", s.search);
+    // Best effort: a failed write must never break the UI.
+    browserStateFile().replaceWithText (juce::JSON::toString (juce::var (o)));
 }
 
 } // namespace userpresets

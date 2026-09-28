@@ -35,7 +35,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <functional>
+#include <utility>
+#include <vector>
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -90,6 +93,104 @@ static juce::TextButton* findButton (juce::Component* parent, const juce::String
             return deep;
     }
     return nullptr;
+}
+
+// First button whose tooltip starts with `prefix`. Needed for buttons whose
+// label is not usable as an identity: the trial badge reads "TRIAL 4 h 12 m"
+// while a trial runs, and is left with an EMPTY label when the synth is
+// licensed - only its tooltip is fixed, so that is what identifies it.
+static juce::Button* findButtonByTooltip (juce::Component* parent,
+                                          const juce::String& prefix)
+{
+    if (parent == nullptr)
+        return nullptr;
+    for (auto* c : parent->getChildren())
+    {
+        if (auto* b = dynamic_cast<juce::Button*> (c))
+            if (auto* tip = dynamic_cast<juce::SettableTooltipClient*> (b))
+                if (tip->getTooltip().startsWithIgnoreCase (prefix))
+                    return b;
+        if (auto* deep = findButtonByTooltip (c, prefix))
+            return deep;
+    }
+    return nullptr;
+}
+
+// First Label whose text starts with `prefix` (for prose labels that have no
+// parameter id to identify them by).
+static juce::Label* findLabelStarting (juce::Component* parent,
+                                       const juce::String& prefix)
+{
+    if (parent == nullptr)
+        return nullptr;
+    for (auto* c : parent->getChildren())
+    {
+        if (auto* l = dynamic_cast<juce::Label*> (c))
+            if (l->getText().startsWithIgnoreCase (prefix))
+                return l;
+        if (auto* deep = findLabelStarting (c, prefix))
+            return deep;
+    }
+    return nullptr;
+}
+
+// A synthetic MouseEvent, for driving a ListBox row gesture through the real
+// click routing (star column / tag column / plain click / right-click) instead
+// of calling the handlers behind its back. MouseEvent has no default
+// constructor, so every field has to be supplied.
+static juce::MouseEvent makeRowClick (juce::Component& target, int x, int y,
+                                      bool rightButton, int numClicks = 1)
+{
+    const auto pos = juce::Point<float> ((float) x, (float) y);
+    const auto now = juce::Time::getCurrentTime();
+    return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(),
+                             pos,
+                             rightButton ? juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier)
+                                         : juce::ModifierKeys(),
+                             1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                             &target, &target, now, pos, now, numClicks, false);
+}
+
+// Sum of every parameter's normalised value: a cheap fingerprint of "which patch
+// is loaded". applyPreset() rewrites parameters, so any change proves the click
+// actually loaded something.
+static double patchFingerprint (GoaSynthAudioProcessor& proc)
+{
+    double sum = 0.0;
+    for (auto* p : proc.getParameters())
+        sum += p->getValue() * (double) (1 + (p->getName (32).length() % 7));
+    return sum;
+}
+
+// Does any Label in the tree currently read exactly `text`? Used to confirm the
+// header's preset name followed the selection, through the public tree only.
+static bool anyLabelReads (juce::Component* c, const juce::String& text)
+{
+    if (c == nullptr)
+        return false;
+    if (auto* l = dynamic_cast<juce::Label*> (c))
+        if (l->getText() == text)
+            return true;
+    for (auto* ch : c->getChildren())
+        if (anyLabelReads (ch, text))
+            return true;
+    return false;
+}
+
+// Same idea for Buttons: the zoom readout is a TextButton, not a Label, so
+// anyLabelReads() cannot see it. Used by the size/zoom sandbox self-check to
+// prove the saved zoom preference was actually read back.
+static bool anyButtonReads (juce::Component* c, const juce::String& text)
+{
+    if (c == nullptr)
+        return false;
+    if (auto* b = dynamic_cast<juce::Button*> (c))
+        if (b->getButtonText() == text)
+            return true;
+    for (auto* ch : c->getChildren())
+        if (anyButtonReads (ch, text))
+            return true;
+    return false;
 }
 
 // First goaui::Ctl / ToggleCtl wired to a given parameter id.
@@ -166,15 +267,116 @@ static void expectChildLaidOut (juce::Component& parent, const char* what)
 }
 
 // Run a button's handler synchronously and let any bookkeeping settle.
-static void press (juce::TextButton& btn)
+static void press (juce::Button& btn)
 {
     if (btn.onClick != nullptr)
         btn.onClick();
     juce::Thread::sleep (8);
 }
 
+// ---- layout audit -----------------------------------------------------------
+// "Nothing should overlap" made checkable. Two visible siblings sharing pixels
+// means one is painted over the other, so the covered control's name/readout is
+// unreadable. This walks a component tree and counts such pairs.
+//
+// Exemptions, all by design:
+//   * A child whose bounds equal its parent's is a full-surface cover - the
+//     dimmed backdrop of an overlay, the editor's own background. It is skipped
+//     as a *participant* but still recursed into, so an open overlay's internals
+//     get audited while it deliberately covers the panel underneath.
+//   * Panel frames are decorative backgrounds; the knobs are added to the editor
+//     and positioned inside them on purpose, so panel-vs-control never counts -
+//     but panel-vs-panel and control-vs-control do.
+//   * Hidden subtrees are not on screen and are not walked at all, so a closed
+//     overlay's stale bounds can never produce a phantom hit.
+//
+// A readable name, so a failure names the control rather than a vtable symbol.
+static juce::String describeComponent (juce::Component* c)
+{
+    if (auto* ctl = dynamic_cast<goaui::Ctl*> (c))
+        return "Ctl[" + ctl->paramId + "]";
+    if (auto* tg = dynamic_cast<goaui::ToggleCtl*> (c))
+        return "Toggle[" + tg->paramId + "]";
+    if (auto* btn = dynamic_cast<juce::TextButton*> (c))
+        return "Button[" + btn->getButtonText() + "]";
+    if (auto* lab = dynamic_cast<juce::Label*> (c))
+        return "Label[" + lab->getText().substring (0, 14) + "]";
+    if (auto* cb = dynamic_cast<juce::ComboBox*> (c))
+        return "Combo[" + cb->getText() + "]";
+    return juce::String (typeid (*c).name());
+}
+
+static bool isPanelFrame (juce::Component* c)
+{
+    return dynamic_cast<goaui::Panel*> (c) != nullptr;
+}
+
+static void walkOverlaps (juce::Component& parent, const juce::String& where,
+                          int& pairs, juce::String& firstHit)
+{
+    auto& kids = parent.getChildren();
+    const auto parentBounds = parent.getLocalBounds();
+
+    for (int i = 0; i < kids.size(); ++i)
+    {
+        auto* a = kids[i];
+        if (! a->isVisible() || a->getBounds() == parentBounds)
+            continue;
+
+        for (int j = i + 1; j < kids.size(); ++j)
+        {
+            auto* b = kids[j];
+            if (! b->isVisible() || b->getBounds() == parentBounds)
+                continue;
+            if (isPanelFrame (a) != isPanelFrame (b))
+                continue;
+
+            const auto inter = a->getBounds().getIntersection (b->getBounds());
+            if (inter.getWidth() > 1 && inter.getHeight() > 1)
+            {
+                ++pairs;
+                const juce::String msg =
+                    where + "  " + describeComponent (&parent) + "  ->  "
+                    + describeComponent (a) + " " + a->getBounds().toString()
+                    + "  vs  " + describeComponent (b) + " " + b->getBounds().toString();
+                if (firstHit.isEmpty())
+                    firstHit = msg;
+                std::printf ("  overlap: %s\n", (const char*) msg.toRawUTF8());
+            }
+        }
+    }
+
+    for (auto* c : parent.getChildren())
+        if (c->isVisible())
+            walkOverlaps (*c, where, pairs, firstHit);
+}
+
+// Count overlapping sibling pairs anywhere under `root`, appending the first
+// hit to `firstHit` (which is also why it is passed in, not returned).
+static int countOverlaps (juce::Component& root, const juce::String& where,
+                          juce::String& firstHit)
+{
+    int pairs = 0;
+    walkOverlaps (root, where, pairs, firstHit);
+    return pairs;
+}
+
+// Visible components in a subtree. Printed alongside each audit so a "0
+// overlaps" line can be told apart from a walk that had nothing to inspect.
+static int countVisibleNodes (juce::Component& c)
+{
+    int n = 1;
+    for (auto* ch : c.getChildren())
+        if (ch->isVisible())
+            n += countVisibleNodes (*ch);
+    return n;
+}
+
 // Set when GOASYNTH_KNOB_SHOT is set: capture docs/assets/mod-dots.png.
 static bool wantKnobShot = false;
+
+// Set when GOASYNTH_BROWSER_SHOT is set: capture docs/assets/preset-browser.png.
+static bool wantBrowserShot = false;
 
 int main()
 {
@@ -187,6 +389,14 @@ int main()
     if (std::getenv ("GOASYNTH_KNOB_SHOT") != nullptr)
         wantKnobShot = true;
 
+    // GOASYNTH_BROWSER_SHOT=1 captures docs/assets/preset-browser.png with the
+    // browser overlay open, which docs/index.html embeds. Nothing else keeps
+    // that file honest: the shipped one predated the browser overhaul, so it
+    // still advertised a UI with no favourites tab, sort combo, count label or
+    // star column.
+    if (std::getenv ("GOASYNTH_BROWSER_SHOT") != nullptr)
+        wantBrowserShot = true;
+
     // License sandbox (same trick as RoundTripTest): point the license store
     // at throwaway temp files and activate with the dev master key, so the
     // editor builds the real synth UI instead of the activation screen.
@@ -198,11 +408,18 @@ int main()
                                  .getChildFile ("goasynth_overlay_test_trial.txt");
     lic.deleteFile(); led.deleteFile(); trial.deleteFile();
 
+    // juce_core has no portable setter for the process environment. On Windows
+    // _putenv stores the pointer it is given rather than copying the string, so
+    // the text has to outlive the call: a std::deque keeps every element's
+    // address stable as more are added. (Passing a temporary String's buffer
+    // "works" only until the allocator reuses it - which would silently undo
+    // the sandbox these overrides exist to create.)
     auto putEnv = [] (const char* name, const juce::String& value)
     {
-        const juce::String kv = juce::String (name) + "=" + value;
+        static std::deque<juce::String> storage;
+        storage.push_back (juce::String (name) + "=" + value);
        #if JUCE_WINDOWS
-        _putenv (kv.toRawUTF8());
+        _putenv (const_cast<char*> (storage.back().toRawUTF8()));
        #else
         setenv (name, value.toRawUTF8(), 1);
        #endif
@@ -210,6 +427,113 @@ int main()
     putEnv ("GOASYNTH_LICENSE_FILE", lic.getFullPathName());
     putEnv ("GOASYNTH_LEDGER_FILE",  led.getFullPathName());
     putEnv ("GOASYNTH_TRIAL_FILE",   trial.getFullPathName());
+
+    // Preset-bank sandbox. The browser section below saves, renames and
+    // favourites presets; without this override those writes would land in the
+    // real %APPDATA%/GoaSynth bank and could overwrite a user's own patch.
+    // Nested one level down so browserStateFile() (a sibling of Presets/) also
+    // lands inside the sandbox rather than loose in the temp directory.
+    const juce::File bankRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                    .getChildFile ("goasynth_overlay_test_root");
+    bankRoot.deleteRecursively();
+    const juce::File bank = bankRoot.getChildFile ("Presets");
+    bank.createDirectory();
+    const juce::File shared = bankRoot.getChildFile ("Shared");
+    shared.createDirectory();
+    putEnv ("GOASYNTH_PRESET_DIR", bank.getFullPathName());
+    putEnv ("GOASYNTH_SHARED_PRESET_DIR", shared.getFullPathName());
+
+    // Self-check BEFORE any preset write. If the override were ignored the whole
+    // browser section would silently mutate the developer's real bank, so this
+    // fails loudly and stops rather than proceeding on a false assumption.
+    if (userpresets::presetsDir() != bank
+        || userpresets::sharedPresetsDir() != shared
+        || ! userpresets::browserStateFile().isAChildOf (bankRoot))
+    {
+        std::printf ("FAIL: GOASYNTH_PRESET_DIR not honoured (presetsDir=%s) - "
+                     "refusing to run the browser tests against the real bank\n",
+                     (const char*) userpresets::presetsDir().getFullPathName().toRawUTF8());
+        return 1;
+    }
+
+    // Window-size / zoom sandbox. The editor remembers the last window size and
+    // the UI zoom in the same per-user folder as the preset bank, and
+    // saveSizePref() fires from the DESTRUCTOR - so the size sweeps further down
+    // (the editor is pushed through its whole resize range several times) would
+    // silently overwrite the real user's saved window size. Point both
+    // preferences at throwaway files, then prove the override is honoured
+    // BEFORE anything is written: seed sentinels, build a disposable editor and
+    // check it came up at exactly those values. If the override were ignored the
+    // editor would open at the 1120 x 780 default and this fails loudly instead
+    // of clobbering real state.
+    const juce::File sizeTmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                   .getChildFile ("goasynth_overlay_test_size.txt");
+    const juce::File zoomTmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                   .getChildFile ("goasynth_overlay_test_zoom.txt");
+    sizeTmp.deleteFile(); zoomTmp.deleteFile();
+    putEnv ("GOASYNTH_SIZE_FILE", sizeTmp.getFullPathName());
+    putEnv ("GOASYNTH_ZOOM_FILE",  zoomTmp.getFullPathName());
+    sizeTmp.replaceWithText ("1024 820");
+    zoomTmp.replaceWithText ("1.50");
+    {
+        GoaSynthAudioProcessor probe;
+        std::unique_ptr<juce::AudioProcessorEditor> pe (probe.createEditor());
+        const bool sizeOk = pe != nullptr && pe->getWidth() == 1024 && pe->getHeight() == 820;
+        const bool zoomOk = anyButtonReads (pe.get(), "150%");
+        if (! sizeOk || ! zoomOk)
+        {
+            std::printf ("FAIL: GOASYNTH_SIZE_FILE / GOASYNTH_ZOOM_FILE not honoured "
+                         "(probe opened %dx%d, zoom %s) - refusing to run the layout "
+                         "sweeps against the real preferences\n",
+                         pe != nullptr ? pe->getWidth() : -1,
+                         pe != nullptr ? pe->getHeight() : -1,
+                         zoomOk ? "150%" : "not 150%");
+            return 1;
+        }
+        std::printf ("[sandbox] size/zoom overrides honoured (probe 1024x820, zoom 150%%)\n");
+    }
+    // That probe's destructor just wrote its size into the sandbox. Clear both so
+    // the editor under test comes up at the documented 1120 x 780 default and
+    // every size assertion below starts from a known state.
+    sizeTmp.deleteFile(); zoomTmp.deleteFile();
+
+    // Seed a known user bank BEFORE the editor is built: allPresets is populated
+    // in the editor's constructor, so files written later would not show up
+    // without a refresh path the test cannot reach. Real state XML (from a
+    // throwaway processor) so clicking a row really loads a patch and the
+    // fingerprint can prove it.
+    {
+        GoaSynthAudioProcessor seed;
+        const auto mk = [&seed] (const char* name, const juce::StringArray& tags,
+                                 float cutoff)
+        {
+            seed.apvts.getParameter ("cutoff")->setValueNotifyingHost (cutoff);
+            auto xml = seed.stateToXml();
+            if (xml == nullptr)
+            {
+                std::printf ("FAIL: could not seed preset '%s'\n", name);
+                ++fails;
+                return;
+            }
+            if (! userpresets::savePreset (name, *xml, tags))
+            {
+                std::printf ("FAIL: could not write seeded preset '%s'\n", name);
+                ++fails;
+            }
+        };
+        // Names chosen to make A-Z / Z-A unambiguous among the user bank, and
+        // written WITH underscores because safeFileName() maps every space to an
+        // underscore - saving "AA TEST PATCH" would list it as "AA_TEST_PATCH",
+        // so the test would be asserting against a name that never exists.
+        // The tags are chosen so "testtag" appears in NO preset name, which is
+        // what proves the search reaches into tags rather than just the title.
+        mk ("AA_TEST_PATCH", { "testtag", "alphatag" }, 0.20f);
+        mk ("MM_TEST_PATCH", { "testtag" },              0.55f);
+        mk ("ZZ_TEST_PATCH", { "testtag", "omegatag" },  0.90f);
+
+        EXPECT (userpresets::scanDir (bank).size() == 3,
+                "preset sandbox seeded with 3 user patches");
+    }
 
     goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
     {
@@ -234,6 +558,243 @@ int main()
     ed->addToDesktop (juce::ComponentPeer::windowIsTemporary);
     juce::Thread::sleep (16);
 
+    // ---- auditor self-test --------------------------------------------------
+    // countOverlaps is what certifies "nothing overlaps", so it must be shown
+    // to actually fire. A walker that silently visited nothing would report 0
+    // overlaps forever and look identical to a clean layout - which is exactly
+    // how a green audit lies. Pin the detector down before trusting its verdict.
+    {
+        juce::Component holder;
+        holder.setSize (200, 200);
+        juce::Component a, b;
+        holder.addAndMakeVisible (a);
+        holder.addAndMakeVisible (b);
+        a.setBounds (10, 10, 60, 60);
+        b.setBounds (40, 40, 60, 60);   // shares 30x30 with a
+        juce::String hit;
+        const int bad = countOverlaps (holder, "self-test", hit);
+
+        b.setBounds (100, 100, 60, 60);   // now clear of a
+        juce::String clearHit;
+        const int good = countOverlaps (holder, "self-test", clearHit);
+        EXPECT (bad == 1 && good == 0 && hit.isNotEmpty(),
+                "the overlap auditor detects an overlap and clears when moved");
+
+        // The exemptions must hold too, or the audit is just false alarms. A
+        // full-surface cover (an overlay's dimmed backdrop) overlaps everything
+        // underneath by definition and must not be counted.
+        juce::Component cover;
+        holder.addAndMakeVisible (cover);
+        cover.setBounds (holder.getLocalBounds());
+        juce::String coverHit;
+        EXPECT (countOverlaps (holder, "self-test-cover", coverHit) == 0,
+                "a full-surface cover is exempt from the overlap audit");
+
+        // A hidden component is not on screen, so a stale overlap involving it
+        // must not be reported (this is what keeps closed overlays quiet).
+        a.setBounds (10, 10, 60, 60);
+        b.setBounds (40, 40, 60, 60);   // overlapping again...
+        b.setVisible (false);           // ...but hidden
+        juce::String hiddenHit;
+        EXPECT (countOverlaps (holder, "self-test-hidden", hiddenHit) == 0,
+                "a hidden component is skipped by the overlap audit");
+        b.setVisible (true);
+    }
+
+    // ---- layout audit: no two sibling controls may overlap -----------------
+    // Swept across the window sizes the plugin actually allows
+    // (setResizeLimits(960, 720, 2048, 1440)): the fixed-size day meant only
+    // 1120x780 was ever laid out, and the rows are laid out by arithmetic that
+    // can run out of width before it runs out of controls.
+    //
+    // The rules (full-surface covers, Panel frames, hidden subtrees) live in
+    // countOverlaps at the top of this file; the same helper audits the
+    // overlays below, so main panel and overlays cannot drift apart.
+    {
+        // Corners and mid-points of the allowed resize range. The 640-tall
+        // entries are below the enforced minimum (720) on purpose: the layout
+        // must degrade without overlapping even if a host ignores the limits,
+        // which is exactly how the FX row / bottom bar collision shipped.
+        const int sizes[][2] = {
+            { 1120, 780 },   // the default
+            {  960, 720 },   // minimum
+            {  960, 780 },
+            { 1120, 720 },
+            { 1300, 900 },
+            { 1600, 1100 },
+            { 2048, 720 },   // widest, shortest
+            { 2048, 1440 },  // maximum
+            {  960, 640 },   // below the limit - defensive
+            { 1120, 640 },
+            { 2048, 640 }
+        };
+
+        int pairs = 0;
+        juce::String firstHit;
+        for (const auto& s : sizes)
+        {
+            ed->setSize (s[0], s[1]);
+            juce::Thread::sleep (4);
+            const int before = pairs;
+            pairs += countOverlaps (*ed, juce::String (s[0]) + "x" + juce::String (s[1]),
+                                    firstHit);
+            std::printf ("[layout] %dx%d -> %d overlapping sibling pair(s) across %d components\n",
+                         s[0], s[1], pairs - before, countVisibleNodes (*ed));
+        }
+
+        // Leave the editor at its default size: the destructor persists
+        // whatever size it is destroyed at.
+        ed->setSize (1120, 780);
+        juce::Thread::sleep (4);
+
+        EXPECT (pairs == 0, "no two sibling controls overlap at any window size"
+                            + (firstHit.isNotEmpty() ? juce::String (": ") + firstHit
+                                                     : juce::String()));
+    }
+
+    // Optional full-UI capture for the docs site, at the default window size
+    // with no overlay up (this point in the run is the only one where the plain
+    // synth UI is on screen):
+    //     GOASYNTH_UI_SHOT=1 ./build/Release/OverlayTest
+    // It regenerates docs/assets/ui-overview.png, which docs/index.html embeds.
+    // Nothing else keeps that file honest, and it drifts silently: the shipped
+    // one still showed a MACRO frame with no controls, the pre-shortening knob
+    // labels ("MODWHEEL", "WIDTH") and the AI overlay covering the header.
+    if (std::getenv ("GOASYNTH_UI_SHOT") != nullptr)
+    {
+        ed->setSize (1120, 780);
+        juce::Thread::sleep (60);
+        // Software-backed: the default native type is D2D-backed on Windows and
+        // an encode pulled from it can return stale pixels (see the shots in the
+        // MOD section for the full story).
+        const juce::Image shot = ed->createComponentSnapshot (
+            ed->getLocalBounds(), false, 1.0f, juce::SoftwareImageType());
+        const auto f = juce::File (GOASYNTH_DOCS_ASSETS "/ui-overview.png");
+        juce::PNGImageFormat png;
+        juce::MemoryOutputStream mo;
+        const bool encoded = png.writeImageToStream (shot, mo);
+        // replaceWithData, NOT createOutputStream: a stream opened over an
+        // existing PNG can leave stale bytes past the new data.
+        const bool written = encoded && f.replaceWithData (mo.getData(), mo.getDataSize());
+        std::printf ("[shot] %s (%s, %dx%d)\n", written ? "written" : "FAILED",
+                     (const char*) f.getFullPathName().toRawUTF8(),
+                     shot.getWidth(), shot.getHeight());
+        EXPECT (f.existsAsFile() && f.getSize() > 20000, "UI overview screenshot written");
+    }
+
+    // ---- on-knob text audit ------------------------------------------------
+    // A Ctl draws its NAME on the first line and its live READOUT on the
+    // second, so the two can no longer collide however narrow the cell is.
+    // What still matters is that each line fits its own width. The readout is
+    // asserted (it is live data); an over-long name is only reported, because
+    // JUCE squeezes a Label rather than overflowing it - cosmetic, not an
+    // overlap.
+    {
+        struct TextAudit
+        {
+            static void walk (GoaSynthAudioProcessor& proc, juce::Component* c,
+                              int& total, int& readoutOver, int& labelOver,
+                              juce::String& firstReadout, juce::String& firstLabel)
+            {
+                if (c == nullptr)
+                    return;
+                if (auto* ctl = dynamic_cast<goaui::Ctl*> (c);
+                    ctl != nullptr && ! ctl->useCombo)
+                {
+                    ++total;
+                    const int reserve = 1 * 8 + 3;   // one mod dot + its gap
+                    const auto readout =
+                        goaui::liveValueText (proc.apvts, ctl->paramId, true);
+                    const int readoutW = juce::roundToInt (
+                        juce::Font (juce::FontOptions (7.0f, juce::Font::bold))
+                            .getStringWidth (readout));
+                    if (readoutW > ctl->getWidth() - reserve)
+                    {
+                        ++readoutOver;
+                        if (firstReadout.isEmpty())
+                            firstReadout = ctl->paramId + " \"" + readout + "\" needs "
+                                           + juce::String (readoutW) + "px, has "
+                                           + juce::String (ctl->getWidth() - reserve);
+                    }
+
+                    const int labelW = juce::roundToInt (
+                        juce::Font (juce::FontOptions (9.0f))
+                            .getStringWidth (ctl->label.getText()));
+                    // Flag a label that cannot render in full. JUCE's Label
+                    // insets its text area by ~2px, so a name that merely
+                    // measures the cell width still comes out ellipsized
+                    // ("DEPTH" -> "DEP..."). 3px of slack is what actually
+                    // renders cleanly.
+                    if (labelW > ctl->getWidth() - 3)
+                    {
+                        ++labelOver;
+                        if (firstLabel.isEmpty())
+                            firstLabel = ctl->paramId + " \"" + ctl->label.getText()
+                                         + "\" needs " + juce::String (labelW) + "px, cell "
+                                         + juce::String (ctl->getWidth());
+                        std::printf ("  name: %-14s \"%s\" needs %dpx, cell %d\n",
+                                     (const char*) ctl->paramId.toRawUTF8(),
+                                     (const char*) ctl->label.getText().toRawUTF8(),
+                                     labelW, ctl->getWidth());
+                    }
+                }
+                for (auto* ch : c->getChildren())
+                    walk (proc, ch, total, readoutOver, labelOver, firstReadout, firstLabel);
+            }
+        };
+
+        int total = 0, readoutOver = 0, labelOver = 0;
+        juce::String firstReadout, firstLabel;
+        TextAudit::walk (proc, ed.get(), total, readoutOver, labelOver,
+                         firstReadout, firstLabel);
+        std::printf ("[text] %d knobs; readout over: %d; name squeezed: %d\n",
+                     total, readoutOver, labelOver);
+        if (firstReadout.isNotEmpty())
+            std::printf ("[text] readout: %s\n", (const char*) firstReadout.toRawUTF8());
+        if (firstLabel.isNotEmpty())
+            std::printf ("[text] name:    %s\n", (const char*) firstLabel.toRawUTF8());
+
+        EXPECT (readoutOver == 0, "every knob's readout fits its own line"
+                                  + (firstReadout.isNotEmpty()
+                                         ? juce::String (": ") + firstReadout
+                                         : juce::String()));
+    }
+
+    // Optional visual dump of the layout at several heights, for eyeballing
+    // that a short window degrades gracefully rather than merely avoiding
+    // overlap:  GOASYNTH_LAYOUT_SHOT=1 ./build/Release/OverlayTest
+    if (std::getenv ("GOASYNTH_LAYOUT_SHOT") != nullptr)
+    {
+        auto shoot = [] (juce::Component& c, juce::Rectangle<int> area, float scale,
+                         const juce::String& name)
+        {
+            auto img = c.createComponentSnapshot (area, false, scale);
+            const auto out = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                 .getChildFile ("goasynth_" + name + ".png");
+            out.deleteFile();
+            juce::FileOutputStream os (out);
+            juce::PNGImageFormat png;
+            if (png.writeImageToStream (img, os))
+                std::printf ("[shot] %s\n", (const char*) out.getFullPathName().toRawUTF8());
+        };
+
+        for (const int h : { 780, 720, 640 })
+        {
+            ed->setSize (1120, h);
+            juce::Thread::sleep (40);
+            shoot (*ed, ed->getLocalBounds(), 1.0f, "layout_" + juce::String (h));
+        }
+
+        // Zoomed halves of the FX row (the row with the tightest cells).
+        ed->setSize (1120, 780);
+        juce::Thread::sleep (40);
+        shoot (*ed, { 0, 535, 560, 140 }, 3.0f, "row3_left");
+        shoot (*ed, { 560, 535, 560, 140 }, 3.0f, "row3_right");
+
+        ed->setSize (1120, 780);
+        juce::Thread::sleep (20);
+    }
+
     // ---- MOD matrix (the two shipped bugs) --------------------------------
     {
         auto* modBtn = findButton (ed.get(), "MOD");
@@ -246,10 +807,129 @@ int main()
             expectOnScreen (*modOverlay, "MOD overlay on screen after press");
             expectChildLaidOut (*modOverlay, "MOD title + close laid out");
 
+            // The overlay is a full-surface cover, so countOverlaps skips it as
+            // a participant but still recurses into it: this audits the cells,
+            // rows and buttons *inside* the card against each other. Without it
+            // the invariant only held for the panel the overlay covers.
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "MOD open", hit);
+                std::printf ("[layout] MOD overlay open -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*modOverlay));
+                EXPECT (pairs == 0, "no overlap among the MOD overlay's controls"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+
+                // That walk only reaches 4 nodes, because the matrix itself is
+                // custom-painted rather than built from child components. So the
+                // cells - the part that actually carries the information - have
+                // to be audited as geometry, or "nothing overlaps" would be
+                // asserting nothing about the overlay the user actually reads.
+                const auto card = modOverlay->cardBounds();
+                const auto grid = modOverlay->rowsRect().toNearestInt();
+
+                EXPECT (modOverlay->getLocalBounds().contains (card),
+                        "MOD card fits inside the overlay");
+                EXPECT (grid.getWidth() > 0 && grid.getHeight() > 0
+                            && card.contains (grid),
+                        "MOD matrix grid sits inside the card");
+
+                // Collect all 8 rows x 5 cells and test every pair. The rows are
+                // laid out by arithmetic, so a change to the row height or to a
+                // cell width can silently make one row bleed into the next.
+                std::vector<std::pair<juce::Rectangle<float>, juce::String>> cells;
+                for (int r = 0; r < param::modSlots; ++r)
+                {
+                    const auto g = modOverlay->rowGeo (r);
+                    const juce::String tag = "row" + juce::String (r + 1);
+                    cells.push_back ({ g.src,   tag + ".SRC" });
+                    cells.push_back ({ g.dst,   tag + ".DST" });
+                    cells.push_back ({ g.curve, tag + ".CURVE" });
+                    cells.push_back ({ g.lag,   tag + ".LAG" });
+                    cells.push_back ({ g.amt,   tag + ".AMT" });
+                }
+
+                int cellOverlaps = 0;
+                juce::String firstCellHit;
+                for (size_t i = 0; i < cells.size(); ++i)
+                    for (size_t j = i + 1; j < cells.size(); ++j)
+                    {
+                        const auto inter =
+                            cells[i].first.getIntersection (cells[j].first);
+                        if (inter.getWidth() > 0.5f && inter.getHeight() > 0.5f)
+                        {
+                            ++cellOverlaps;
+                            if (firstCellHit.isEmpty())
+                                firstCellHit = cells[i].second + " " + cells[i].first.toString()
+                                             + "  vs  " + cells[j].second + " "
+                                             + cells[j].first.toString();
+                        }
+                    }
+                std::printf ("[layout] MOD matrix -> %d painted cells, %d overlap(s)\n",
+                             (int) cells.size(), cellOverlaps);
+                EXPECT (cellOverlaps == 0, "no two MOD matrix cells overlap"
+                                           + (firstCellHit.isNotEmpty()
+                                                  ? juce::String (": ") + firstCellHit
+                                                  : juce::String()));
+
+                // The three real children must clear the painted grid as well.
+                for (auto* ch : modOverlay->getChildren())
+                {
+                    const auto inter = ch->getBounds().getIntersection (grid);
+                    EXPECT (inter.getWidth() <= 1 || inter.getHeight() <= 1,
+                            "MOD child \"" + describeComponent (ch)
+                                + "\" clears the painted matrix grid");
+                }
+
+                // The footer cheat-sheet is the only documentation of a painted
+                // matrix's affordances, so every line must fit: a truncated tail
+                // silently drops the last item (ESC), which is exactly what one
+                // 9pt line in a 528px band did before it was split in two.
+                for (auto* prefix : { "click SRC", "click the amount bar" })
+                {
+                    auto* l = findLabelStarting (modOverlay, prefix);
+                    EXPECT (l != nullptr, juce::String ("MOD cheat-sheet line found: ")
+                                              + prefix);
+                    if (l == nullptr)
+                        continue;
+                    const int textW = juce::roundToInt (
+                        l->getFont().getStringWidth (l->getText()));
+                    std::printf ("[text] MOD cheat-sheet %dpx in %dpx\n",
+                                 textW, l->getWidth());
+                    EXPECT (textW <= l->getWidth(),
+                            "MOD cheat-sheet line fits (" + juce::String (textW)
+                                + "px in " + juce::String (l->getWidth()) + "px)");
+                }
+
+                // Same optional dump as the main layout:  GOASYNTH_LAYOUT_SHOT=1
+                if (std::getenv ("GOASYNTH_LAYOUT_SHOT") != nullptr)
+                {
+                    const juce::Image shot = ed->createComponentSnapshot (
+                        card, false, 2.0f, juce::SoftwareImageType());
+                    const auto out = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                         .getChildFile ("goasynth_mod_matrix.png");
+                    out.deleteFile();
+                    juce::FileOutputStream os (out);
+                    juce::PNGImageFormat png;
+                    if (png.writeImageToStream (shot, os))
+                        std::printf ("[shot] %s\n",
+                                     (const char*) out.getFullPathName().toRawUTF8());
+                }
+            }
+
             // Resize the window with the overlay up: the editor must re-fit it.
             ed->setBounds (ed->getBounds().withSize (1300, 900));
             juce::Thread::sleep (8);
             expectOnScreen (*modOverlay, "MOD overlay re-fits on resize");
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "MOD @1300x900", hit);
+                std::printf ("[layout] MOD overlay @1300x900 -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*modOverlay));
+                EXPECT (pairs == 0, "MOD matrix stays clean when the window grows"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+            }
 
             press (*modBtn);
             EXPECT (! modOverlay->isVisible(), "MOD overlay closes on 2nd press");
@@ -422,41 +1102,70 @@ int main()
                         "pointer line aims at the clicked control");
 
                 // Sample the shaft — away from the flashed cell at one end and
-                // the control at the other — and require accentB-ish pixels
-                // near it. A 4px line at 70% opacity over the card lands within
-                // ~90 of accentB, so 100 covers the blend and the antialiasing
-                // without matching the card's own gradient.
+                // the control at the other — and require accentB ink there.
+                //
+                // NOT an absolute distance to accentB. A stroked line is
+                // antialiased and alpha-blended, so its pixels are never exactly
+                // accentB, and the blend also depends on how much of the 700 ms
+                // fade has elapsed by the time the snapshot is painted. Pinning
+                // that number made the test flip on unrelated changes: it read
+                // 105 against a limit of 100. What "the line was drawn" really
+                // means is that the pixels ALONG the reported segment sit far
+                // closer to accentB than the surface immediately beside them, so
+                // measure that contrast instead. Measured on the current card:
+                // the stroke's core is ~105 from accentB, the surface ~7px off
+                // it is ~280 - so the ratio is huge and alpha-independent.
                 const auto want = goaui::accentB;
                 const auto bounds = shot.getBounds();
-                int probes = 0, hits = 0;
+                const auto dir = (line.getEnd() - line.getStart()) / line.getLength();
+                const juce::Point<float> nrm (-dir.y, dir.x);
 
-                for (const float t : { 0.35f, 0.5f, 0.65f, 0.8f })
+                // Squared distance from accentB of the nearest pixel in a small
+                // disc around `q` (a disc, because the stroke is antialiased and
+                // the sample point can sit between pixel centres).
+                auto inkDistance = [&] (juce::Point<float> q)
                 {
-                    const auto p = line.getPointAlongLineProportionally (t);
-                    bool hit = false;
-
-                    for (int oy = -3; oy <= 3 && ! hit; ++oy)
-                        for (int ox = -3; ox <= 3 && ! hit; ++ox)
+                    int best = 1 << 30;
+                    for (int oy = -2; oy <= 2; ++oy)
+                        for (int ox = -2; ox <= 2; ++ox)
                         {
-                            const int x = juce::roundToInt (p.x) + ox;
-                            const int y = juce::roundToInt (p.y) + oy;
+                            const int x = juce::roundToInt (q.x) + ox;
+                            const int y = juce::roundToInt (q.y) + oy;
                             if (! bounds.contains (x, y))
                                 continue;
-
                             const auto px = shot.getPixelAt (x, y);
                             const int dr = (int) px.getRed()   - (int) want.getRed();
                             const int dg = (int) px.getGreen() - (int) want.getGreen();
                             const int db = (int) px.getBlue()  - (int) want.getBlue();
-                            if (dr * dr + dg * dg + db * db < 100 * 100)
-                                hit = true;
+                            best = juce::jmin (best, dr * dr + dg * dg + db * db);
                         }
+                    return best;
+                };
+
+                int probes = 0, drawn = 0;
+
+                for (const float t : { 0.35f, 0.5f, 0.65f, 0.8f })
+                {
+                    const auto p = line.getPointAlongLineProportionally (t);
+                    const int onLine = inkDistance (p);
+
+                    // Furthest of several off-stroke samples: the surface beside
+                    // the line is not uniform (cells, borders, glyphs), and one
+                    // unlucky offset must not decide the verdict.
+                    int offLine = 0;
+                    for (const float o : { -10.0f, -7.0f, 7.0f, 10.0f })
+                        offLine = juce::jmax (offLine,
+                                              inkDistance (p + nrm * o));
 
                     ++probes;
-                    if (hit)
-                        ++hits;
+                    if (onLine * 4 < offLine)   // core at least 2x closer than its surroundings
+                        ++drawn;
                 }
 
-                EXPECT (hits >= probes - 1,
+                std::printf ("[flash] pointer line carries ink at %d of %d probes\n",
+                             drawn, probes);
+
+                EXPECT (drawn >= probes - 1,
                         "confirm flash draws a pointer line toward the picked knob");
             }
 
@@ -472,10 +1181,32 @@ int main()
                 EXPECT (std::abs (mvTest.oct - 4.0f) < 1.0e-4f,
                         "matrix reaches the engine (velocity->cutoff = 4 oct)");
 
-                m.slots[1] = { 1, 15, 0.5f };  // LFO 1 -> DELAY FB, amount 0.5
+                // Named enum constants, never bare indices: the destination list
+                // grows (FILTER B, PULSE W, VOWEL, OTT, PUMP were added), and a
+                // literal 15 silently became "OTT DEPTH" when rows were inserted.
+                m.slots[1] = { 1, (int) param::mdDelayFb, 0.5f };  // LFO 1 -> DELAY FB, amount 0.5
                 m.publishGlobal (1.0f, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f);
                 EXPECT (std::abs (m.globalFx.delayFb.load() - 0.3f) < 1.0e-4f,
                         "global FX destination publishes (LFO1->delayFb = 0.3)");
+
+                // The destinations added in this round must reach the engine too:
+                // a per-voice one (PULSE W) and a global one (OTT DEPTH).
+                m.slots[0] = { 1, (int) param::mdPulseW, 1.0f };   // LFO 1 -> PULSE W
+                m.computeAll (mvTest, 1.0f, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f,
+                              lagTest, 48000.0f, 1.0 / 128.0);
+                EXPECT (std::abs (mvTest.pulseW - 0.45f) < 1.0e-4f,
+                        "PULSE W reaches the engine (LFO1 -> +0.45 duty)");
+
+                m.slots[0] = { 1, (int) param::mdCutoff2, 1.0f };  // LFO 1 -> CUTOFF B
+                m.computeAll (mvTest, 1.0f, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f,
+                              lagTest, 48000.0f, 1.0 / 128.0);
+                EXPECT (std::abs (mvTest.oct2 - 4.0f) < 1.0e-4f,
+                        "FILTER B cutoff reaches the engine (LFO1 -> 4 oct)");
+
+                m.slots[1] = { 9, (int) param::mdOttDepth, 1.0f }; // MACRO A -> OTT DEPTH
+                m.publishGlobal (0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 1.0f, 0.0f);
+                EXPECT (std::abs (m.globalFx.ottDepth.load() - 1.0f) < 1.0e-4f,
+                        "OTT DEPTH publishes (MACRO A -> full squeeze)");
 
                 m.slots[0] = { 0, 0, 0.0f };   // leave the slots muted
                 m.slots[1] = { 0, 0, 0.0f };
@@ -623,6 +1354,59 @@ int main()
         EXPECT (browseBtn != nullptr && browser != nullptr, "browser + button found");
         if (browseBtn != nullptr && browser != nullptr)
         {
+            // ---- read the visible list through the public tooltip hook --------
+            // `rows` is private, but getTooltipForRow() is part of ListBoxModel
+            // and its first line is always the row label. Headers return an
+            // EMPTY tooltip, which is exactly how they are told apart from
+            // presets - so the test never has to reach inside the overlay.
+            auto rowLabel = [browser] (int row) -> juce::String
+            {
+                return browser->getTooltipForRow (row)
+                    .upToFirstOccurrenceOf ("\n", false, false);
+            };
+            auto isHeader = [browser] (int row)
+            {
+                return browser->getTooltipForRow (row).isEmpty();
+            };
+            auto bodyCount = [&]
+            {
+                int n = 0;
+                for (int i = 0; i < browser->getNumRows(); ++i)
+                    if (! isHeader (i))
+                        ++n;
+                return n;
+            };
+            auto firstBodyRow = [&]
+            {
+                for (int i = 0; i < browser->getNumRows(); ++i)
+                    if (! isHeader (i))
+                        return i;
+                return -1;
+            };
+            auto bodyLabels = [&]
+            {
+                juce::StringArray out;
+                for (int i = 0; i < browser->getNumRows(); ++i)
+                    if (! isHeader (i))
+                        out.add (rowLabel (i));
+                return out;
+            };
+            auto findRow = [&] (const juce::String& name)
+            {
+                for (int i = 0; i < browser->getNumRows(); ++i)
+                    if (! isHeader (i) && rowLabel (i) == name)
+                        return i;
+                return -1;
+            };
+            // Type into the search box the way a user does: setText with
+            // dontSendNotification is what the restore path uses, so the test
+            // fires the change callback itself.
+            auto typeSearch = [browser] (const juce::String& s)
+            {
+                browser->setSearchText (s);
+                browser->search.onTextChange();
+            };
+
             press (*browseBtn);
             expectOnScreen (*browser, "preset browser on screen");
             expectChildLaidOut (*browser, "browser controls laid out");
@@ -630,6 +1414,363 @@ int main()
             if (auto* tab = findButton (browser, "FACTORY"))
                 EXPECT (tab->getWidth() > 0 && tab->isVisible(),
                         "browser FACTORY tab visible with bounds");
+
+            const int totalBody = bodyCount();
+            EXPECT (totalBody > 0, "browser lists presets");
+            EXPECT (browser->folder() == 0 && browser->sortMode() == 0,
+                    "browser opens on ALL / A-Z by default");
+
+            // The count label must agree with what is actually listed, or it is
+            // worse than no label at all.
+            EXPECT (browser->count.getText()
+                        == juce::String (totalBody) + (totalBody == 1 ? " preset" : " presets"),
+                    "count label agrees with the listed rows: "
+                        + browser->count.getText());
+
+            // Bank headers (FACTORY / USER PATCHES) must be present: the two
+            // banks have to stay visually separated under every sort mode.
+            bool sawHeader = false;
+            for (int i = 0; i < browser->getNumRows(); ++i)
+                sawHeader = sawHeader || isHeader (i);
+            EXPECT (sawHeader, "browser groups the banks under headers");
+
+            // README/site illustration: docs/assets/preset-browser.png. Capture
+            // the whole editor (dimmed synth behind, overlay on top) to match the
+            // composition of the committed asset. FACTORY is selected first so the
+            // shot shows the factory bank rather than this run's sandbox test
+            // patches, and the folder is restored afterwards so the assertions
+            // below still see the ALL view they expect.
+            if (wantBrowserShot)
+            {
+                browser->setFolder (1);            // FACTORY
+                browser->list.selectRow (0, false, true);
+                browser->list.scrollToEnsureRowIsOnscreen (0);
+                juce::Thread::sleep (60);
+                const juce::Image shot = ed->createComponentSnapshot (
+                    ed->getLocalBounds(), false, 1.0f, juce::SoftwareImageType());
+                juce::PNGImageFormat png;
+                juce::MemoryOutputStream mo;
+                const bool encoded = png.writeImageToStream (shot, mo);
+                const auto f = juce::File (GOASYNTH_DOCS_ASSETS "/preset-browser.png");
+                const bool written = encoded
+                                     && f.replaceWithData (mo.getData(), mo.getDataSize());
+                std::printf ("[shot] %s (%s, %dx%d)\n", written ? "written" : "FAILED",
+                             (const char*) f.getFullPathName().toRawUTF8(),
+                             shot.getWidth(), shot.getHeight());
+                EXPECT (f.existsAsFile() && f.getSize() > 20000,
+                        "preset-browser screenshot written");
+                browser->setFolder (0);            // back to ALL
+            }
+
+            {
+                const int r0 = firstBodyRow();
+                const juce::String tip = browser->getTooltipForRow (r0);
+                EXPECT (tip.contains ("click to audition")
+                            && tip.contains ("double-click to load and close"),
+                        "row tooltip explains click vs double-click");
+                EXPECT (tip.contains ("right-click"),
+                        "row tooltip advertises the right-click menu");
+                // Headers are the only rows with no tooltip, and the A-Z view
+                // opens with the FACTORY header at the top.
+                EXPECT (isHeader (0) && browser->getTooltipForRow (0).isEmpty(),
+                        "the list opens with the FACTORY header (no tooltip)");
+            }
+
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "browser open", hit);
+                std::printf ("[layout] preset browser open -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*browser));
+                EXPECT (pairs == 0, "no overlap inside the preset browser"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+            }
+
+            // ---- audition: click loads but LEAVES THE BROWSER OPEN ------------
+            // This is the headline behaviour change. The old browser closed on a
+            // single click, so comparing two patches meant reopening every time.
+            {
+                const int rz = findRow ("ZZ_TEST_PATCH");
+                EXPECT (rz >= 0, "seeded user patch is listed in the browser");
+                if (rz >= 0)
+                {
+                    const double before = patchFingerprint (proc);
+                    // x = 100: past the star column (28) and clear of the tag
+                    // column, i.e. the name area - the plain-click path.
+                    browser->listBoxItemClicked (
+                        rz, makeRowClick (browser->list, 100, 0, false));
+                    EXPECT (browser->isVisible(),
+                            "plain click auditions and leaves the browser open");
+                    EXPECT (std::fabs (patchFingerprint (proc) - before) > 1.0e-9,
+                            "plain click actually loaded the patch");
+                    EXPECT (anyLabelReads (ed.get(), "ZZ_TEST_PATCH"),
+                            "the header name follows the auditioned patch");
+                }
+            }
+
+            // ---- accept: double-click loads AND closes -----------------------
+            {
+                const int rz = findRow ("ZZ_TEST_PATCH");
+                if (rz >= 0)
+                {
+                    browser->listBoxItemDoubleClicked (
+                        rz, makeRowClick (browser->list, 100, 0, false, 2));
+                    EXPECT (! browser->isVisible(),
+                            "double-click loads the patch and closes the browser");
+                    EXPECT (anyLabelReads (ed.get(), "ZZ_TEST_PATCH"),
+                            "the accepted patch is the loaded one");
+                }
+            }
+
+            // ---- ESC closes without rolling back ----------------------------
+            // Closing must never undo the audition: losing the patch you just
+            // chose is worse than any leftover. Two paths, because the search
+            // box swallows ESC (TextEditor::consumeEscAndReturnKeys) and the
+            // overlay's keyPressed() only sees it when the list has focus.
+            {
+                press (*browseBtn);
+                EXPECT (browser->isVisible(), "browser reopens");
+
+                const int ra = findRow ("AA_TEST_PATCH");
+                if (ra >= 0)
+                    browser->listBoxItemClicked (
+                        ra, makeRowClick (browser->list, 100, 0, false));
+                const double auditioned = patchFingerprint (proc);
+
+                browser->search.onEscapeKey();   // the real search-box path
+                EXPECT (! browser->isVisible(),
+                        "ESC from the search box closes the browser");
+                EXPECT (std::fabs (patchFingerprint (proc) - auditioned) < 1.0e-12,
+                        "closing never rolls back - the auditioned patch stays loaded");
+
+                press (*browseBtn);
+                EXPECT (browser->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey)),
+                        "overlay handles ESC when the list has focus");
+                EXPECT (! browser->isVisible(), "ESC via keyPressed closes the browser");
+            }
+
+            // ---- Return accepts the highlighted row -------------------------
+            {
+                press (*browseBtn);
+                const int rm = findRow ("MM_TEST_PATCH");
+                EXPECT (rm >= 0, "MM_TEST_PATCH listed");
+                if (rm >= 0)
+                {
+                    browser->list.selectRow (rm, false, true);
+                    browser->search.onReturnKey();
+                    EXPECT (! browser->isVisible(),
+                            "Return from the search box takes the preset and closes");
+                    EXPECT (anyLabelReads (ed.get(), "MM_TEST_PATCH"),
+                            "Return loaded the highlighted preset");
+                }
+            }
+
+            // ---- arrow keys walk the list and skip headers ------------------
+            {
+                press (*browseBtn);
+                EXPECT (browser->keyPressed (juce::KeyPress (juce::KeyPress::downKey)),
+                        "overlay handles the down arrow while search has focus");
+                const int sel = browser->list.getSelectedRow();
+                EXPECT (sel >= 0, "down arrow moves the list cursor onto a row");
+                EXPECT (sel < 0 || ! isHeader (sel),
+                        "down arrow never lands on a group header");
+                browser->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+                EXPECT (! browser->isVisible(), "browser closed again");
+            }
+
+            // ---- search reaches into the TAGS, not just the name ------------
+            // "testtag" is on all three seeded patches and in NO preset name, so
+            // a hit can only come from the tag half of the haystack. This is the
+            // exact case the old name-only search failed.
+            {
+                press (*browseBtn);
+                const int all = bodyCount();
+
+                typeSearch ("testtag");
+                EXPECT (bodyCount() == 3,
+                        "search matches a tag that appears in no preset name");
+                EXPECT (browser->count.getText().startsWith ("3 of "),
+                        "count label switches to 'N of M' when filtered: "
+                            + browser->count.getText());
+
+                typeSearch ("test_patch");
+                const int nName = bodyCount();
+                EXPECT (nName == 3, "search on a name fragment finds the seeded patches");
+                typeSearch ("test_patch alphatag");
+                EXPECT (bodyCount() == 1 && rowLabel (firstBodyRow()) == "AA_TEST_PATCH",
+                        "a second term ANDs rather than widens (1 of 3)");
+
+                typeSearch ("test_patch zzznope");
+                EXPECT (bodyCount() == 0, "an unmatched term yields an empty list");
+                EXPECT (browser->count.getText().startsWith ("0 of "),
+                        "empty result is reported in the count label");
+                // Exercise the empty-state paint branch (rows.empty()).
+                const juce::Image shot =
+                    browser->createComponentSnapshot (browser->getLocalBounds());
+                EXPECT (shot.isValid(),
+                        "empty-state paint path runs without crashing");
+
+                typeSearch ("alphatag");
+                EXPECT (bodyCount() == 1 && rowLabel (firstBodyRow()) == "AA_TEST_PATCH",
+                        "tag-only search narrows to exactly the tagged patch");
+
+                typeSearch ("");
+                EXPECT (bodyCount() == all, "clearing the search restores the full list");
+            }
+
+            // ---- sort modes, checked inside the USER bank -------------------
+            // The user bank had NO defined order before this - it came straight
+            // out of findChildFiles(), so it differed per machine and per run.
+            {
+                const juce::StringArray asc { "AA_TEST_PATCH", "MM_TEST_PATCH",
+                                              "ZZ_TEST_PATCH" };
+                const juce::StringArray desc { "ZZ_TEST_PATCH", "MM_TEST_PATCH",
+                                               "AA_TEST_PATCH" };
+
+                browser->setSort (0);
+                browser->setFolder (2);   // setFolder fires the rebuild
+                EXPECT (browser->folder() == 2 && browser->sortMode() == 0,
+                        "USER tab + A-Z selected");
+                EXPECT (bodyLabels() == asc,
+                        "A-Z orders the user bank ascending: "
+                            + bodyLabels().joinIntoString (","));
+
+                browser->setSort (1);
+                browser->setFolder (2);
+                EXPECT (bodyLabels() == desc,
+                        "Z-A reverses the user bank: "
+                            + bodyLabels().joinIntoString (","));
+
+                browser->setSort (3);     // BANK ORDER
+                browser->setFolder (2);
+                auto bankOrder = bodyLabels();
+                bankOrder.sort (true);
+                EXPECT (bankOrder == asc,
+                        "BANK ORDER lists the same three patches (order preserved)");
+
+                browser->setSort (2);     // NEWEST
+                browser->setFolder (2);
+                EXPECT (bodyCount() == 3, "NEWEST lists the whole user bank");
+
+                browser->setSort (0);
+                browser->setFolder (0);
+                EXPECT (browser->folder() == 0, "back on the ALL tab");
+            }
+
+            // ---- tag column click sets the tag filter -----------------------
+            {
+                const int ra = findRow ("AA_TEST_PATCH");
+                EXPECT (ra >= 0, "AA_TEST_PATCH listed for the tag-click test");
+                if (ra >= 0)
+                {
+                    // The hit-test band is shared with the painter (tagColumnWidth),
+                    // so clicking where the tags are drawn must filter by them.
+                    // The tag taken is the one drawn LEFTMOST on the row, which for
+                    // the seeded patches is "testtag" - carried by all three, so
+                    // the filter narrows the 139-patch bank to exactly those.
+                    const int x = browser->list.getWidth() - 5;
+                    browser->listBoxItemClicked (
+                        ra, makeRowClick (browser->list, x, 0, false));
+                    EXPECT (browser->tagCombo.getSelectedItemIndex() > 0,
+                            "clicking the tag column sets the tag filter");
+                    EXPECT (browser->tagCombo.getText().equalsIgnoreCase ("testtag"),
+                            "the filter took the tag drawn leftmost on the row: "
+                                + browser->tagCombo.getText());
+
+                    auto tagged = bodyLabels();
+                    tagged.sort (true);
+                    EXPECT (tagged == juce::StringArray ({ "AA_TEST_PATCH",
+                                                           "MM_TEST_PATCH",
+                                                           "ZZ_TEST_PATCH" }),
+                            "the tag filter narrows to exactly the patches with that tag: "
+                                + tagged.joinIntoString (","));
+
+                    browser->setTagText ("");
+                    browser->setFolder (0);
+                    EXPECT (bodyCount() == totalBody,
+                            "clearing the tag filter restores the full list");
+                }
+            }
+
+            // ---- right-click routes to the row menu, not to loading ---------
+            // The editor owns the menu (and opens a native popup, which this
+            // harness must not spin up), so the callback is swapped for a probe:
+            // what is under test is the click routing, not the popup itself.
+            {
+                const int r0 = firstBodyRow();
+                bool menuCalled = false;
+                int menuIdx = -1;
+                const double before = patchFingerprint (proc);
+                auto saved = browser->onRowMenu;
+                browser->onRowMenu = [&] (int i, juce::Point<int>)
+                {
+                    menuCalled = true;
+                    menuIdx = i;
+                };
+                browser->listBoxItemClicked (
+                    r0, makeRowClick (browser->list, 100, 0, true));
+                browser->onRowMenu = saved;
+
+                EXPECT (menuCalled, "right-click reports a row-menu gesture");
+                EXPECT (menuIdx >= 0, "the row menu knows which preset was clicked");
+                EXPECT (browser->isVisible()
+                            && std::fabs (patchFingerprint (proc) - before) < 1.0e-12,
+                        "right-click neither loads the patch nor closes the browser");
+            }
+
+            // ---- favourites: star column, FAVOURITES tab, persistence -------
+            {
+                const int rz = findRow ("ZZ_TEST_PATCH");
+                EXPECT (rz >= 0, "ZZ_TEST_PATCH listed for the favourite test");
+                if (rz >= 0)
+                {
+                    // x = 10 is inside the star column (x < 28).
+                    browser->listBoxItemClicked (
+                        rz, makeRowClick (browser->list, 10, 0, false));
+                    browser->setFolder (3);
+                    EXPECT (bodyCount() == 1
+                                && rowLabel (firstBodyRow()) == "ZZ_TEST_PATCH",
+                            "starring a row puts it in FAVOURITES");
+
+                    EXPECT (userpresets::browserStateFile().existsAsFile(),
+                            "browser.json written inside the sandbox");
+                    const auto st = userpresets::loadBrowserState();
+                    EXPECT (st.favourites.size() == 1,
+                            "the favourite was persisted, not just held in memory");
+                    EXPECT (st.favourites[0].startsWith ("u:"),
+                            "a user patch is keyed by file name: "
+                                + (st.favourites.isEmpty() ? juce::String ("<none>")
+                                                           : st.favourites[0]));
+
+                    browser->setFolder (0);
+                    const int rz2 = findRow ("ZZ_TEST_PATCH");
+                    if (rz2 >= 0)
+                        browser->listBoxItemClicked (
+                            rz2, makeRowClick (browser->list, 10, 0, false));
+                    browser->setFolder (3);
+                    EXPECT (bodyCount() == 0,
+                            "clicking the star again removes it from FAVOURITES");
+
+                    browser->setFolder (0);
+                    EXPECT (bodyCount() == totalBody,
+                            "the full bank is back after the favourite round-trip");
+                }
+            }
+
+            // Layout must still hold with a filter applied and rows on screen.
+            {
+                typeSearch ("acid");
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "browser filtered", hit);
+                std::printf ("[layout] preset browser filtered -> %d overlapping pair(s)\n",
+                             pairs);
+                EXPECT (pairs == 0, "no overlap inside the filtered preset browser"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+                EXPECT (bodyCount() > 0, "the 'acid' filter matched factory patches");
+                typeSearch ("");
+            }
+
             press (*browseBtn);
             EXPECT (! browser->isVisible(), "preset browser closes");
         }
@@ -645,6 +1786,15 @@ int main()
             press (*aiBtn);
             expectOnScreen (*ai, "AI overlay on screen");
             expectChildLaidOut (*ai, "AI controls laid out");
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "AI open", hit);
+                std::printf ("[layout] AI designer open -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*ai));
+                EXPECT (pairs == 0, "no overlap inside the AI designer"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+            }
             press (*aiBtn);
             EXPECT (! ai->isVisible(), "AI overlay closes");
         }
@@ -660,6 +1810,15 @@ int main()
             press (*saveBtn);
             expectOnScreen (*save, "save overlay on screen");
             expectChildLaidOut (*save, "save controls laid out");
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "save open", hit);
+                std::printf ("[layout] save dialog open -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*save));
+                EXPECT (pairs == 0, "no overlap inside the save dialog"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+            }
             if (save->isVisible())
             {
                 if (auto* cancel = findButton (save, "CANCEL"))
@@ -671,6 +1830,46 @@ int main()
                 {
                     EXPECT (false, "save CANCEL button found");
                 }
+            }
+        }
+    }
+
+    // ---- licence / activation screen ---------------------------------------
+    // The one overlay with no ordinary header button: it is forced full-screen
+    // when unlicensed and "peeked" from the trial badge otherwise. This session
+    // is activated, so the badge is hidden - but its onClick is the real open
+    // path, so drive that handler exactly as a user click would.
+    {
+        auto* licence = findDescendant<goaui::LicenseOverlay> (ed.get());
+        auto* badge = findButtonByTooltip (ed.get(), "Time left in your trial");
+        EXPECT (licence != nullptr && badge != nullptr,
+                "licence overlay + trial badge found");
+        if (licence != nullptr && badge != nullptr)
+        {
+            press (*badge);
+            expectOnScreen (*licence, "licence overlay on screen");
+            expectChildLaidOut (*licence, "licence controls laid out");
+            {
+                juce::String hit;
+                const int pairs = countOverlaps (*ed, "licence open", hit);
+                std::printf ("[layout] licence screen open -> %d overlapping sibling pair(s)"
+                             " across %d components\n", pairs, countVisibleNodes (*licence));
+                EXPECT (pairs == 0, "no overlap inside the licence screen"
+                                    + (hit.isNotEmpty() ? juce::String (": ") + hit
+                                                        : juce::String()));
+            }
+
+            // A peek (allowClose = true) must show its × and that × must close
+            // it - otherwise the user is stuck on the activation screen.
+            if (auto* x = findButton (licence, "\u00d7"))
+            {
+                EXPECT (x->isVisible(), "licence peek shows its close button");
+                press (*x);
+                EXPECT (! licence->isVisible(), "licence peek closes via \u00d7");
+            }
+            else
+            {
+                EXPECT (false, "licence peek close button found");
             }
         }
     }
@@ -745,6 +1944,55 @@ int main()
         EXPECT (bad == 0, "every knob formats with a known unit"
                           + (firstBad.isNotEmpty() ? juce::String (": ") + firstBad
                                                    : juce::String()));
+    }
+
+    // ---- unit correctness for the master EQ ---------------------------------
+    // The sweep above only proves a readout ends in a KNOWN unit, so a gain that
+    // fell through to the 0..1 "%" fallback would read "-1500 %" and still pass.
+    // These are the parameters where "known" and "right" differ.
+    {
+        auto readFull = [&] (const char* id)
+        { return goaui::liveValueText (proc.apvts, id, false); };
+
+        auto set01 = [&] (const char* id, float normalised)
+        {
+            if (auto* p = proc.apvts.getParameter (id))
+                p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, normalised));
+        };
+
+        set01 (param::eqLow, 0.0f);            // range is -15..+15 dB
+        const juce::String lo = readFull (param::eqLow);
+        EXPECT (lo.endsWith ("dB"), "EQ low gain reads in dB (got \"" + lo + "\")");
+
+        // A neutral band must not read "-0.0": the normalised->dB conversion
+        // lands a hair below zero, so the readout snaps near-zero to zero.
+        // (Also pins the range's shape: 0 dB has to sit at the centre of the
+        // knob, which a skewed range would move to ~70% of the travel.)
+        set01 (param::eqLow, 0.5f);
+        const juce::String mid = readFull (param::eqLow);
+        EXPECT (mid == "0.0 dB", "a flat EQ band reads as 0.0 dB at knob centre (got \"" + mid + "\")");
+
+        set01 (param::eqHigh, 1.0f);
+        const juce::String hi = readFull (param::eqHigh);
+        EXPECT (hi.endsWith ("dB") && ! hi.startsWith ("-"),
+                "EQ high gain reads as a positive dB value (got \"" + hi + "\")");
+
+        set01 (param::eqMidFreq, 0.5f);
+        const juce::String mf = readFull (param::eqMidFreq);
+        EXPECT (mf.endsWith ("Hz"), "EQ mid frequency reads in Hz (got \"" + mf + "\")");
+
+        // Pulse width is a 0..1 amount, so a percentage is the honest unit.
+        set01 (param::pulseWidth, 0.5f);
+        const juce::String pw = readFull (param::pulseWidth);
+        EXPECT (pw.endsWith ("%"), "pulse width reads as a percentage (got \"" + pw + "\")");
+
+        // Put the EQ back to a bypass state so later phases see a neutral patch.
+        set01 (param::eqLow, 0.5f);            // 0 dB is the middle of -15..+15
+        set01 (param::eqHigh, 0.5f);
+        set01 (param::eqMidFreq, proc.apvts.getParameter (param::eqMidFreq)
+                                     ->getDefaultValue());
+        set01 (param::pulseWidth, proc.apvts.getParameter (param::pulseWidth)
+                                      ->getDefaultValue());
     }
 
     // ---- extremes sweep: drive every knob to its min and max and check the

@@ -474,7 +474,9 @@ juce::String License::formatSerial (const juce::String& hex)
 //
 // The signature and the machine ledger make the informational lines cosmetic:
 // any tampering with them cannot widen what the file can activate.
-juce::String License::makeLicenseFile (const juce::String& serial, const juce::String& buyerNote)
+juce::String License::makeLicenseFile (const juce::String& serial, const juce::String& buyerNote,
+                                       const juce::String& buyerName,
+                                       const juce::String& buyerEmail)
 {
     juce::StringArray body;
 
@@ -491,11 +493,15 @@ juce::String License::makeLicenseFile (const juce::String& serial, const juce::S
                                      ? compact.substring (5, 5 + serialHexLength)
                                      : juce::String ("-");
     const juce::String note = buyerNote.trim().replaceCharacters ("\r\n", "  ");
+    const juce::String name  = buyerName.trim().replaceCharacters ("\r\n", "  ");
+    const juce::String email = buyerEmail.trim().replaceCharacters ("\r\n", "  ");
 
     body.add (fileMagic);
     body.add ("serial:  " + compact);
     body.add ("machine: " + machine);
-    body.add ("note:    " + (note.isEmpty() ? juce::String ("-") : note));
+    body.add ("name:    " + (name.isEmpty()  ? juce::String ("-") : name));
+    body.add ("email:   " + (email.isEmpty() ? juce::String ("-") : email));
+    body.add ("note:    " + (note.isEmpty()  ? juce::String ("-") : note));
     body.add ("issued:  " + juce::Time::getCurrentTime().toISO8601 (true));
     body.add ("plugin:  GoaSynth VST3");
     body.add ("usage:   double-click this file (opens GoaSynth) or IMPORT it on the activation screen");

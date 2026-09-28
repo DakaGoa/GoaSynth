@@ -62,7 +62,9 @@ public:
     // activates; on any failure `error` explains why and nothing is stored.
     static constexpr const char* fileExtension  = "goalicense";
     static constexpr const char* fileMagic      = "GOA-LICENSE-1";
-    static juce::String makeLicenseFile (const juce::String& serial, const juce::String& buyerNote);
+    static juce::String makeLicenseFile (const juce::String& serial, const juce::String& buyerNote,
+                                         const juce::String& buyerName = {},
+                                         const juce::String& buyerEmail = {});
     static bool activateFile (const juce::File& f, juce::String& error);
 
     // ---- trial -------------------------------------------------------------

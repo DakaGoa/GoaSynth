@@ -228,7 +228,7 @@ says "VAT added at checkout" instead of "VAT included".
 > TB-303 squelch, seven-voice supersaws, hoover stabs, FM bleeps and PWM pads, with a tempo-locked
 > trancegate and arp sequencer, two filters with serial/parallel/stereo-split routing, an 8-slot mod
 > matrix, the full FX chain including OTT multiband squeeze, and an offline AI patch designer.
-> 135 factory presets across nine families.
+> 175 factory presets across nine families.
 >
 > One personal licence: three machines you use yourself, commercial releases included, no
 > subscription, no account and no dongle — activation is an offline serial signed for your machine, sent

@@ -13,16 +13,26 @@ FetchContent_Declare(JUCE
 )
 FetchContent_MakeAvailable(JUCE)
 
+# Plugin formats. VST3 everywhere; AU (Logic) only on Apple, where the AU
+# wrapper exists at all, and LV2 on Linux. JUCE 8.0.8 has no CLAP wrapper, so
+# CLAP cannot be built here without a third-party shim - see README.
+set(GOASYNTH_FORMATS VST3)
+if(APPLE)
+    list(APPEND GOASYNTH_FORMATS AU AUv3)
+elseif(UNIX)
+    list(APPEND GOASYNTH_FORMATS LV2)
+endif()
+
 juce_add_plugin(GoaSynth
     COMPANY_NAME "FreebuffAudio"
     PLUGIN_MANUFACTURER_CODE Frbf
     PLUGIN_CODE Gsyn
-    FORMATS VST3
+    FORMATS ${GOASYNTH_FORMATS}
     PRODUCT_NAME "GoaSynth"
     VST3_CATEGORIES Instrument Synth
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
+    NEEDS_MIDI_OUTPUT TRUE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_AFTER_BUILD FALSE
@@ -49,6 +59,7 @@ target_compile_definitions(GoaSynth PUBLIC
 target_link_libraries(GoaSynth
     PRIVATE
         juce::juce_audio_processors
+        juce::juce_audio_formats
         juce::juce_dsp
         juce::juce_cryptography
         juce::juce_recommended_config_flags

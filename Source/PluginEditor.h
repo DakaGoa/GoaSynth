@@ -1,10 +1,13 @@
 #pragma once
 
 #include <array>
+#include <functional>
+#include <set>
 #include "AiCloudGen.h"
 #include "PluginProcessor.h"
 #include "SynthEngine.h"
 #include "Tuning.h"
+#include "UserPresets.h"   // BrowserState (favourites + last filter)
 
 namespace goaui
 {
@@ -20,6 +23,9 @@ enum Theme : int
     themeUv = 0,     // UV Goa: violet / teal / magenta on purple-black
     themeSteel,      // studio steel: blue-greys, restrained amber accent
     themeAnalog,     // warm analog: cream face, walnut sides, orange/olive
+    themeNeon,       // cyberpunk: cyan / hot magenta / neon yellow on black
+    themePaper,      // light mode: warm off-white, cobalt / emerald / amber
+    themeOled,       // pure black OLED with single red accent
     themeCount
 };
 
@@ -127,11 +133,15 @@ struct GoaLogo : juce::Label
         setJustificationType (juce::Justification::centredRight);
     }
 
+    // Breathing glow: 0..1 modulation driven by the editor timer.
+    float breathe = 0.5f;
+
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat();
         auto glow = b.expanded (6.0f);
-        juce::ColourGradient halo (accent.withAlpha (0.28f), glow.getCentreX(),
+        const float alpha = 0.18f + 0.14f * breathe;   // 0.18 .. 0.32
+        juce::ColourGradient halo (accent.withAlpha (alpha), glow.getCentreX(),
                                    glow.getCentreY(), accent.withAlpha (0.0f),
                                    glow.getWidth() * 0.5f, glow.getHeight() * 0.5f, true);
         g.setGradientFill (halo);
@@ -151,13 +161,27 @@ struct Ctl : juce::Component, public Flashable
     void resized() override;
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
     void retint();                       // re-apply theme colours to label/knob/combo
     void setTip (const juce::String&);   // dots' hover text -> child widgets
+
+    // Parameter lock. While the editor's lock mode is armed the knob stops
+    // intercepting mouse clicks (so a click cannot move it) and the editor
+    // toggles this control's lock through onLockClick instead.
+    void setLockMode (bool on);
+    bool locked = false;
+    bool lockMode = false;
+    std::function<void()> onLockClick;
 
     juce::Label label;
     juce::Slider slider;
     juce::ComboBox combo;
     bool useCombo = false;
+    // Vertical split of a knob cell: the name on the first line (a child
+    // Label), the live readout on the second (painted by paint()), the rotary
+    // below. Two lines rather than one shared band - see Ctl::resized().
+    static constexpr int labelLine   = 11;
+    static constexpr int readoutLine = 7;
     const juce::String paramId;          // for the MOD matrix pick-a-destination mode
     juce::String baseTip;                // parameter name; dots override while active
     juce::AudioProcessorValueTreeState* modSource;   // slot scan for the mod dots
@@ -256,10 +280,17 @@ struct ModOverlay : juce::Component
     bool tryAssignSource (juce::Point<float> pos, bool rightButton);
     bool keyPressed (const juce::KeyPress&) override;   // ESC cancels / closes
 
-private:
+    // Painted-cell geometry, exposed for OverlayTest. The matrix is drawn by
+    // paint() rather than built from child components, so the component-tree
+    // overlap audit cannot see its cells at all (it walks 4 nodes: title, hint,
+    // close and the overlay itself). Exposing rowGeo() lets the audit check the
+    // real cell rectangles for overlap, which is the only way "nothing
+    // overlaps" can be asserted for a custom-painted surface.
     struct RowGeo { juce::Rectangle<float> src, dst, amt, curve, lag; };
     juce::Rectangle<float> rowsRect() const;
     RowGeo rowGeo (int row) const;
+
+private:
     int rowAt (juce::Point<float>) const;
     // Curve and lag are per physical slot (shared by both banks); src/dst/amt
     // resolve against the bank the card is currently editing.
@@ -275,7 +306,11 @@ private:
 
     GoaSynthAudioProcessor& proc;
     juce::Label head;
-    juce::Label hint;                    // interaction cheat-sheet, card footer
+    // Interaction cheat-sheet, card footer. Two lines: the whole sheet measures
+    // ~753px at 9pt and the card's inner width is 528px, so one line silently
+    // ellipsized the tail and dropped the ESC hint (caught by OverlayTest).
+    juce::Label hint;
+    juce::Label hint2;
     juce::TextButton closeBtn { "X", "Close" };
     int dragRow = -1;
     float dragStartAmt = 0.0f;
@@ -380,10 +415,14 @@ struct LicenseOverlay : juce::Component
     juce::Label hint;
 };
 
-// Modal save dialog for user presets: name + tags + SAVE/CANCEL.
+// Modal save dialog for user presets: name + tags + SAVE/CANCEL. Doubles as the
+// rename and duplicate prompt (see beginRename / beginSaveAs) so those actions
+// need no second dialog: it already has the name and tag fields they need, and
+// JUCE modal loops are disabled in this plugin, so a new modal is not an option.
 struct SavePresetOverlay : juce::Component
 {
     std::function<void (const juce::String&, const juce::StringArray&, bool)> onSave;
+    std::function<void (const juce::String&, const juce::StringArray&)> onRename;
 
     SavePresetOverlay();
     void paint (juce::Graphics&) override;
@@ -394,6 +433,12 @@ struct SavePresetOverlay : juce::Component
     void prefill (const juce::String& s) { name.setText (s, juce::dontSendNotification); name.selectAll(); }
     juce::StringArray collectTags() const;
 
+    // Normal "save a new preset" flow, pre-filled (used by Duplicate).
+    void beginSaveAs (const juce::String& presetName, const juce::StringArray& presetTags);
+    // Rewrite the currently selected user patch under a new name.
+    void beginRename (const juce::String& presetName, const juce::StringArray& presetTags);
+    bool isRenaming() const noexcept { return renaming; }
+
     juce::Rectangle<int> cardBounds() const;
     juce::Label head;
     juce::TextEditor name;
@@ -401,61 +446,115 @@ struct SavePresetOverlay : juce::Component
     juce::ToggleButton sharedBtn;  // on = write to the machine-wide shared bank
     juce::TextButton saveBtn { "SAVE", "Save preset" };
     juce::TextButton cancelBtn { "CANCEL", "Cancel" };
+
+private:
+    bool renaming = false;
 };
 
-// Serum-style preset browser overlay: folder tabs (ALL / FACTORY / USER),
-// search box, tag filter, and a grouped click-to-load list. The editor owns
-// the filtering logic; the overlay just displays rows and reports clicks.
+// Filled / hollow star, built from a code point rather than a "\u2605" literal:
+// MSVC compiles these sources as code page 1252, which cannot represent U+2605,
+// so a universal-character-name warns (C4566) and encodes wrongly. U+00D7 (the
+// overlay close buttons) happens to exist in 1252, which is why that one is fine.
+inline juce::String starGlyph (bool filled)
+{
+    return juce::String::charToString ((juce::juce_wchar) (filled ? 0x2605 : 0x2606));
+}
+
+// Serum-style preset browser overlay: folder tabs (ALL / FACTORY / USER / star),
+// search, tag filter, sort, and a grouped click-to-load list. The editor owns
+// the filtering and all preset policy; the overlay displays rows and reports
+// gestures.
+//
+// Audition model: a plain click loads the patch and LEAVES THE BROWSER OPEN, so
+// patches can be flipped through without reopening. Double-click or Return takes
+// one and closes. Closing never rolls back - whatever is loaded stays loaded,
+// which is what every other synth browser does and avoids the surprise of losing
+// a patch you just chose.
 struct PresetBrowserOverlay : juce::Component, juce::ListBoxModel
 {
     struct Row
     {
         juce::String label;
-        juce::String tagLabel;
+        juce::StringArray tags;   // rendered with +N overflow by paintListBoxItem
         bool header = false;
         bool isUser = false;
         bool shared = false;      // from the machine-wide shared bank
-        bool selected = false;
+        bool fav = false;         // starred
+        bool selected = false;    // the preset currently loaded (not the list cursor)
         int  visibleIndex = -1;   // index into the editor's visiblePresets
     };
 
-    std::function<void (int)> onSelect;   // clicked a preset row
-    std::function<void ()> onChanged;     // search / tag / folder changed
-    std::function<void ()> onExport;      // EXPORT PACK clicked
-    std::function<void ()> onImport;      // IMPORT PACK clicked
+    std::function<void (int)> onSelect;     // audition: load, keep the browser open
+    std::function<void (int)> onAccept;     // take it: load and close
+    std::function<void ()> onChanged;       // search / tag / folder / sort changed
+    std::function<void ()> onExport;        // EXPORT PACK clicked
+    std::function<void ()> onImport;        // IMPORT PACK clicked
+    std::function<void (int)> onFavourite;  // star clicked on a row
+    std::function<void (int)> onTagClick;   // tag column clicked on a row
+    // Right-click on a row. The editor owns preset policy (rename / delete /
+    // reveal), so it builds the menu; the overlay only reports the gesture.
+    std::function<void (int, juce::Point<int>)> onRowMenu;
+
     PresetBrowserOverlay();
     void paint (juce::Graphics&) override;
     void resized() override;
     void retint();
     void mouseDown (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
 
     juce::Rectangle<int> cardBounds() const;
     void setRows (const std::vector<Row>& r, int selectedRow);
     void setStatus (const juce::String& text, bool ok);
-    int folder() const noexcept { return folderIdx; }   // 0 ALL, 1 FACTORY, 2 USER
+    void setCount (int shown, int total);
+    void setFolder (int f);            // used by the tabs: fires onChanged
+    void setSort (int mode);
+    void setSearchText (const juce::String& s);
+    void setTagText (const juce::String& s);
+    // Restore a persisted filter quietly; the caller rebuilds once afterwards.
+    void applyState (int folder, int sort, const juce::String& tag,
+                     const juce::String& searchText);
+    int folder() const noexcept { return folderIdx; }   // 0 ALL 1 FACTORY 2 USER 3 FAVS
+    int sortMode() const noexcept { return sortIdx; }
+    void focusSearch();
 
     // juce::ListBoxModel
     int getNumRows() override;
     void paintListBoxItem (int row, juce::Graphics&, int w, int h, bool rowSelected) override;
     void listBoxItemClicked (int row, const juce::MouseEvent&) override;
+    void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
+    void returnKeyPressed (int row) override;
+    void selectedRowsChanged (int row) override;
+    juce::String getTooltipForRow (int row) override;
 
     juce::Label head;
     juce::TextButton closeBtn { "X", "Close" };
     juce::TextEditor search;
     juce::ComboBox tagCombo;
+    juce::ComboBox sortCombo;
     juce::TextButton allTab { "ALL", "All presets" };
     juce::TextButton factoryTab { "FACTORY", "Factory presets" };
     juce::TextButton userTab { "USER", "User presets" };
+    juce::TextButton favTab { starGlyph (true), "Favourite presets" };
     juce::TextButton exportBtn { "EXPORT PACK", "Save all user presets as a .goapack file" };
     juce::TextButton importBtn { "IMPORT PACK", "Add presets from a .goapack file" };
     juce::ListBox list;
-    juce::Label status;
+    juce::Label status;   // pack import/export messages
+    juce::Label count;    // "18 of 247 presets", or the empty-state hint
 
 private:
     void syncTabs();
+    void acceptRow (int row);    // load + close
+    void previewRow (int row);   // load, keep open
+    // Width of the right-hand tag column. Shared by the painter and the click
+    // hit-test so "click a tag to filter" cannot drift from where tags are drawn.
+    static int tagColumnWidth() noexcept { return 118; }
     std::vector<Row> rows;
     int selectedRow = -1;
     int folderIdx = 0;
+    int sortIdx = 0;
+    // setRows() runs updateContent(), which moves the ListBox selection and would
+    // otherwise be read as the user arrowing onto a row - and load a preset.
+    bool internalUpdate = false;
 };
 
 // Wavetable editor for OSC A / OSC B (User mode): sketch individual frames,
@@ -479,6 +578,10 @@ struct WaveDisplay : juce::Component, private juce::Timer, public juce::Settable
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     bool userMode() const;
+
+    // Invoked by the 8th tool ("WAV"): asks the editor to open a file chooser
+    // and slice the chosen file into this oscillator's frames.
+    std::function<void()> onLoadWav;
 
     void retint() { col = roleColour (role); repaint(); }
 
@@ -660,6 +763,24 @@ public:
     void retint() { col = roleColour (role); repaint(); }   // theme hook
 };
 
+// Stereo output level + limiter gain-reduction readout. Polls the two atomics
+// the audio thread publishes (uiLevel, uiGainReduction) on a 30 Hz timer; it
+// never touches audio state directly, and it repaints only when a value moved
+// far enough to matter.
+struct LevelMeter : juce::Component, private juce::Timer
+{
+    explicit LevelMeter (GoaSynthAudioProcessor& p) : proc (p) { startTimerHz (30); }
+    ~LevelMeter() override { stopTimer(); }
+
+    void paint (juce::Graphics&) override;
+    void timerCallback() override;
+    void retint() { repaint(); }        // theme hook
+
+    GoaSynthAudioProcessor& proc;
+    float level = 0.0f;                 // smoothed output peak, 0..1
+    float gr = 0.0f;                    // limiter gain reduction, dB (<= 0)
+};
+
 // Minimal clickable piano keyboard feeding the synth directly.
 struct Keyboard : juce::Component, public juce::SettableTooltipClient
 {
@@ -710,6 +831,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     // Psychedelic swirl backdrop: pre-rendered half-res spiral layers composited
@@ -746,6 +869,8 @@ private:
         bool shared = false;                 // lives in the shared bank
         int  factoryIndex = -1;              // into getPresets(), user: -1
         juce::File file;                     // user only
+        juce::int64 modified = 0;            // file mtime; 0 for factory
+        int  bankOrder = 0;                  // stable position as built
     };
 
     void buildContent (juce::AudioProcessorValueTreeState& apvts);
@@ -757,20 +882,71 @@ private:
     void refreshUserPresets();
     void rebuildPresetList();
     void refreshLicenseUi();   // toggle the activation screen vs the synth UI
-    bool asyncPackChooser (const juce::String& title, int browserFlags,
+    bool asyncFileChooser (const juce::String& title, const juce::String& wildcards,
+                           int browserFlags,
                            std::function<void (const juce::File&)> onChosen);
     void exportPresetPack();
     void importPresetPack();
+    // Slices a .wav into the 8 wavetable frames of one oscillator (resampled to
+    // the table's 256 points per frame) and switches that oscillator to its
+    // User wave. Also reachable by dropping a .wav onto an OSC panel.
+    void loadWavIntoWavetable (int oscIndex);
+    // The actual slice + publish, shared by the WAV tool and a file drop.
+    void importWavFile (const juce::File& f, int oscIndex);
     void reportPackStatus (const juce::String& text, bool ok);
+    // Source file of the rename currently in the save overlay (rename reuses
+    // that dialog rather than adding a second one).
+    juce::File renameSource;
     void saveUserPreset (const juce::String& name, const juce::StringArray& tags,
                          bool shared);
     void deleteUserPreset();
     void updatePresetTint();
     void updateArrows();
 
+    // Browser state: favourites + the last folder/tag/search/sort, persisted
+    // outside the patch files (see userpresets::BrowserState).
+    void loadBrowserState();
+    void persistBrowserState();
+    bool isFavourite (const PresetEntry& e) const;
+    void toggleFavourite (int visIdx);
+    void showRowMenu (int visIdx, juce::Point<int> screenPos);
+    void renameUserPreset (const juce::File& from, const juce::String& newName,
+                           const juce::StringArray& tags);
+    void exportSinglePreset (int visIdx);
+
+    // ---- patch history, A/B compare, randomise, parameter lock -------------
+    // A snapshot is every parameter's NORMALISED value — the exact currency
+    // setValueNotifyingHost() takes — keyed by id, so restoring is lossless and
+    // needs no per-parameter special cases.
+    using Snapshot = std::vector<std::pair<juce::String, float>>;
+    Snapshot capturePatch() const;
+    void applySnapshot (const Snapshot& s);
+    void pushUndo();                     // call before any patch-level change
+    void undo();
+    void redo();
+    void updateHistoryButtons();
+    void randomisePatch();
+    void swapAb();
+    void setLockMode (bool on);
+    bool isLocked (const juce::String& paramId) const
+        { return lockedParams.find (paramId) != lockedParams.end(); }
+    // True for "gate7" / "arp12" / "arpVel3": a step-sequencer cell, which
+    // randomise must leave alone (it would scramble the pattern, not the patch).
+    static bool isStepParamId (const juce::String& id, const juce::String& prefix);
+
+    std::vector<Snapshot> undoStack, redoStack;
+    static constexpr size_t maxUndo = 32;
+    Snapshot abA, abB;
+    int  abSlot = 0;                     // 0 = A, 1 = B
+    bool abValid = false;
+    std::set<juce::String> lockedParams;
+    bool lockMode = false;
+    std::vector<goaui::Ctl*> allCtls;    // every knob, for lock mode + undo hooks
+
     std::vector<PresetEntry> allPresets;      // Init + factory + user, always full
     std::vector<PresetEntry> visiblePresets;  // filtered view the browser shows
     int selectedPreset = -1;                  // index into visiblePresets
+    userpresets::BrowserState browserState;   // favourites + last filter, persisted
     GoaSynthAudioProcessor& proc;
     goaui::GoaLAF laf;
 
@@ -785,6 +961,10 @@ private:
     juce::TextButton themeBtn { "THEME", "Cycle the skin: UV Goa / steel / warm analog" };
     juce::TextButton saveBtn { "SAVE", "Save user preset" };
     juce::TextButton deleteBtn { "DEL", "Delete selected user preset" };
+    // Output level + limiter gain reduction, in the header gap between the
+    // preset zone and the button block. Declared after `proc` (above) so the
+    // reference it stores is already bound when it is constructed.
+    goaui::LevelMeter levelMeter { proc };
     std::unique_ptr<goaui::Ctl> masterCtl;
     std::unique_ptr<goaui::AiOverlay> aiOverlay;
     std::unique_ptr<goaui::SavePresetOverlay> saveOverlay;
@@ -800,17 +980,18 @@ private:
     goaui::Panel filtFrame { "FILTER", goaui::roleAccent };
     goaui::Panel filt2Frame { "FILTER B", goaui::roleB };
     goaui::Panel subFrame  { "SUB", goaui::roleNeutral };
-    goaui::Panel noiseFrame{ "NOISE", goaui::roleNeutral };
+    // NOISE was a full panel with one knob; now the knob sits bare in the row.
     goaui::WaveDisplay waveA, waveB;
     goaui::FilterGraph filtCurve;
     std::unique_ptr<goaui::Ctl> wave1Ctl, oct1Ctl, fin1Ctl, uni1Ctl, det1Ctl, wid1Ctl,
         pan1Ctl, wt1Ctl, lvl1Ctl, ph1Ctl, wave2Ctl, oct2Ctl, fin2Ctl, uni2Ctl, det2Ctl, wid2Ctl,
         pan2Ctl, wt2Ctl, lvl2Ctl, ph2Ctl, fmCtl, subWaveCtl, subOctCtl, subCtl, noiseCtl,
+        pwCtl, ringCtl,                          // PWM duty + ring mod
         ftypeCtl, cutoffCtl, resoCtl, driveCtl, keyCtl,
         ftype2Ctl, cutoff2Ctl, reso2Ctl, routeCtl,
         vMorphCtl, vResCtl, vMixCtl,             // vowel/formant filter
         fdCtl, fbCtl;                            // filter drive + feedback
-    std::unique_ptr<goaui::ToggleCtl> prand1Ctl, prand2Ctl, vOnCtl, hqCtl;
+    std::unique_ptr<goaui::ToggleCtl> prand1Ctl, prand2Ctl, vOnCtl, hqCtl, syncCtl;
 
     // ENV / LFO row
     goaui::Panel ampEnvFrame { "ENV A (AMP)", goaui::roleA };
@@ -837,6 +1018,7 @@ private:
         dSyncCtl, dTimeCtl, dFbCtl, dMixCtl,
         rSizeCtl, rDampCtl, rMixCtl,
         oDepthCtl, oLowCtl, oMidCtl, oHighCtl, oOutCtl,
+        eqLowCtl, eqMidCtl, eqMidFreqCtl, eqHighCtl,
         driftCtl, uniDetCtl, uniSpreadCtl,
         charCtl, chordCtl, shimCtl, duckCtl;
 
@@ -846,6 +1028,13 @@ private:
 
     // bottom bar
     juce::TextButton octDown { "OCT-", "Octave down" }, octUp { "OCT+", "Octave up" };
+    // Patch-workflow buttons, in the bottom bar beside the octave keys: there
+    // is no room left in the header, and these are performance-time controls.
+    juce::TextButton randBtn { "RAND", "Randomise the patch (locked knobs are kept)" };
+    juce::TextButton undoBtn { "UNDO", "Undo the last preset load / randomise / A-B swap" };
+    juce::TextButton redoBtn { "REDO", "Redo" };
+    juce::TextButton abBtn   { "A", "A/B compare: keep two versions of the patch and flip between them" };
+    juce::TextButton lockBtn { "LOCK", "Lock mode: click knobs to protect them from randomise / preset loads" };
     goaui::StepStrip gateStrip { proc, goaui::StepStrip::gateStrip, goaui::roleAccent };
     goaui::StepStrip arpStrip  { proc, goaui::StepStrip::arpStrip,  goaui::roleA };
     goaui::Keyboard keyboard;

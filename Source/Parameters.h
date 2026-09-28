@@ -23,6 +23,19 @@ inline constexpr const char* osc2Phase  = "osc2Phase";
 inline constexpr const char* osc2PRand  = "osc2PRand";
 inline constexpr const char* osc2WtPos  = "osc2WtPos";
 inline constexpr const char* fmAmount   = "fmAmount";
+
+// Manual pulse width for the PWM waveform (0.05..0.95 duty). Before this
+// existed, PWM could only be moved by an LFO row or a matrix slot, so a patch
+// that wanted a static narrow pulse had nowhere to set it. Also a mod
+// destination (mdPulseW), which is what makes LFO->PW work without stealing
+// the LFO's own target row.
+inline constexpr const char* pulseWidth = "pulseWidth";
+
+// Oscillator inter-modulation: hard sync (OSC A resets on every OSC B cycle,
+// the classic metallic sweep) and ring modulation (OSC A x OSC B blended in).
+inline constexpr const char* oscSync = "oscSync";
+inline constexpr const char* ringMod = "ringMod";
+
 inline constexpr const char* subWave    = "subWave";
 inline constexpr const char* subOct     = "subOct";
 inline constexpr const char* subLevel   = "subLevel";
@@ -121,6 +134,16 @@ inline constexpr const char* ottOut   = "ottOut";
 // Filter B: independent type/cutoff/reso plus a routing mode
 
 inline constexpr const char* masterGain = "masterGain";
+
+// Master 3-band EQ, inserted after MASTER and before the limiter: low shelf,
+// peaking mid (with its own frequency) and high shelf. Every gain defaults to
+// 0 dB, and the processor treats an all-zero setting as a true bypass, so an
+// untouched EQ costs nothing and cannot colour the sound.
+inline constexpr const char* eqLow     = "eqLow";
+inline constexpr const char* eqMid     = "eqMid";
+inline constexpr const char* eqMidFreq = "eqMidFreq";
+inline constexpr const char* eqHigh    = "eqHigh";
+
 inline constexpr const char* glide      = "glide";
 inline constexpr const char* voicing    = "voicing";
 inline constexpr const char* polyMax    = "polyMax";
@@ -222,36 +245,49 @@ struct ModDest
 // mdDelayTime on is a global FX destination applied once per block.
 enum ModDestId
 {
-    mdOff = 0, mdCutoff, mdFin1, mdFin2, mdLvl1, mdLvl2,
-    mdWt1, mdWt2, mdReso, mdDrive, mdPan1, mdPan2,
-    mdLfo1Rate, mdLfo2Rate,
+    mdOff = 0, mdCutoff, mdCutoff2, mdFin1, mdFin2, mdLvl1, mdLvl2,
+    mdWt1, mdWt2, mdReso, mdReso2, mdDrive, mdPulseW, mdVowelMorph, mdAnalogAmt,
+    mdPan1, mdPan2, mdLfo1Rate, mdLfo2Rate,
     mdDelayTime, mdDelayFb, mdRevSize, mdDelayMix, mdPhMix, mdRevMix,
+    mdOttDepth, mdPumpDepth,
     mdNumDests
 };
+
+// First index that is a whole-mix FX destination rather than a per-voice one.
+// ModMatrix uses this instead of a literal so adding a per-voice destination
+// above cannot silently reclassify the FX block.
+inline constexpr int mdFirstGlobalDest = (int) mdDelayTime;
 
 inline const std::array<ModDest, (size_t) mdNumDests>& modDestList()
 {
     static const std::array<ModDest, (size_t) mdNumDests> list {{
-        { "",           "OFF",        0.0f   },
-        { "cutoff",     "CUTOFF",     4.0f   },   // octaves
-        { "osc1Fine",   "OSC A FIN",  1200.0f},   // cents
-        { "osc2Fine",   "OSC B FIN",  1200.0f},
-        { "osc1Level",  "OSC A LVL",  1.0f   },
-        { "osc2Level",  "OSC B LVL",  1.0f   },
-        { "osc1WtPos",  "WT POS A",   1.0f   },
-        { "osc2WtPos",  "WT POS B",   1.0f   },
-        { "reso",       "RESO",       1.0f   },
-        { "drive",      "DRIVE",      1.0f   },
-        { "osc1Pan",    "PAN A",      1.0f   },
-        { "osc2Pan",    "PAN B",      1.0f   },
-        { "lfo1Rate",   "LFO 1 RATE", 6.0f   },   // Hz
-        { "lfo2Rate",   "LFO 2 RATE", 6.0f   },
-        { "delayTime",  "DELAY TIME", 1.0f   },   // +/- 2 octaves of delay length
-        { "delayFb",    "DELAY FB",   0.6f   },
-        { "revSize",    "REV SIZE",   0.4f   },
-        { "delayMix",   "DELAY MIX",  0.6f   },
-        { "phMix",      "PHASER MIX", 0.6f   },
-        { "revMix",     "REV MIX",    0.6f   },
+        { "",            "OFF",        0.0f   },
+        { "cutoff",      "CUTOFF",     4.0f   },   // octaves
+        { "cutoff2",     "CUTOFF B",   4.0f   },   // octaves (FILTER B)
+        { "osc1Fine",    "OSC A FIN",  1200.0f},   // cents
+        { "osc2Fine",    "OSC B FIN",  1200.0f},
+        { "osc1Level",   "OSC A LVL",  1.0f   },
+        { "osc2Level",   "OSC B LVL",  1.0f   },
+        { "osc1WtPos",   "WT POS A",   1.0f   },
+        { "osc2WtPos",   "WT POS B",   1.0f   },
+        { "reso",        "RESO",       1.0f   },
+        { "reso2",       "RESO B",     1.0f   },
+        { "drive",       "DRIVE",      1.0f   },
+        { "pulseWidth",  "PULSE W",    0.45f  },   // duty cycle
+        { "vowelMorph",  "VOWEL",      1.0f   },   // formant morph position
+        { "analogAmt",   "ANALOG",     1.0f   },   // tape wow/flutter depth
+        { "osc1Pan",     "PAN A",      1.0f   },
+        { "osc2Pan",     "PAN B",      1.0f   },
+        { "lfo1Rate",    "LFO 1 RATE", 6.0f   },   // Hz
+        { "lfo2Rate",    "LFO 2 RATE", 6.0f   },
+        { "delayTime",   "DELAY TIME", 1.0f   },   // +/- 2 octaves of delay length
+        { "delayFb",     "DELAY FB",   0.6f   },
+        { "revSize",     "REV SIZE",   0.4f   },
+        { "delayMix",    "DELAY MIX",  0.6f   },
+        { "phMix",       "PHASER MIX", 0.6f   },
+        { "revMix",      "REV MIX",    0.6f   },
+        { "ottDepth",    "OTT DEPTH",  1.0f   },   // multiband squeeze amount
+        { "pumpDepth",   "PUMP DEPTH", 1.0f   },   // sidechain dip amount
     }};
     return list;
 }

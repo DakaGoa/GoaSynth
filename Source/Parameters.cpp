@@ -66,6 +66,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addF (param::uniSpread,  "Unison Width", unitRange, 0.7f);
     addF (param::drift,      "Analog Drift", unitRange, 0.08f);
 
+    // Manual PWM duty + oscillator inter-modulation (hard sync, ring mod).
+    addF (param::pulseWidth, "Pulse Width", NormalisableRange<float>(0.05f, 0.95f, 0.0f), 0.5f);
+    addB (param::oscSync,    "Hard Sync (A reset by B)", false);
+    addF (param::ringMod,    "Ring Mod", unitRange, 0.0f);
+
     // Supersaw character: how the detune/pan field is shaped across voices.
     addC (param::uniMode, "Unison Character", { "CLASSIC", "PHASED", "HYPER" }, 0);
 
@@ -143,6 +148,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addF (param::ottOut,   "OTT Output (dB)", NormalisableRange<float>(-12.0f, 6.0f, 0.0f, 0.5f), 0.0f);
 
     addF (param::masterGain, "Master (dB)", NormalisableRange<float>(-60.0f, 6.0f, 0.0f, 0.4f), -3.0f);
+
+    // Master 3-band EQ (post master gain, pre limiter). 0 dB = bypass.
+    // The gains use a SYMMETRIC, UNSKEWED range (-15..+15, skew 1) so 0 dB sits
+    // at the centre of the knob — a skewed range put the flat position at ~70%
+    // of the travel, which is not where anyone looks for "no change".
+    // The mid FREQUENCY is skewed, which is what you want for a Hz control.
+    addF (param::eqLow,     "EQ Low (dB)",  NormalisableRange<float>(-15.0f, 15.0f), 0.0f);
+    addF (param::eqMid,     "EQ Mid (dB)",  NormalisableRange<float>(-15.0f, 15.0f), 0.0f);
+    addF (param::eqMidFreq, "EQ Mid Freq (Hz)", NormalisableRange<float>(150.0f, 6000.0f, 0.0f, 0.3f), 1200.0f);
+    addF (param::eqHigh,    "EQ High (dB)", NormalisableRange<float>(-15.0f, 15.0f), 0.0f);
     addF (param::glide,      "Glide (ms)", NormalisableRange<float>(0.0f, 1000.0f, 0.0f, 0.5f), 0.0f);
     addC (param::voicing,    "Voicing", voicings, 0);
     addI (param::polyMax,    "Max Voices", 1, 16, 16);

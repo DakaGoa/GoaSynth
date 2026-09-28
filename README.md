@@ -23,7 +23,7 @@ octave less; CPU roughly doubles, which is why it's a switch, not a constant.
 Filters, DC blockers, the drive/feedback path and the vowel bank each keep
 independent per-parity state so the handoff between modes is click-free, and
 cutoff smoothing runs in the log domain (rate-normalised), so the filter
-character is identical at 44.1k and 96k. All 15 factory LEAD and 15 RISER
+character is identical at 44.1k and 96k. All 20 factory LEAD and 19 RISER
 patches enable QUALITY (they benefit most from the cleaner highs); every
 other category stays at the fast default path.
 
@@ -38,8 +38,8 @@ other category stays at the fast default path.
   hard safety clamp so it can never run away.
 - **FILL** (arp strip): writes 3–6 in-scale steps into rests, leaving your
   programmed pattern untouched — instant psy rolls in the current SCALE/ROOT.
-- **Zoom button** (bottom right): 100–200% interface scaling, remembered in
-  `%APPDATA%\GoaSynth\zoom.txt`; the host window follows the new size.
+- **Zoom** (bottom right button, or **Ctrl + Plus / Minus**, or **Ctrl + scroll**):
+  100–200% interface scaling in 25% steps, remembered in `%APPDATA%\GoaSynth\zoom.txt`.
 
 ## Vowel / formant filter
 The FILTER B panel hosts a morphing formant bank (AH → EH → EE → OH → OO):
@@ -49,11 +49,15 @@ the morph for talking-lead and forest-style textures; AI patches can use all
 of it (`vowelOn`, `vowelMorph`, `arpScale`, `tuningFine`...).
 
 Built with JUCE 8 (fetched automatically by CMake). The interface follows a
-Serum-style dark workflow with three switchable skins (the **THEME** button):**UV GOA** (violet / teal / magenta over purple-black — the house look),
+Serum-style dark workflow with six switchable skins (the **THEME** button):
+**UV GOA** (violet / teal / magenta over purple-black — the house look),
 **STEEL** (studio blue-greys with a restrained cyan-steel primary and amber
-secondary) and **WARM** (analog rack: cream face, orange/olive/rust accents).
-The choice is stored with the session and restored on reopen. Behind the
-panels an **animated psychedelic swirl**
+secondary), **WARM** (analog rack: cream face, orange/olive/rust accents),
+**NEON** (cyberpunk cyan / hot magenta / neon yellow on deep black),
+**PAPER** (warm off-white with cobalt, emerald and amber accents — a light
+mode for daytime sessions) and **OLED** (pure black with a single red accent
+for maximum contrast and battery life). The choice is stored with the session
+and restored on reopen. Behind the panels an **animated psychedelic swirl**
 counter-rotates at ~30 fps — two pre-rendered log-spiral layers in the UV
 palette — and scale-pulses subtly with the smoothed output level, so the room
 breathes with the music. The surface is three panel rows — oscillators, filters
@@ -121,6 +125,12 @@ redesign waves, octaves and groove density wholesale.
   **drawable 8-frame wavetable** per oscillator, each with octave (+/-2), fine
   detune (+/-50 cents), level, **pan**, **start phase**
   (+ phase randomization); oscillator B can phase-modulate oscillator A (FM).
+  **PULSE W** sets the PWM duty cycle directly (both oscillators share it, so a
+  two-oscillator PWM patch stays width-coherent) and is a mod destination, so an
+  LFO can sweep the width without spending the LFO's own PWM target row.
+  Two inter-oscillator modes sit alongside FM: **SYNC** (hard sync — OSC A's
+  phase is reset by every OSC B cycle, the classic metallic sweep) and **RING**
+  (blends the product of the two oscillators into OSC A, 0 = off, 1 = pure ring).
 - **Wavetable morphing**: a WT POS knob sweeps through the drawn frames with
   linear frame interpolation; both LFOs offer "WT POS A/B" targets for evolving
   spectral movement. Frame editing: pick a frame in the strip under each
@@ -131,7 +141,12 @@ redesign waves, octaves and groove density wholesale.
 - **Wavetable edit tools**: each OSC display has a one-click tool row (SMOOTH
   blur, FLIP polarity, NORM re-level, and the P25 / P50 / FORMANT / SPIKES shape
   generators) that applies to the selected frame; transforms remove DC and
-  normalize, so even scratchy doodles play at full level.
+  normalize, so even scratchy doodles play at full level. The row ends with
+  **WAV**: pick an audio file and it is sliced into the oscillator's eight
+  frames, each resampled to 256 points and peak-normalised, and the oscillator
+  switches to its User wave so the import is audible immediately. Dropping a
+  `.wav` onto the OSC A or OSC B panel does the same thing (onto B for B,
+  anywhere else for A).
 - **Sub oscillator** (square / sine / triangle, 0-2 octaves below the note) and **white noise**.
 - **Unison** up to 7 detuned voices around both oscillators with stereo spread —
   classic supersaw/trance lead. UNI / DETUNE / WIDTH in the OSC panels and
@@ -161,9 +176,10 @@ redesign waves, octaves and groove density wholesale.
   **curve** (LIN/EXP/SIN) and **lag** (slew) cell. Sources: LFO 1/2,
   filter env, amp env, velocity, modwheel, **S&H** (block-rate random), **aftertouch**, and
   **MACRO A/B** (also MIDI CC 14 / CC 15 out of the box). Destinations: cutoff (±4 oct),
-  osc fine tune (±1200 ct), osc levels, wavetable positions, reso, drive,
-  osc pan, LFO rates, and the shared FX (delay time ±2 oct, feedback, mix,
-  phaser mix, reverb size/mix — the deepest voice wins). Click a cell to cycle values (right-click goes backwards), click the
+  **FILTER B cutoff and resonance**, osc fine tune (±1200 ct), osc levels,
+  wavetable positions, reso, drive, **pulse width**, **vowel morph**,
+  **analog character**, osc pan, LFO rates, and the shared FX (delay time ±2 oct, feedback, mix,
+  phaser mix, reverb size/mix, **OTT depth**, **sidechain pump depth** — the deepest voice wins). Click a cell to cycle values (right-click goes backwards), click the
   amount bar to jump the amount straight to that point, drag it vertically
   (shift-drag for fine changes), double-click amount/src/dst to reset it
   (0 / OFF); negative amounts reverse the response. Faster assigning: click a
@@ -179,13 +195,16 @@ redesign waves, octaves and groove density wholesale.
   cutoff, sustain pedal support.
 - **FX chain**: chorus -> phaser -> **OTT multiband compressor** ->
   tempo-synced ping-pong delay (Off / 1/16 / 1/8D / 1/8 / 1/4 or free ms) ->
-  reverb -> master gain -> limiter. The OTT splits the signal at 220 Hz / 2 kHz
+  reverb -> master gain -> **master 3-band EQ** -> limiter. The OTT splits the signal at 220 Hz / 2 kHz
   (4th-order crossovers) and applies the classic fast upward+downward squeeze to
   each band — DEPTH blends from transparent to full psy squeeze, per-band LOW /
   MID / HIGH trim the response, OUT is an output pad. Depth 0 is a true DSP
   bypass. The reverb grows a **SHIM** (octave-up pitch-shifted tail) and the
   delay + reverb duck under the dry signal with **DUCK**, so leads stay clear
-  while the tails swell in the gaps.
+  while the tails swell in the gaps. The **master EQ** (bottom-right, next to the
+  pump/analog row) is a low shelf at 200 Hz, a peaking mid with its own frequency
+  and a high shelf at 4 kHz, all ±15 dB — it sits after MASTER and before the
+  limiter, and an all-0 dB setting is a true bypass (no filtering at all).
 - **Trancegate**: 16-step volume pattern with 1/32 ... 1/4 step lengths (incl.
   dotted/triplet), sample-accurate and phase-locked to the host transport bar —
   start playback mid-pattern and the gate is already on the right step. Click or
@@ -203,27 +222,96 @@ redesign waves, octaves and groove density wholesale.
   synth plays back exactly, for pumping off-beat dynamics. The playhead cell
   lights up while the transport runs. The **DIR cell** cycles playback
   direction: UP, DOWN, UP-DOWN (ping-pong), RANDOM (fresh roll every step) and
-  CONVERGE (outer pair inward, 0-15-1-14-...).
+  CONVERGE (outer pair inward, 0-15-1-14-...). The arp also **emits the notes it
+  plays to the host's MIDI output**, so a generated line can be recorded to a
+  track or fed to another instrument; only the arp's own events are sent (the
+  incoming notes are never echoed back).
+
+## Patch workflow
+
+Five buttons sit in the bottom bar beside the octave keys:
+
+- **RAND** — randomises the patch. The draw is musically biased rather than
+  uniform (envelope times favour the short end, wet amounts stay moderate, drive
+  and resonance stay clear of the extremes, cutoff stays mid-forward) because a
+  uniform value in every cell produces 5-second attacks and full-wet reverb.
+  Structural parameters are left alone: the mod matrix, the gate/arp step
+  patterns, master gain, fine tune, voicing, polyphony, bend range, quality and
+  the phase-randomisation switches. Booleans get a coin flip.
+- **UNDO / REDO** — a 32-step stack of whole-patch snapshots. Pushed by preset
+  loads, randomise, A/B swaps and knob/selector gestures (one snapshot per
+  gesture, taken at drag start). It deliberately does not try to undo host
+  automation ramps: those are the host's business, and pushing on every
+  parameter change would fill the stack within seconds.
+- **A / B** — two slots holding two versions of the patch. The first press puts
+  both slots on the current sound and moves you to B (nothing changes audibly);
+  edit, then press again to flip. The button label shows the live slot.
+- **LOCK** — lock mode. Click any knob to protect it: locked knobs are skipped
+  by RAND and by preset loads, and show a small filled mark in their top-left
+  corner. A click in lock mode toggles the lock instead of moving the value, so
+  the knob does not jump. Press LOCK again to leave lock mode.
+
+The header carries a **stereo output meter** with a **gain-reduction strip**:
+the two bars show the output peak (green to about -6 dBFS, amber to -1, red
+above) and the strip below grows leftwards as the limiter pulls, measured from
+the block's pre/post-limiter peak ratio rather than read off a knob.
+
+## Host integration
+
+- **Program list**: the host's own patch menu lists the whole factory bank —
+  program 0 is *Init Patch* (all defaults) and programs 1..175 are the factory
+  patches in bank order, so a DAW can browse and automate the bank without
+  opening the plugin's browser. Loading a program and clicking a preset in the
+  browser produce the same sound (both reset to defaults, then apply the patch).
+  Program names are read-only (the bank is compiled in).
+- **MIDI output**: the plugin declares a MIDI output and emits the arp's
+  generated notes on it.
+- **Formats**: VST3 on Windows, macOS and Linux, plus **AU / AUv3** on macOS
+  (Logic) and **LV2** on Linux. CLAP is not available in the JUCE 8.0.8 release
+  this project pins, so it is not built; adding it would need a newer JUCE or a
+  third-party wrapper.
+
+## UI polish and micro-interactions
+
+- **Knob hover glow**: a soft radial halo appears under each rotary when the
+  pointer is over it.
+- **Panel lift**: hovering a module panel brightens its top edge, adding depth
+  without breaking the flat aesthetic.
+- **Filter response glow**: the FILTER graph draws the magnitude curve with a
+  soft glow stroke behind the clean line.
+- **Active step glow**: the gate/arp playhead step gets a bright halo + crown
+  highlight so you can follow the rhythm at a glance.
+- **Breathing logo**: the GOA header logo slowly pulses its glow at ~4 s period.
+- **Grain texture**: a subtle film-grain dot pattern is painted over the
+  background gradient, adding organic texture to the vector surface.
+- **Rounded corners**: panel corner radius increased from 3 px to 6 px for a
+  softer, more modern feel.
 
 ## Factory presets
 
-135 patches in 9 categories — **15 each** of ACID (303-family squelch), BASS
-(rollers, subs, growls), FM (bells, metallics, vocal forms), FX (sweeps, noise,
-zaps), LEAD (supersaws, hoovers, screeches), PAD (swirls, drones, choirs),
-PLUCK (trance fingers, kotos, glass), RISER (builds, sweeps, noise jets) and
-SYNTH (organs, EPs, strings, clavs). Each preset carries its category as a tag,
-so the browser's TAG filter doubles as a category menu — pick "ACID" or "PAD"
-to see just that family. Names are prefixed by category (ACID .../ BASS ...),
-which also makes search work as a category filter.
+175 patches in 9 categories — 20 each of ACID (303-family squelch), BASS
+(rollers, subs, growls), LEAD (supersaws, hoovers, screeches) and PAD (swirls,
+drones, choirs), and 19 each of FM (bells, metallics, vocal forms), FX (sweeps,
+noise, zaps), PLUCK (trance fingers, kotos, glass), RISER (builds, sweeps,
+noise jets) and SYNTH (organs, EPs, strings, clavs). Each preset carries its
+category as a tag, so the browser's TAG filter doubles as a category menu — pick
+"ACID" or "PAD" to see just that family. Names are prefixed by category
+(ACID .../ BASS ...), which also makes search work as a category filter.
 
 ## Preset browser
 
 The header shows the current patch name plus **< / >** arrows, and **BROWSE**
-opens a Serum-style overlay: folder tabs (**ALL / FACTORY / USER**), a live
-**search box**, a **TAG filter** built from every tag in the bank, and a
-click-to-load grouped list (FACTORY / USER PATCHES sections, zebra rows,
-selected patch highlighted, up to three tags shown per entry). DEL removes the
-selected user preset.
+opens a Serum-style overlay: folder tabs (**ALL / FACTORY / USER** plus a
+**favourites** star tab), a live **search box** that matches names *and* tags,
+a **TAG filter** built from every tag in the bank, a **SORT** menu
+(A-Z / Z-A / NEWEST / BANK ORDER) and a live "shown of total" count. The list
+is grouped (FACTORY / USER PATCHES), zebra-striped, stars favourites, shows up
+to three tags per entry and a teal **SHARED** badge on machine-wide patches.
+Click a row to **audition** it with the browser still open; double-click or
+Return loads and closes; ESC closes without rolling back the patch you already
+auditioned. Click a tag to filter by it, right-click a row for
+load / rename / duplicate / delete / reveal. DEL removes the selected user
+preset; factory patches are never touched.
 
 ## User presets
 

@@ -658,13 +658,19 @@ inline RestoreResult restoreSerial (const juce::String& serialIn, const juce::St
 // needs the serial line; everything else is documentation for humans.
 // Keep in sync with Source/License.cpp (makeLicenseFile).
 inline juce::String licenseFileContents (const juce::String& serial, const juce::String& machineId,
-                                         const juce::String& note)
+                                         const juce::String& note,
+                                         const juce::String& buyerName = {},
+                                         const juce::String& buyerEmail = {})
 {
+    const juce::String name  = buyerName.trim().replaceCharacters ("\r\n", "  ");
+    const juce::String email = buyerEmail.trim().replaceCharacters ("\r\n", "  ");
     juce::String contents;
     contents << "GOA-LICENSE-1\n"
              << "serial:  " << serial << "\n"
              << "machine: " << machineId << "\n"
-             << "note:    " << (note.isEmpty() ? juce::String ("-") : note) << "\n"
+             << "name:    " << (name.isEmpty()  ? juce::String ("-") : name) << "\n"
+             << "email:   " << (email.isEmpty() ? juce::String ("-") : email) << "\n"
+             << "note:    " << (note.isEmpty()  ? juce::String ("-") : note) << "\n"
              << "issued:  " << juce::Time::getCurrentTime().toISO8601 (true) << "\n"
              << "plugin:  GoaSynth VST3\n"
              << "usage:   double-click this file (opens GoaSynth) or IMPORT it on the activation screen\n";
@@ -672,10 +678,12 @@ inline juce::String licenseFileContents (const juce::String& serial, const juce:
 }
 
 inline bool writeLicenseFile (const juce::String& serial, const juce::String& machineId,
-                              const juce::String& note, const juce::File& outFile)
+                              const juce::String& note, const juce::File& outFile,
+                              const juce::String& buyerName = {},
+                              const juce::String& buyerEmail = {})
 {
     return outFile.getParentDirectory().createDirectory().wasOk()
-             && outFile.replaceWithText (licenseFileContents (serial, machineId, note));
+             && outFile.replaceWithText (licenseFileContents (serial, machineId, note, buyerName, buyerEmail));
 }
 
 } // namespace keygen::core

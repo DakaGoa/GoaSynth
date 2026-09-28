@@ -43,15 +43,26 @@ public:
 
     const juce::String getName() const override { return "GoaSynth"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 6.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return "Default"; }
-    void changeProgramName (int, const juce::String&) override {}
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
+    void changeProgramName (int index, const juce::String& newName) override;
+
+    // Applies the pending host program change on the message thread. Public so
+    // the headless tests can drive it without a running message loop.
+    void applyPendingProgram();
+    // Records the program the UI just loaded, so getCurrentProgram() agrees
+    // with the browser after a click (no reload - the editor already applied it).
+    void noteUiProgram (int index) noexcept
+    {
+        currentProgram.store (juce::jlimit (0, juce::jmax (0, getNumPrograms() - 1), index),
+                              std::memory_order_relaxed);
+    }
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
@@ -106,6 +117,10 @@ public:
     // Smoothed output level 0..1 (audio thread writes, editor backdrop reads).
     std::atomic<float> uiLevel { 0.0f };
 
+    // Limiter gain reduction in dB (<= 0), measured as the block's pre/post
+    // limiter peak ratio. Feeds the header meter's reduction strip.
+    std::atomic<float> uiGainReduction { 0.0f };
+
     // ---- licensing -----------------------------------------------------------
     // Unlicensed (and trial-expired) instances output pure silence; during the
     // 24 h trial everything works (see processBlock).
@@ -118,7 +133,27 @@ public:
     // that mod-matrix routing actually reaches the audio path).
     goa::GoaSynth synth;
 
+    // Host program list. The factory bank is read-only, so there is nothing to
+    // write back; the index is just tracked so the host's program display and
+    // the browser stay in agreement.
+    std::atomic<int> currentProgram { 0 };
+
 private:
+    // Some hosts deliver a program change on the audio thread, but loading a
+    // preset calls setValueNotifyingHost() on ~100 parameters (listeners,
+    // repaints, possibly allocation) — never legal there. setCurrentProgram()
+    // only records the index and pokes this AsyncUpdater; the actual load runs
+    // on the message thread. A member (not a heap object) so it is cancelled
+    // with the processor rather than firing into a dead object.
+    struct ProgramLoader : juce::AsyncUpdater
+    {
+        explicit ProgramLoader (GoaSynthAudioProcessor& p) : proc (p) {}
+        void handleAsyncUpdate() override { proc.applyPendingProgram(); }
+        GoaSynthAudioProcessor& proc;
+    };
+    ProgramLoader programLoader { *this };
+    std::atomic<int> pendingProgram { -1 };
+
     static juce::AudioProcessor::BusesProperties busProps();
     float computeDelaySamples();
 
@@ -150,6 +185,26 @@ private:
     };
 
     Ott ott;
+    // Master 3-band EQ (low shelf 200 Hz / peaking mid / high shelf 4 kHz),
+    // between MASTER and the limiter. Coefficients are rebuilt only when a knob
+    // moves, and an all-zero setting is a true bypass (no filtering at all).
+    struct MasterEq
+    {
+        void prepare (double sampleRate);
+        void reset();
+        void process (juce::AudioBuffer<float>& buffer, float lowDb, float midDb,
+                      float midHz, float highDb);
+
+    private:
+        struct Band
+        {
+            juce::dsp::IIR::Filter<float> l, r;
+            float lastDb = -999.0f, lastHz = -1.0f;
+        };
+        Band low, mid, high;
+        double sr = 48000.0;
+    };
+    MasterEq eq;
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayL, delayR;
@@ -169,6 +224,10 @@ private:
     std::atomic<float> pumpPlayhead { -1.0f };  // 0..1 through the pump period
     juce::Array<int> arpNotesHeld;              // most-recent-first, for the injector
     juce::MidiBuffer uiMidi;
+    // Events the arp generates, mirrored for the HOST's MIDI output. Kept
+    // separate from the incoming buffer so the plugin emits what it played
+    // rather than echoing the notes it was given (see the end of processBlock).
+    juce::MidiBuffer midiOut;
     juce::CriticalSection uiMidiLock;
     juce::Array<int> uiHeldNotes;               // UI note-ons awaiting their note-off (uiMidiLock)    // Panic hands this to the audio thread: delay/reverb buffers must be
     // cleared there, never from the UI thread (data race with processBlock).

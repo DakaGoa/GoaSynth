@@ -214,13 +214,32 @@ int cmdGenFile()
                                         looksLikeMachineId,
                                         "That is not a valid 20-char machine id (hex, no dashes).");
 
-    const juce::String note = promptLine ("Note, e.g. the buyer's name (optional)");
+    const juce::String name  = promptLine ("Buyer's name (optional)");
+    const juce::String email = promptLine ("Buyer's email (optional)");
+    const juce::String note  = promptLine ("Note, e.g. order reference (optional)");
 
     const juce::String defName = "GoaSynth-" + id + ".goalicense";
     const juce::String outName = promptLine ("Output file", defName);
 
     std::cout << "\n";
-    return cmdFile ({ "--file", id, note, outName });
+
+    // Build the .goalicense directly so name/email are written into the file.
+    bool alreadyIssued = false;
+    const juce::String serial = recordIssued (keys, id, note, alreadyIssued);
+    juce::File outFile (juce::File::getCurrentWorkingDirectory().getChildFile (outName));
+    if (! writeLicenseFile (serial, id, note, outFile, name, email))
+    {
+        std::cout << "Could not write " << outFile.getFullPathName() << "\n";
+        return 1;
+    }
+
+    std::cout << "License file written:\n  " << outFile.getFullPathName() << "\n\n"
+              << "Serial inside (also logged in " << issuedFile().getFileName() << "):\n  "
+              << prettySerial (serial) << "\n\n"
+              << "Send this one file to the buyer - they double-click it (or press\n"
+              << "IMPORT on the activation screen) and GoaSynth activates.\n"
+              << "It activates ONLY on machine id " << id << ".\n";
+    return 0;
 }
 
 //==============================================================================
@@ -423,8 +442,8 @@ void printUsage()
         << "  GoaSynthKeygen --file <machineId> [note] [out.goalicense]\n"
         << "                                            issue a serial AND write a buyer-ready\n"
         << "                                            .goalicense file the buyer double-clicks\n"
-        << "  GoaSynthKeygen --genfile                 issue a .goalicense file, asked\n"
-        << "                                            step by step (no arguments needed)\n"
+        << "  GoaSynthKeygen --genfile                  issue a .goalicense file, asked\n"
+        << "                                            step by step (name, email, no args)\n"
         << "  GoaSynthKeygen --list                     list every issued serial\n"
         << "  GoaSynthKeygen --verify <serial>          check a serial's signature\n"
         << "  GoaSynthKeygen --master-info              show stored master digest\n"
@@ -432,7 +451,8 @@ void printUsage()
         << "  GoaSynthKeygen --revoke <serial> [reason] pull a serial out of the active\n"
         << "                                            ledger (refunds) and record why\n\n"
         << "Master key check: type the master key into the plugin's serial box on\n"
-        << "any machine to activate it (use sparingly!).\n\n"        << "Flow: buyer sends you their MACHINE ID (shown on the plugin's activation\n"
+        << "any machine to activate it (use sparingly!).\n\n"
+        << "Flow: buyer sends you their MACHINE ID (shown on the plugin's activation\n"
         << "screen)  ->  you run --gen  ->  you send the serial back.\n"
         << "One serial = one machine. Second machine = blocked by the plugin.\n";
 }
@@ -495,8 +515,10 @@ int cmdMenu()
             const juce::String id = promptLine ("Buyer's MACHINE ID (20 hex chars)", {},
                                                 looksLikeMachineId,
                                                 "That is not a valid 20-char machine id (hex, no dashes).");
-            const juce::String note = promptLine ("Note, e.g. the buyer's name (optional)");
-            cmdGen (id, note);
+            const juce::String name  = promptLine ("Buyer's name (optional)");
+            const juce::String email = promptLine ("Buyer's email (optional)");
+            const juce::String note  = promptLine ("Note, e.g. order reference (optional)");
+            cmdGen (id, note + " | " + name + " <" + email + ">");
         }
         else if (choice == "4")
         {

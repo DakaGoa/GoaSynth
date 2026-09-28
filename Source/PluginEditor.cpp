@@ -6,7 +6,10 @@
 #include "Presets.h"
 #include "UserPresets.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>   // WAV -> wavetable import
+
 #include <cmath>
+#include <cstdlib>
 
 namespace goaui
 {
@@ -82,6 +85,45 @@ static const Palette& analogPalette()
     return p;
 }
 
+// Cyberpunk / Dark Club: cyan, hot magenta, neon yellow on deep black.
+static const Palette& neonPalette()
+{
+    static const Palette p {
+        juce::Colour (0xff0a0a0f), juce::Colour (0xff12121a), juce::Colour (0xff0e0e16), juce::Colour (0xff0c0c14),
+        juce::Colour (0xff08080c), juce::Colour (0xff2a2a3a),
+        juce::Colour (0xff00f0ff), juce::Colour (0xffff0055), juce::Colour (0xffffee00), juce::Colour (0xff8899aa), juce::Colour (0xffe0f0ff),
+        juce::Colour (0xff1a1a28), juce::Colour (0xff0e0e18), juce::Colour (0xff050508), juce::Colour (0xff303040),
+        juce::Colour (0xffc0d0e0), juce::Colour (0xff0a0a10), juce::Colour (0xff667788),
+        juce::Colour (0xff080810), juce::Colour (0xff040408) };
+    return p;
+}
+
+// Light mode / Paper: warm off-white with cobalt, emerald and amber accents.
+static const Palette& paperPalette()
+{
+    static const Palette p {
+        juce::Colour (0xfff5f3ef), juce::Colour (0xffffffff), juce::Colour (0xfffaf9f6), juce::Colour (0xfff0eeea),
+        juce::Colour (0xffeae6e0), juce::Colour (0xffd1d5db),
+        juce::Colour (0xff2563eb), juce::Colour (0xff059669), juce::Colour (0xffd97706), juce::Colour (0xff6b7280), juce::Colour (0xff111827),
+        juce::Colour (0xffe5e7eb), juce::Colour (0xfff3f4f6), juce::Colour (0xffd1d5db), juce::Colour (0xff9ca3af),
+        juce::Colour (0xff111827), juce::Colour (0xffffffff), juce::Colour (0xff6b7280),
+        juce::Colour (0xfff0f0ec), juce::Colour (0xffe8e8e4) };
+    return p;
+}
+
+// OLED pure black: single red accent for maximum contrast and battery life.
+static const Palette& oledPalette()
+{
+    static const Palette p {
+        juce::Colour (0xff000000), juce::Colour (0xff050505), juce::Colour (0xff030303), juce::Colour (0xff040404),
+        juce::Colour (0xff020202), juce::Colour (0xff1a1a1a),
+        juce::Colour (0xffff3333), juce::Colour (0xffff5555), juce::Colour (0xffff7777), juce::Colour (0xff888888), juce::Colour (0xffffffff),
+        juce::Colour (0xff111111), juce::Colour (0xff050505), juce::Colour (0xff000000), juce::Colour (0xff222222),
+        juce::Colour (0xffeeeeee), juce::Colour (0xff000000), juce::Colour (0xff666666),
+        juce::Colour (0xff000000), juce::Colour (0xff000000) };
+    return p;
+}
+
 Theme themeFromIndex (int i) noexcept
 {
     return (Theme) juce::jlimit (0, (int) themeCount - 1, i);
@@ -96,6 +138,9 @@ void setTheme (Theme t, juce::Component* root)
     {
         case themeSteel:  applyPalette (steelPalette());  break;
         case themeAnalog: applyPalette (analogPalette()); break;
+        case themeNeon:   applyPalette (neonPalette());   break;
+        case themePaper:  applyPalette (paperPalette());  break;
+        case themeOled:   applyPalette (oledPalette());   break;
         default:          applyPalette (uvPalette());     break;
     }
     if (root != nullptr)
@@ -275,6 +320,7 @@ Ctl::Ctl (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId
           const juce::String& text, bool comboBox)
     : useCombo (comboBox), paramId (paramId), modSource (&apvts)
 {
+    setRepaintsOnMouseActivity (true);
     label.setText (text, juce::dontSendNotification);
     label.setFont (juce::Font (juce::FontOptions (9.0f)));
     label.setJustificationType (juce::Justification::centred);
@@ -340,6 +386,18 @@ juce::String liveValueText (juce::AudioProcessorValueTreeState& apvts,
         return dropUnit ? juce::String (juce::roundToInt (v))   // "12", "-50"
                         : f (v, 1) + unit ("ct");
     if (id == param::masterGain || id == param::ottOut) return f (v, 1) + unit ("dB");
+    // Master EQ: three gains in dB and a mid frequency in Hz. Without these they
+    // fell through to the 0..1 "%" fallback and read "-1500 %". The gain is
+    // snapped to exactly zero within a hair of it, or a neutral band would
+    // render as "-0.0 dB".
+    if (id == param::eqLow || id == param::eqMid || id == param::eqHigh)
+    {
+        const float g = std::abs (v) < 0.05f ? 0.0f : v;
+        return f (g, 1) + unit ("dB");
+    }
+    if (id == param::eqMidFreq)
+        return dropUnit ? (v >= 1000.0f ? f (v / 1000.0f, 1) + "k" : f (v, 0))
+                        : f (v, 0) + unit ("Hz");
     if (id == param::lfo1Rate || id == param::lfo2Rate
         || id == param::chorusRate || id == param::phRate)
         return f (v, 2) + unit ("Hz");
@@ -413,7 +471,14 @@ void Ctl::resized()
     }
     else
     {
-        label.setBounds (b.removeFromTop (12));
+        // Name on the first line, live readout on the second (painted by
+        // paint()), rotary below. These two used to share a single 12px band,
+        // so in a narrow cell the value was painted straight over the name -
+        // the FX row read "RATEGs" / "MID00" / "LO100". Stacking them costs no
+        // knob size: the rotary is width-limited in every panel (min(w,h) is
+        // the cell width), so the drawn circle is unchanged.
+        label.setBounds (b.removeFromTop (labelLine));
+        b.removeFromTop (readoutLine);
         slider.setBounds (b);
     }
 }
@@ -431,6 +496,18 @@ void Ctl::paint (juce::Graphics& g)
     for (int k = 0; k < n; ++k)
         paintModDot (g, { (float) getWidth() - 8.0f - k * 8.0f, 6.0f },
                      src[k], amt[k], liveEngine);
+
+    // Knob hover glow: a soft radial gradient under the rotary.
+    if (isMouseOver() && ! useCombo)
+    {
+        auto sb = slider.getBounds().toFloat();
+        auto centre = sb.getCentre();
+        float rad = juce::jmin (sb.getWidth(), sb.getHeight()) * 0.55f;
+        juce::ColourGradient glow (accent.withAlpha (0.10f), centre.x, centre.y,
+                                   accent.withAlpha (0.0f), centre.x + rad, centre.y + rad, true);
+        g.setGradientFill (glow);
+        g.fillEllipse (centre.x - rad, centre.y - rad, rad * 2.0f, rad * 2.0f);
+    }
 
     // Mod-depth arcs: for each routing into this knob, a short arc around the
     // knob's perimeter showing where the source pushes the value RIGHT NOW —
@@ -501,20 +578,32 @@ void Ctl::paint (juce::Graphics& g)
         }
     }
 
-    // Serum-style readout: the live value under the name, in compact units
-    // (1.5k, 12.0ct, 85, 250m). Drawn here (not in the Label child) so the
-    // value can change every frame; the label keeps just the name. Combos
-    // skip it - their selection already shows in the box itself.
+    // Live readout on its OWN line, directly under the name (see resized()):
+    // "the live value under the name" as documented, and the two can no longer
+    // collide however narrow the cell gets. Trimmed on the right so it stays
+    // clear of the mod dots in the top-right corner.
     if (! useCombo)
     {
         const juce::String txt = liveValueText (*modSource, paramId, true);
-        // Keep the readout clear of the mod dots in the top-right corner.
-        auto band = getLocalBounds().removeFromTop (12)
-                        .removeFromBottom (7).toFloat()
+        auto band = getLocalBounds().removeFromTop (labelLine + readoutLine)
+                        .removeFromBottom (readoutLine).toFloat()
                         .withTrimmedRight (n > 0 ? (float) n * 8.0f + 3.0f : 0.0f);
         g.setColour (textBright.withAlpha (0.8f));
         g.setFont (juce::Font (juce::FontOptions (7.0f, juce::Font::bold)));
         g.drawText (txt, band, juce::Justification::centredRight);
+    }
+
+    // Parameter lock mark, top-left corner: filled = locked (excluded from
+    // randomise and preset loads), hollow = lock mode armed, so it is obvious
+    // that a click will toggle the lock rather than move the value.
+    if (locked || lockMode)
+    {
+        const juce::Rectangle<float> lk (2.0f, 2.0f, 7.0f, 7.0f);
+        g.setColour (locked ? accent : border.withAlpha (0.55f));
+        if (locked)
+            g.fillRoundedRectangle (lk, 1.5f);
+        else
+            g.drawRoundedRectangle (lk.reduced (0.5f), 1.5f, 1.0f);
     }
 
     // Live-value tooltip: name + value in engine units, refreshed every
@@ -524,16 +613,37 @@ void Ctl::paint (juce::Graphics& g)
         : liveValueText (*modSource, paramId);
     juce::String tip;
     if (modDotTip (*modSource, paramId, tip))
-        setTip (tip + (baseTip.isNotEmpty() ? "\n" + baseTip : "")
-                  + (valueLine.isNotEmpty() ? " \u2014 " + valueLine : ""));
+        tip = tip + (baseTip.isNotEmpty() ? "\n" + baseTip : "")
+                  + (valueLine.isNotEmpty() ? " \u2014 " + valueLine : "");
     else
-        setTip (baseTip + (valueLine.isNotEmpty() ? " \u2014 " + valueLine : ""));
+        tip = baseTip + (valueLine.isNotEmpty() ? " \u2014 " + valueLine : "");
+    if (locked)
+        tip += "\nLOCKED \u2014 excluded from randomise and preset loads";
+    setTip (tip);
 }
 
 // Pick flash on top of the knob (children stay visible above the glow).
 void Ctl::paintOverChildren (juce::Graphics& g)
 {
     paintFlash (g, *this, flashFade());
+}
+
+// Lock mode: the knob and combo stop taking mouse clicks, so the click falls
+// through to this component and toggles the lock instead of moving the value.
+void Ctl::setLockMode (bool on)
+{
+    lockMode = on;
+    slider.setInterceptsMouseClicks (! on, ! on);
+    combo.setInterceptsMouseClicks (! on, ! on);
+    repaint();
+}
+
+void Ctl::mouseDown (const juce::MouseEvent&)
+{
+    // Only reachable while lock mode is armed (otherwise the slider/combo take
+    // the event), which is exactly when a click means "toggle my lock".
+    if (lockMode && onLockClick)
+        onLockClick();
 }
 
 // Same animated dots + tooltips for toggles (VOWEL, P.RAND, etc.).
@@ -683,6 +793,7 @@ Panel::Panel (const juce::String& titleText, ColRole r)
     : title (titleText), role (r), headCol (roleColour (r))
 {
     setOpaque (false);
+    setRepaintsOnMouseActivity (true);
 }
 
 void Panel::retint()
@@ -698,11 +809,18 @@ void Panel::paint (juce::Graphics& g)
     juce::ColourGradient grad (bgPanel.brighter (0.04f), b.getX(), b.getY(),
                                bgPanelLo, b.getX(), b.getBottom(), false);
     g.setGradientFill (grad);
-    g.fillRoundedRectangle (b, 5.0f);
+    g.fillRoundedRectangle (b, 6.0f);
+
+    // Panel lift: subtle inner highlight on hover.
+    if (isMouseOver())
+    {
+        g.setColour (border.brighter (0.25f).withAlpha (0.45f));
+        g.drawHorizontalLine (1, b.getX() + 4.0f, b.getRight() - 4.0f);
+    }
 
     auto head = b.removeFromTop (18.0f);
     g.setColour (bgHeader);
-    g.fillRoundedRectangle (head, 5.0f);
+    g.fillRoundedRectangle (head, 6.0f);
     g.fillRect (head.withTrimmedTop (7.0f));
 
     g.setColour (headCol);
@@ -715,7 +833,7 @@ void Panel::paint (juce::Graphics& g)
     g.fillRect (b.getX() + 6.0f, head.getBottom() - 1.0f, b.getWidth() - 12.0f, 1.0f);
 
     g.setColour (border.withAlpha (0.85f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 5.0f, 1.0f);
+    g.drawRoundedRectangle (b.reduced (0.5f), 6.0f, 1.0f);
 }
 
 //==============================================================================
@@ -782,7 +900,7 @@ int WaveDisplay::toolAt (juce::Point<float> pos) const
         return -1;
     const int i = (int) ((pos.x - tb.getX()) / 28.0f);
     const float frac = (pos.x - tb.getX()) - 28.0f * (float) i;
-    return (i >= 0 && i < 7 && frac <= 26.0f) ? i : -1;
+    return (i >= 0 && i < 8 && frac <= 26.0f) ? i : -1;
 }
 
 int WaveDisplay::frameAt (juce::Point<float> pos) const
@@ -893,6 +1011,16 @@ void WaveDisplay::mouseDoubleClick (const juce::MouseEvent&)
 
 void WaveDisplay::applyTool (int tool)
 {
+    // Tool 7 is not a frame transform: it hands off to the editor, which owns
+    // the file chooser. Handled before beginEdit() so a cancelled dialog
+    // cannot leave an uncommitted edit session behind.
+    if (tool == 7)
+    {
+        if (onLoadWav)
+            onLoadWav();
+        return;
+    }
+
     auto* w = proc.wavetable (oscIndex);
     if (w == nullptr)
         return;
@@ -1010,12 +1138,12 @@ void WaveDisplay::paint (juce::Graphics& g)
                             + "  \u2014  DRAG DRAW \u2022 RIGHT-DRAG ERASE \u2022 DBL-CLICK RESET",
                         cb.reduced (6.0f, 4.0f), juce::Justification::bottomLeft);
 
-            // Tools row: transforms + one-click shapes.
+            // Tools row: transforms, one-click shapes, then the WAV importer.
             {
-                static constexpr const char* labels[7] =
-                    { "SMOOTH", "FLIP", "NORM", "P25", "P50", "FORM", "SPK" };
+                static constexpr const char* labels[8] =
+                    { "SMOOTH", "FLIP", "NORM", "P25", "P50", "FORM", "SPK", "WAV" };
                 const auto tb = toolsRect();
-                for (int i = 0; i < 7; ++i)
+                for (int i = 0; i < 8; ++i)
                 {
                     auto cell = juce::Rectangle<float> (tb.getX() + 28.0f * (float) i,
                                                         tb.getY(), 26.0f, tb.getHeight());
@@ -1158,10 +1286,16 @@ void FilterGraph::paint (juce::Graphics& g)
     fill.lineTo ((float) Wpx, b.getBottom());
     fill.lineTo (0.0f, b.getBottom());
     fill.closeSubPath();
-    g.setColour (col.withAlpha (0.12f));
+    g.setColour (col.withAlpha (0.15f));
     g.fillPath (fill);
-    g.setColour (col);
-    g.strokePath (curve, juce::PathStrokeType (1.5f));
+
+    // Glow stroke for the filter curve.
+    g.setColour (col.withAlpha (0.35f));
+    g.strokePath (curve, juce::PathStrokeType (3.5f,
+        juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (col.brighter (0.15f));
+    g.strokePath (curve, juce::PathStrokeType (1.5f,
+        juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     const float xc = std::log10 (cHz / 20.0f) / 3.0f * b.getWidth() + b.getX();
     g.setColour (textDim.withAlpha (0.55f));
@@ -1779,10 +1913,13 @@ void StepStrip::paint (juce::Graphics& g)
 
         if (live && ph >= 0.0f)
         {
-            g.setColour (goaui::textBright.withAlpha (0.85f));
-            g.drawRoundedRectangle (cell, 2.0f, 1.4f);
-            g.setColour (goaui::textBright.withAlpha (0.5f));
-            g.fillRect (cell.removeFromTop (2.0f));
+            // Active step glow: soft outer halo + bright outline + crown.
+            g.setColour (goaui::accent.withAlpha (0.25f));
+            g.drawRoundedRectangle (cell.expanded (2.0f), 3.0f, 2.5f);
+            g.setColour (goaui::textBright.withAlpha (0.9f));
+            g.drawRoundedRectangle (cell, 2.0f, 1.6f);
+            g.setColour (goaui::textBright.withAlpha (0.55f));
+            g.fillRect (cell.removeFromTop (2.5f));
         }
     }
 }
@@ -1985,6 +2122,68 @@ bool Keyboard::blackAfter (int i) const
     if (i >= numWhite - 1)
         return false;
     return whiteSemi (i + 1) - whiteSemi (i) == 2;
+}
+
+//==============================================================================
+// Header meter: two output level bars (L over R) plus a gain-reduction strip
+// that grows leftwards as the limiter pulls harder. Reads only the two atomics
+// the audio thread publishes.
+void LevelMeter::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    const float barH = juce::jmax (3.0f, (b.getHeight() - 12.0f) * 0.5f);
+    auto lBar  = b.removeFromTop (barH);
+    b.removeFromTop (3.0f);
+    auto rBar  = b.removeFromTop (barH);
+    b.removeFromTop (3.0f);
+    auto grBar = b;
+
+    // Green up to about -6 dBFS, amber to -1, red above: the same convention
+    // as every DAW meter, so a glance needs no legend.
+    auto levelColour = [] (float v)
+    {
+        return v > 0.89f ? juce::Colour (0xffe24b4a)
+             : v > 0.50f ? juce::Colour (0xffef9f27)
+                         : juce::Colour (0xff1d9e75);
+    };
+
+    for (auto* pr : { &lBar, &rBar })
+    {
+        g.setColour (bgInset);
+        g.fillRoundedRectangle (*pr, 2.0f);
+        const float v = juce::jlimit (0.0f, 1.0f, level);
+        if (v > 0.002f)
+        {
+            g.setColour (levelColour (v));
+            g.fillRoundedRectangle (pr->withWidth (juce::jmax (2.0f, pr->getWidth() * v)), 2.0f);
+        }
+        g.setColour (border);
+        g.drawRoundedRectangle (pr->reduced (0.5f), 2.0f, 1.0f);
+    }
+
+    g.setColour (bgInset);
+    g.fillRoundedRectangle (grBar, 2.0f);
+    const float grn = juce::jlimit (0.0f, 1.0f, -gr / 24.0f);   // 24 dB = full strip
+    if (grn > 0.002f)
+    {
+        g.setColour (juce::Colour (0xffd85a30));
+        g.fillRoundedRectangle (grBar.withTrimmedLeft (grBar.getWidth() * (1.0f - grn)), 2.0f);
+    }
+    g.setColour (border);
+    g.drawRoundedRectangle (grBar.reduced (0.5f), 2.0f, 1.0f);
+}
+
+void LevelMeter::timerCallback()
+{
+    const float l  = proc.uiLevel.load (std::memory_order_relaxed);
+    const float gg = proc.uiGainReduction.load (std::memory_order_relaxed);
+    // Repaint only on a visible change: this runs 30x a second forever.
+    if (std::abs (l - level) > 0.002f || std::abs (gg - gr) > 0.05f)
+    {
+        level = l;
+        gr = gg;
+        repaint();
+    }
 }
 
 void Keyboard::paint (juce::Graphics& g)
@@ -2555,15 +2754,23 @@ ModOverlay::ModOverlay (GoaSynthAudioProcessor& p) : proc (p)
     addAndMakeVisible (head);
 
     // Interaction cheat-sheet along the card's bottom edge (UX audit): every
-    // affordance is invisible in a painted matrix, so spell it out.
-    hint.setColour (juce::Label::textColourId, textDim);
-    hint.setFont (juce::Font (juce::FontOptions (9.0f)));
-    hint.setJustificationType (juce::Justification::centredLeft);
-    hint.setText ("click SRC/DST to cycle \u00b7 right-click backwards \u00b7 click DST then a knob, or"
-                  " SRC then an LFO/ENV graph, to assign \u00b7 click the amount bar to jump \u00b7"
-                  " shift-drag = fine \u00b7 double-click amount = 0 \u00b7 ESC closes",
+    // affordance is invisible in a painted matrix, so spell it out. It runs on
+    // two lines because the full sheet is ~753px at 9pt and the card only has
+    // 528px of inner width - on one line the tail (the ESC hint) was ellipsized
+    // away. Splitting keeps every affordance readable.
+    for (auto* h : { &hint, &hint2 })
+    {
+        h->setColour (juce::Label::textColourId, textDim);
+        h->setFont (juce::Font (juce::FontOptions (9.0f)));
+        h->setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (*h);
+    }
+    hint.setText ("click SRC/DST to cycle \u00b7 right-click backwards \u00b7 click DST + a knob,"
+                  " or SRC + an LFO/ENV graph, to assign",
                   juce::dontSendNotification);
-    addAndMakeVisible (hint);
+    hint2.setText ("click the amount bar to jump \u00b7 shift-drag = fine \u00b7"
+                   " double-click amount = 0 \u00b7 ESC closes",
+                   juce::dontSendNotification);
 
     closeBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
     closeBtn.setColour (juce::TextButton::textColourOffId, textDim);
@@ -2576,6 +2783,7 @@ void ModOverlay::retint()
 {
     head.setColour (juce::Label::textColourId, accent);
     hint.setColour (juce::Label::textColourId, textDim);
+    hint2.setColour (juce::Label::textColourId, textDim);
     closeBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
     closeBtn.setColour (juce::TextButton::textColourOffId, textDim);
     repaint();
@@ -2596,14 +2804,23 @@ void ModOverlay::resized()
     closeBtn.setBounds (card.removeFromTop (26).removeFromRight (44).reduced (5, 3));
     head.setBounds (card.reduced (16, 0).removeFromTop (24));
 
-    // Interaction cheat-sheet along the card's bottom edge.
-    auto foot = cardBounds().removeFromBottom (20).reduced (16, 0);
-    hint.setBounds (foot.removeFromTop (18));
+    // Interaction cheat-sheet along the card's bottom edge: two lines, 15px
+    // each, which is what rowsRect() reserves at the bottom of the grid.
+    auto foot = cardBounds().removeFromBottom (30).reduced (16, 0);
+    hint.setBounds (foot.removeFromTop (15));
+    hint2.setBounds (foot.removeFromTop (15));
 }
 
 juce::Rectangle<float> ModOverlay::rowsRect() const
 {
-    return cardBounds().toFloat().reduced (16.0f).withTrimmedTop (40.0f);
+    // Top 40 clears the title strip; the bottom 30 is the two-line cheat-sheet
+    // band that resized() gives the hint labels. Without that trim the grid ran
+    // to within 4px of the card's bottom edge and the hint text was painted
+    // straight over the last row's cells (caught by OverlayTest's
+    // painted-geometry audit).
+    return cardBounds().toFloat().reduced (16.0f)
+               .withTrimmedTop (40.0f)
+               .withTrimmedBottom (30.0f);
 }
 
 ModOverlay::RowGeo ModOverlay::rowGeo (int row) const
@@ -3512,8 +3729,15 @@ SavePresetOverlay::SavePresetOverlay()
     saveBtn.setColour (juce::TextButton::textColourOffId, accentA);
     saveBtn.onClick = [this]
     {
-        if (onSave != nullptr)
+        if (renaming)
+        {
+            if (onRename != nullptr)
+                onRename (name.getText(), collectTags());
+        }
+        else if (onSave != nullptr)
+        {
             onSave (name.getText(), collectTags(), sharedBtn.getToggleState());
+        }
     };
     addAndMakeVisible (saveBtn);
 
@@ -3524,9 +3748,41 @@ SavePresetOverlay::SavePresetOverlay()
     retint();
 }
 
+// Duplicate: a normal save, pre-filled with the source name/tags.
+void SavePresetOverlay::beginSaveAs (const juce::String& presetName,
+                                     const juce::StringArray& presetTags)
+{
+    renaming = false;
+    head.setText ("SAVE USER PRESET", juce::dontSendNotification);
+    head.setColour (juce::Label::textColourId, accentA);
+    saveBtn.setButtonText ("SAVE");
+    saveBtn.setTooltip ("Save preset");
+    sharedBtn.setVisible (true);
+    name.setText (presetName, juce::dontSendNotification);
+    tags.setText (presetTags.joinIntoString (" "), juce::dontSendNotification);
+    name.selectAll();
+}
+
+// Rename: same fields, but SAVE rewrites the existing file under a new name
+// instead of creating a second patch. The shared toggle is hidden because a
+// rename never moves a preset between banks.
+void SavePresetOverlay::beginRename (const juce::String& presetName,
+                                     const juce::StringArray& presetTags)
+{
+    renaming = true;
+    head.setText ("RENAME PRESET", juce::dontSendNotification);
+    head.setColour (juce::Label::textColourId, accent);
+    saveBtn.setButtonText ("RENAME");
+    saveBtn.setTooltip ("Rename this preset");
+    sharedBtn.setVisible (false);
+    name.setText (presetName, juce::dontSendNotification);
+    tags.setText (presetTags.joinIntoString (" "), juce::dontSendNotification);
+    name.selectAll();
+}
+
 void SavePresetOverlay::retint()
 {
-    head.setColour (juce::Label::textColourId, accentA);
+    head.setColour (juce::Label::textColourId, renaming ? accent : accentA);
     name.setColour (juce::TextEditor::backgroundColourId, bgInset);
     name.setColour (juce::TextEditor::outlineColourId, border);
     name.setColour (juce::TextEditor::focusedOutlineColourId, accentA);
@@ -3625,6 +3881,11 @@ PresetBrowserOverlay::PresetBrowserOverlay()
     search.setFont (juce::Font (juce::FontOptions (12.0f)));
     search.setIndents (8, 5);
     search.onTextChange = [this] { if (onChanged != nullptr) onChanged(); };
+    // TextEditor consumes ESC and Return by default (consumeEscAndReturnKeys),
+    // so they arrive as these callbacks rather than bubbling to keyPressed().
+    // ESC closes without rolling back - whatever is loaded stays loaded.
+    search.onEscapeKey = [this] { setVisible (false); };
+    search.onReturnKey = [this] { acceptRow (list.getSelectedRow()); };
     addAndMakeVisible (search);
 
     tagCombo.setColour (juce::ComboBox::backgroundColourId, bgPanel);
@@ -3635,15 +3896,33 @@ PresetBrowserOverlay::PresetBrowserOverlay()
     tagCombo.onChange = [this] { if (onChanged != nullptr) onChanged(); };
     addAndMakeVisible (tagCombo);
 
-    for (auto* tab : { &allTab, &factoryTab, &userTab })
+    // Sort. The user bank had no defined order at all before this (it came out
+    // of findChildFiles, i.e. filesystem order), so A-Z is the default and
+    // "BANK ORDER" is there for anyone who wants the old grouping back.
+    sortCombo.addItem ("SORT: A-Z", 1);
+    sortCombo.addItem ("SORT: Z-A", 2);
+    sortCombo.addItem ("SORT: NEWEST", 3);
+    sortCombo.addItem ("SORT: BANK ORDER", 4);
+    sortCombo.setSelectedItemIndex (0, juce::dontSendNotification);
+    sortCombo.setTooltip ("Sort the list");
+    sortCombo.onChange = [this]
+    {
+        sortIdx = juce::jmax (0, sortCombo.getSelectedItemIndex());
+        if (onChanged != nullptr)
+            onChanged();
+    };
+    addAndMakeVisible (sortCombo);
+
+    for (auto* tab : { &allTab, &factoryTab, &userTab, &favTab })
     {
         tab->setColour (juce::TextButton::buttonColourId, bgPanel);
         tab->setColour (juce::TextButton::textColourOffId, textDim);
         addAndMakeVisible (tab);
     }
-    allTab.onClick     = [this] { folderIdx = 0; syncTabs(); if (onChanged != nullptr) onChanged(); };
-    factoryTab.onClick = [this] { folderIdx = 1; syncTabs(); if (onChanged != nullptr) onChanged(); };
-    userTab.onClick    = [this] { folderIdx = 2; syncTabs(); if (onChanged != nullptr) onChanged(); };
+    allTab.onClick     = [this] { setFolder (0); };
+    factoryTab.onClick = [this] { setFolder (1); };
+    userTab.onClick    = [this] { setFolder (2); };
+    favTab.onClick     = [this] { setFolder (3); };
 
     for (auto* btn : { &exportBtn, &importBtn })
     {
@@ -3662,11 +3941,21 @@ PresetBrowserOverlay::PresetBrowserOverlay()
     status.setColour (juce::Label::textColourId, textDim);
     addAndMakeVisible (status);
 
+    // Preset count. A separate label from `status` so a pack import/export
+    // message never hides how many patches the current filter matched.
+    count.setFont (juce::Font (juce::FontOptions (10.0f)));
+    count.setJustificationType (juce::Justification::centredRight);
+    count.setColour (juce::Label::textColourId, textDim);
+    addAndMakeVisible (count);
+
     list.setColour (juce::ListBox::backgroundColourId, bgInset);
     list.setColour (juce::ListBox::outlineColourId, border);
     list.setModel (this);
     list.setRowHeight (22);
     list.setMultipleSelectionEnabled (false);
+    // Arrow keys must reach the list (and the overlay) rather than being eaten
+    // by the search box: TextEditor does not consume up/down, so they bubble.
+    list.setWantsKeyboardFocus (true);
     addAndMakeVisible (list);
 
     retint();
@@ -3682,11 +3971,14 @@ void PresetBrowserOverlay::retint()
     search.setColour (juce::TextEditor::outlineColourId, border);
     search.setColour (juce::TextEditor::focusedOutlineColourId, accent);
     search.setColour (juce::TextEditor::textColourId, textBright);
-    tagCombo.setColour (juce::ComboBox::backgroundColourId, bgPanel);
-    tagCombo.setColour (juce::ComboBox::textColourId, accentA);
-    tagCombo.setColour (juce::ComboBox::arrowColourId, accentA);
-    tagCombo.setColour (juce::ComboBox::outlineColourId, border);
-    for (auto* tab : { &allTab, &factoryTab, &userTab })
+    for (auto* cb : { &tagCombo, &sortCombo })
+    {
+        cb->setColour (juce::ComboBox::backgroundColourId, bgPanel);
+        cb->setColour (juce::ComboBox::textColourId, accentA);
+        cb->setColour (juce::ComboBox::arrowColourId, accentA);
+        cb->setColour (juce::ComboBox::outlineColourId, border);
+    }
+    for (auto* tab : { &allTab, &factoryTab, &userTab, &favTab })
     {
         tab->setColour (juce::TextButton::buttonColourId, bgPanel);
         tab->setColour (juce::TextButton::textColourOffId, textDim);
@@ -3697,6 +3989,7 @@ void PresetBrowserOverlay::retint()
         btn->setColour (juce::TextButton::textColourOffId, accentB);
     }
     status.setColour (juce::Label::textColourId, textDim);
+    count.setColour (juce::Label::textColourId, textDim);
     list.setColour (juce::ListBox::backgroundColourId, bgInset);
     list.setColour (juce::ListBox::outlineColourId, border);
     syncTabs();
@@ -3707,11 +4000,79 @@ void PresetBrowserOverlay::retint()
 void PresetBrowserOverlay::syncTabs()
 {
     const int active = folderIdx;
-    for (auto* tab : { &allTab, &factoryTab, &userTab })
-        tab->setColour (juce::TextButton::textColourOffId,
-                        tab == &allTab && active == 0 ? accent
-                        : tab == &factoryTab && active == 1 ? accent
-                        : tab == &userTab && active == 2 ? accent : textDim);
+    allTab.setColour     (juce::TextButton::textColourOffId, active == 0 ? accent : textDim);
+    factoryTab.setColour (juce::TextButton::textColourOffId, active == 1 ? accent : textDim);
+    userTab.setColour    (juce::TextButton::textColourOffId, active == 2 ? accent : textDim);
+    // The star tab is gold when active: it is the one tab that filters on a
+    // user-owned attribute rather than where the patch came from.
+    favTab.setColour     (juce::TextButton::textColourOffId,
+                          active == 3 ? juce::Colour (0xffe8c25a) : textDim);
+}
+
+void PresetBrowserOverlay::setFolder (int f)
+{
+    folderIdx = juce::jlimit (0, 3, f);
+    syncTabs();
+    if (onChanged != nullptr)
+        onChanged();
+}
+
+void PresetBrowserOverlay::setSort (int mode)
+{
+    sortIdx = juce::jlimit (0, 3, mode);
+    sortCombo.setSelectedItemIndex (sortIdx, juce::dontSendNotification);
+}
+
+void PresetBrowserOverlay::setSearchText (const juce::String& s)
+{
+    search.setText (s, juce::dontSendNotification);
+}
+
+void PresetBrowserOverlay::setTagText (const juce::String& s)
+{
+    if (s.isEmpty())
+    {
+        tagCombo.setSelectedItemIndex (0, juce::dontSendNotification);
+        return;
+    }
+    for (int i = 0; i < tagCombo.getNumItems(); ++i)
+        if (tagCombo.getItemText (i).equalsIgnoreCase (s))
+        {
+            tagCombo.setSelectedItemIndex (i, juce::dontSendNotification);
+            return;
+        }
+    tagCombo.setSelectedItemIndex (0, juce::dontSendNotification);
+}
+
+void PresetBrowserOverlay::focusSearch()
+{
+    search.grabKeyboardFocus();
+    search.selectAll();
+}
+
+// Restore a persisted filter in one go, without firing onChanged per field (the
+// caller does a single rebuildPresetList afterwards).
+void PresetBrowserOverlay::applyState (int f, int sort, const juce::String& tag,
+                                       const juce::String& searchText)
+{
+    folderIdx = juce::jlimit (0, 3, f);
+    setSort (sort);
+    setTagText (tag);
+    setSearchText (searchText);
+    syncTabs();
+}
+
+void PresetBrowserOverlay::setCount (int shown, int total)
+{
+    if (total <= 0)
+        count.setText ({}, juce::dontSendNotification);
+    else if (shown == total)
+        count.setText (juce::String (total) + (total == 1 ? " preset" : " presets"),
+                       juce::dontSendNotification);
+    else
+        count.setText (juce::String (shown) + " of " + juce::String (total), 
+                       juce::dontSendNotification);
+    count.setColour (juce::Label::textColourId, shown == 0 ? accentB : textDim);
 }
 
 juce::Rectangle<int> PresetBrowserOverlay::cardBounds() const
@@ -3734,6 +4095,24 @@ void PresetBrowserOverlay::paint (juce::Graphics& g)
     g.setGradientFill (uvGradient ({ card.getX() + 10.0f, card.getY(),
                                      card.getWidth() - 20.0f, 2.0f }));
     g.fillRect (card.getX() + 10.0f, card.getY(), card.getWidth() - 20.0f, 2.0f);
+
+    // Empty state. A ListBox with no rows paints nothing at all, so a filter
+    // that matches nothing looked identical to a browser that had failed to
+    // load. Say so instead, in the middle of the list area.
+    if (rows.empty())
+    {
+        auto empty = list.getBounds().toFloat();
+        g.setColour (textDim.withAlpha (0.85f));
+        g.setFont (juce::Font (juce::FontOptions (12.0f)));
+        g.drawText (search.getText().trim().isEmpty()
+                        ? "No presets here yet."
+                        : "Nothing matches \u201c" + search.getText().trim() + "\u201d",
+                    empty, juce::Justification::centred);
+        g.setColour (textDim.withAlpha (0.6f));
+        g.setFont (juce::Font (juce::FontOptions (10.0f)));
+        g.drawText ("Clear the search, or pick another tag / folder.",
+                    empty.translated (0.0f, 18.0f), juce::Justification::centred);
+    }
 }
 
 void PresetBrowserOverlay::resized()
@@ -3745,14 +4124,24 @@ void PresetBrowserOverlay::resized()
     head.setBounds (top.removeFromLeft (180));
     closeBtn.setBounds (top.removeFromRight (30).reduced (4, 2));
 
+    // search | TAG | SORT | count
     auto filters = body.removeFromTop (28);
+    count.setBounds (filters.removeFromRight (104).reduced (0, 3));
+    filters.removeFromRight (6);
+    sortCombo.setBounds (filters.removeFromRight (118).reduced (0, 3));
+    filters.removeFromRight (6);
     tagCombo.setBounds (filters.removeFromRight (110).reduced (0, 3));
+    filters.removeFromRight (6);
     search.setBounds (filters.reduced (0, 3));
 
+    // tabs ALL | FACTORY | USER | star, then IMPORT / EXPORT
     auto tabs = body.removeFromTop (26);
     exportBtn.setBounds (tabs.removeFromRight (112).reduced (0, 2));
     tabs.removeFromRight (6);
     importBtn.setBounds (tabs.removeFromRight (122).reduced (0, 2));
+    tabs.removeFromRight (10);
+    favTab.setBounds (tabs.removeFromRight (40).reduced (0, 2));
+    tabs.removeFromRight (6);
     const int tw = (tabs.getWidth() - 12) / 3;
     allTab.setBounds (tabs.removeFromLeft (tw).reduced (0, 2));
     tabs.removeFromLeft (6);
@@ -3775,11 +4164,41 @@ void PresetBrowserOverlay::mouseDown (const juce::MouseEvent& e)
 
 void PresetBrowserOverlay::setRows (const std::vector<Row>& r, int sel)
 {
+    // updateContent() moves the ListBox selection around, which would otherwise
+    // arrive in selectedRowsChanged() as "the user arrowed onto a row" and load
+    // a preset on every refresh (including on each keystroke in the search box).
+    const juce::ScopedValueSetter<bool> guard (internalUpdate, true);
     rows = r;
     selectedRow = sel;
     list.updateContent();
     if (juce::isPositiveAndBelow (selectedRow, getNumRows()))
         list.scrollToEnsureRowIsOnscreen (selectedRow);
+    else
+        list.deselectAllRows();
+}
+
+// Audition: load it, but stay open so patches can be flipped through.
+void PresetBrowserOverlay::previewRow (int row)
+{
+    if (! juce::isPositiveAndBelow (row, (int) rows.size()) || rows[(size_t) row].header)
+        return;
+    selectedRow = row;
+    list.repaint();
+    if (onSelect != nullptr)
+        onSelect (rows[(size_t) row].visibleIndex);
+}
+
+// Commit: load it and get out of the way.
+void PresetBrowserOverlay::acceptRow (int row)
+{
+    if (! juce::isPositiveAndBelow (row, (int) rows.size()) || rows[(size_t) row].header)
+        return;
+    const int visIdx = rows[(size_t) row].visibleIndex;
+    if (onAccept != nullptr)
+        onAccept (visIdx);
+    else if (onSelect != nullptr)
+        onSelect (visIdx);
+    setVisible (false);
 }
 
 void PresetBrowserOverlay::setStatus (const juce::String& text, bool ok)
@@ -3806,7 +4225,10 @@ void PresetBrowserOverlay::paintListBoxItem (int row, juce::Graphics& g, int w, 
         return;
     }
 
-    if (sel || r.selected)
+    // `sel` is the list cursor (mouse or arrow keys); r.selected is the patch
+    // actually loaded. They differ as soon as you arrow away from what you are
+    // hearing, so both are drawn - otherwise auditioning loses your place.
+    if (sel)
     {
         g.setColour ((r.isUser ? accentA : accent).withAlpha (0.22f));
         g.fillRect (0, 0, w, h);
@@ -3822,16 +4244,29 @@ void PresetBrowserOverlay::paintListBoxItem (int row, juce::Graphics& g, int w, 
         g.fillRect (0, 0, w, h);
     }
 
+    if (r.selected)   // loaded marker: accent bar down the left edge
+    {
+        g.setColour (r.isUser ? accentA : accent);
+        g.fillRect (0, 0, 3, h);
+    }
+
+    // Star column. Clicking it toggles the favourite (see listBoxItemClicked).
+    g.setColour (r.fav ? juce::Colour (0xffe8c25a) : textDim.withAlpha (0.5f));
+    g.setFont (juce::Font (juce::FontOptions (13.0f)));
+    g.drawText (starGlyph (r.fav), juce::Rectangle<int> (6, 0, 20, h),
+                juce::Justification::centred);
+
     g.setColour (r.selected ? textBright : (r.isUser ? accentA : textBright).withAlpha (0.92f));
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    const int nameW = w - 178;   // room for the SHARED badge + tag column
-    g.drawText (r.label, 14, 0, nameW, h, juce::Justification::centredLeft);
+    const int nameX = 32;
+    g.drawText (r.label, nameX, 0, juce::jmax (40, w - nameX - 196), h,
+                juce::Justification::centredLeft);
 
     if (r.shared)
     {
         // Machine-wide shared bank: teal pill badge so users can tell which
         // patches come from C:\Users\Public\Documents\GoaSynth.
-        auto b = juce::Rectangle<int> (w - 170, (h - 13) / 2, 52, 13);
+        auto b = juce::Rectangle<int> (w - 190, (h - 13) / 2, 52, 13);
         g.setColour (accentA.withAlpha (0.14f));
         g.fillRoundedRectangle (b.toFloat(), 5.0f);
         g.setColour (accentA.withAlpha (0.55f));
@@ -3841,24 +4276,153 @@ void PresetBrowserOverlay::paintListBoxItem (int row, juce::Graphics& g, int w, 
         g.drawText ("SHARED", b, juce::Justification::centred);
     }
 
-    if (r.tagLabel.isNotEmpty())
+    // Tags: as many as fit, then "+N" for the remainder. This used to draw the
+    // first three into a fixed 100px box, so a fourth tag was silently invisible
+    // and there was no way to discover it at all.
+    if (! r.tags.isEmpty())
     {
-        g.setColour (textDim.withAlpha (0.75f));
-        g.setFont (juce::Font (juce::FontOptions (9.0f)));
-        g.drawText (r.tagLabel, w - 110, 0, 100, h, juce::Justification::centredRight);
+        const juce::Font tf (juce::FontOptions (9.0f));
+        const int tagW = tagColumnWidth();
+        juce::String text;
+        for (int n = r.tags.size(); n >= 1; --n)
+        {
+            juce::StringArray head;
+            for (int k = 0; k < n; ++k)
+                head.add (r.tags[k].toUpperCase());
+            juce::String s = head.joinIntoString (" ");
+            const int hidden = r.tags.size() - n;
+            if (hidden > 0)
+                s << " +" << hidden;
+            if (tf.getStringWidth (s) <= (float) tagW)
+            {
+                text = s;
+                break;
+            }
+        }
+        if (text.isNotEmpty())
+        {
+            g.setColour (textDim.withAlpha (0.75f));
+            g.setFont (tf);
+            g.drawText (text, w - tagW - 10, 0, tagW, h, juce::Justification::centredRight);
+        }
     }
 }
 
-void PresetBrowserOverlay::listBoxItemClicked (int row, const juce::MouseEvent&)
+void PresetBrowserOverlay::listBoxItemClicked (int row, const juce::MouseEvent& e)
 {
-    if (juce::isPositiveAndBelow (row, (int) rows.size()) && ! rows[(size_t) row].header)
+    if (! juce::isPositiveAndBelow (row, (int) rows.size()) || rows[(size_t) row].header)
+        return;
+
+    const int visIdx = rows[(size_t) row].visibleIndex;
+
+    // Right-click: the editor owns preset policy (rename / delete / reveal), so
+    // it builds the menu; the overlay just reports the gesture and where.
+    if (e.mods.isPopupMenu())
     {
-        selectedRow = row;
-        list.repaint();
-        if (onSelect != nullptr)
-            onSelect (rows[(size_t) row].visibleIndex);
-        setVisible (false);
+        if (onRowMenu != nullptr)
+            onRowMenu (visIdx, e.getScreenPosition());
+        return;
     }
+
+    if (e.x < 28)   // star column
+    {
+        if (onFavourite != nullptr)
+            onFavourite (visIdx);
+        return;
+    }
+
+    if (e.x >= list.getWidth() - tagColumnWidth() - 12 && ! rows[(size_t) row].tags.isEmpty())
+    {
+        if (onTagClick != nullptr)
+            onTagClick (visIdx);
+        return;
+    }
+
+    previewRow (row);   // audition; the browser stays open
+}
+
+void PresetBrowserOverlay::listBoxItemDoubleClicked (int row, const juce::MouseEvent&)
+{
+    acceptRow (row);
+}
+
+void PresetBrowserOverlay::returnKeyPressed (int row)
+{
+    acceptRow (row);
+}
+
+void PresetBrowserOverlay::selectedRowsChanged (int row)
+{
+    // Ignore the churn setRows() causes, or every refresh would load a preset.
+    if (internalUpdate)
+        return;
+    if (row >= 0)
+        previewRow (row);   // arrowing onto a row auditions it
+}
+
+juce::String PresetBrowserOverlay::getTooltipForRow (int row)
+{
+    if (! juce::isPositiveAndBelow (row, (int) rows.size()))
+        return {};
+    const auto& r = rows[(size_t) row];
+    if (r.header)
+        return {};
+
+    juce::String t = r.label;
+    if (! r.tags.isEmpty())
+        t << "\ntags: " << r.tags.joinIntoString (", ");
+    t << (r.isUser ? "\nuser preset" : "\nfactory preset");
+    if (r.shared)
+        t << " (shared bank)";
+    if (r.fav)
+        t << "\nfavourite";
+    t << "\nclick to audition \u00b7 double-click to load and close"
+         "\nright-click for rename / delete / export";
+    return t;
+}
+
+bool PresetBrowserOverlay::keyPressed (const juce::KeyPress& key)
+{
+    if (key.isKeyCode (juce::KeyPress::escapeKey))
+    {
+        // Close without rolling back: whatever is loaded stays loaded, so ESC
+        // can never lose the patch you just picked.
+        setVisible (false);
+        return true;
+    }
+
+    if (key.isKeyCode (juce::KeyPress::returnKey))
+    {
+        acceptRow (list.getSelectedRow());
+        return true;
+    }
+
+    // Up/Down are NOT consumed by the search TextEditor (it maps neither), so
+    // they bubble up to here while the search box still has focus - which is
+    // what makes type-then-arrow browsing work.
+    const bool down = key.isKeyCode (juce::KeyPress::downKey);
+    if (down || key.isKeyCode (juce::KeyPress::upKey))
+    {
+        const int n = getNumRows();
+        if (n <= 0)
+            return true;
+
+        int r = list.getSelectedRow();
+        r = r < 0 ? (down ? 0 : n - 1) : juce::jlimit (0, n - 1, r + (down ? 1 : -1));
+        while (juce::isPositiveAndBelow (r, n) && rows[(size_t) r].header)
+            r += down ? 1 : -1;
+        if (juce::isPositiveAndBelow (r, n))
+            list.selectRow (r, false, true);   // auditions via selectedRowsChanged
+        return true;
+    }
+
+    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'F')
+    {
+        focusSearch();
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace goaui
@@ -3927,18 +4491,50 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
             presetBrowser->setBounds (getLocalBounds());
             rebuildPresetList();
             presetBrowser->setStatus ("", true);
+            presetBrowser->setVisible (true);
+            presetBrowser->focusSearch();   // type-to-filter without reaching for the mouse
         }
-        presetBrowser->setVisible (! presetBrowser->isVisible());
+        else
+        {
+            persistBrowserState();          // remember the filter for next time
+            presetBrowser->setVisible (false);
+        }
     };
 
     presetBrowser = std::make_unique<goaui::PresetBrowserOverlay>();
     presetBrowser->setVisible (false);
+    // Audition: load and stay open. The overlay closes itself on accept.
     presetBrowser->onSelect = [this] (int visIdx) { applyPreset (visIdx); };
-    presetBrowser->onChanged = [this] { rebuildPresetList(); };
+    presetBrowser->onAccept = [this] (int visIdx) { applyPreset (visIdx); };
+    presetBrowser->onChanged = [this]
+    {
+        rebuildPresetList();
+        persistBrowserState();
+    };
     presetBrowser->onExport = [this] { exportPresetPack(); };
     presetBrowser->onImport = [this] { importPresetPack(); };
+    presetBrowser->onFavourite = [this] (int visIdx) { toggleFavourite (visIdx); };
+    presetBrowser->onTagClick = [this] (int visIdx)
+    {
+        if (presetBrowser == nullptr
+            || ! juce::isPositiveAndBelow (visIdx, (int) visiblePresets.size()))
+            return;
+        const auto& tags = visiblePresets[(size_t) visIdx].tags;
+        if (tags.isEmpty())
+            return;
+        presetBrowser->setTagText (tags[0]);   // the leftmost tag drawn on the row
+        rebuildPresetList();
+        persistBrowserState();
+    };
+    presetBrowser->onRowMenu = [this] (int visIdx, juce::Point<int> pos)
+    {
+        showRowMenu (visIdx, pos);
+    };
     addChildComponent (*presetBrowser);
 
+    // Favourites + last filter, restored before the first build so the browser
+    // opens exactly where it was left.
+    loadBrowserState();
     refreshUserPresets();
     updatePresetTint();
 
@@ -3995,7 +4591,7 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
 
     themeBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
     themeBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
-    themeBtn.setTooltip ("Cycle the skin: UV Goa / steel / warm analog");
+    themeBtn.setTooltip ("Cycle the skin: UV Goa / steel / warm analog / neon / paper / OLED");
     addAndMakeVisible (themeBtn);
     themeBtn.onClick = [this]
     {
@@ -4034,7 +4630,10 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
     {
         if (saveOverlay == nullptr)
             return;
-        saveOverlay->prefill ("MY GOA PATCH");
+        // beginSaveAs (not prefill) so the dialog is definitely in SAVE mode: it
+        // is also the rename prompt, and prefill alone would leave it renaming.
+        renameSource = juce::File();
+        saveOverlay->beginSaveAs ("MY GOA PATCH", {});
         saveOverlay->setBounds (getLocalBounds());
         saveOverlay->setVisible (true);
     };
@@ -4045,11 +4644,38 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
     addAndMakeVisible (deleteBtn);
     deleteBtn.onClick = [this] { deleteUserPreset(); };
 
+    addAndMakeVisible (levelMeter);
+
+    // Patch-workflow buttons: randomise / undo / redo / A-B / lock. They live
+    // in the bottom bar beside the octave keys (the header has no width left).
+    {
+        auto wire = [this] (juce::TextButton& b)
+        {
+            b.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
+            b.setColour (juce::TextButton::textColourOffId, goaui::textBright);
+            addAndMakeVisible (b);
+        };
+        wire (randBtn); wire (undoBtn); wire (redoBtn); wire (abBtn); wire (lockBtn);
+
+        randBtn.onClick = [this] { randomisePatch(); };
+        undoBtn.onClick = [this] { undo(); };
+        redoBtn.onClick = [this] { redo(); };
+        abBtn.onClick   = [this] { swapAb(); };
+        lockBtn.setClickingTogglesState (true);
+        lockBtn.onClick = [this] { setLockMode (lockBtn.getToggleState()); };
+        updateHistoryButtons();
+        setLockMode (false);
+    }
+
     saveOverlay = std::make_unique<goaui::SavePresetOverlay>();
     saveOverlay->setVisible (false);
     saveOverlay->onSave = [this] (const juce::String& n, const juce::StringArray& t, bool shared)
     {
         saveUserPreset (n, t, shared);
+    };
+    saveOverlay->onRename = [this] (const juce::String& n, const juce::StringArray& t)
+    {
+        renameUserPreset (renameSource, n, t);
     };
     addChildComponent (*saveOverlay);
 
@@ -4154,9 +4780,13 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
     // Default size stays the classic 1120 x 780; setResizeLimits makes the
     // window user-resizable and loadSizePref() restores the last chosen size
     // for hosts that forget their bounds between sessions.
-    setResizeLimits (960, 640, 2048, 1440);
-    loadSizePref();
-    setSize (defaultWidth, defaultHeight);
+    //
+    // The minimum height is what the layout can actually honour: header 56 +
+    // padding 4 + row 250 + gap + row 170 + gap + row 114 + padding 4 +
+    // bottom bar 110 = 720. The old 640 minimum was below the point where the
+    // rows fit, which is what let the FX row overlap the bottom bar.
+    setResizeLimits (960, 720, 2048, 1440);
+    loadSizePref();   // restores the last chosen size, else the 1120 x 780 default
     applyTheme();
     rebuildBackdrop();
     refreshLicenseUi();
@@ -4229,36 +4859,52 @@ bool GoaSynthAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArr
 {
     if (anyOverlayUp())
         return false;
-    if (proc.licensedFlag.load())
-        return false;
 
     for (const auto& f : files)
-        if (juce::File (f).hasFileExtension (goa::License::fileExtension))
+    {
+        const juce::File file (f);
+        // A .goalicense is only useful while unlicensed; an audio file is a
+        // wavetable import and is welcome in any licensing state.
+        if (file.hasFileExtension (goa::License::fileExtension))
+            return ! proc.licensedFlag.load();
+        if (file.hasFileExtension ("wav;aif;aiff;flac"))
             return true;
+    }
 
     return false;
 }
 
 void GoaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
-    juce::ignoreUnused (x, y);
-
-    if (anyOverlayUp() || proc.licensedFlag.load())
+    if (anyOverlayUp())
         return;
+
+    // Dropping onto the OSC B panel imports into B; anywhere else goes to A.
+    // Deterministic, and discoverable: the panel under the cursor is the one
+    // that changes.
+    const int oscIndex = oscBFrame.getBounds().contains (x, y) ? 1 : 0;
 
     for (const auto& path : files)
     {
         const juce::File f (path);
-        if (! f.hasFileExtension (goa::License::fileExtension))
-            continue;
 
-        // During a trial the overlay is hidden - bring it up as a peek so
-        // success/failure feedback isn't written to an invisible component.
-        if (! licenseOverlay->isVisible())
-            showLicenseOverlay (true);
+        if (f.hasFileExtension ("wav;aif;aiff;flac"))
+        {
+            importWavFile (f, oscIndex);
+            return;
+        }
 
-        licenseOverlay->importLicenseFile (f);   // onActivated -> refreshLicenseUi()
-        return;
+        if (! proc.licensedFlag.load()
+            && f.hasFileExtension (goa::License::fileExtension))
+        {
+            // During a trial the overlay is hidden - bring it up as a peek so
+            // success/failure feedback isn't written to an invisible component.
+            if (! licenseOverlay->isVisible())
+                showLicenseOverlay (true);
+
+            licenseOverlay->importLicenseFile (f);   // onActivated -> refreshLicenseUi()
+            return;
+        }
     }
 }
 
@@ -4270,25 +4916,46 @@ void GoaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& files,
 // that code. The VST3 wrapper's childBoundsChanged picks the new bounds up
 // and resizes the host window, so the plug-in grows in the DAW too.
 
+// Window size and UI zoom are remembered in the same per-user folder as the
+// preset bank. Tests sweep the editor through its whole resize range and flip
+// the zoom, and saveSizePref() also fires from the destructor - so without an
+// override a single test run would silently overwrite the real user's saved
+// window size. Same convention as GOASYNTH_PRESET_DIR / GOASYNTH_LICENSE_FILE;
+// tests assert the override is honoured before touching anything.
+static juce::File envOrAppDataFile (const char* envVar, const char* fileName)
+{
+    if (const char* over = std::getenv (envVar))
+        if (*over != 0)
+            return juce::File (juce::String::fromUTF8 (over));
+
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("GoaSynth").getChildFile (fileName);
+}
+
 juce::File GoaSynthAudioProcessorEditor::zoomPrefFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("GoaSynth").getChildFile ("zoom.txt");
+    return envOrAppDataFile ("GOASYNTH_ZOOM_FILE", "zoom.txt");
 }
 
 juce::File GoaSynthAudioProcessorEditor::sizePrefFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("GoaSynth").getChildFile ("size.txt");
+    return envOrAppDataFile ("GOASYNTH_SIZE_FILE", "size.txt");
 }
 
 void GoaSynthAudioProcessorEditor::loadSizePref()
 {
     const juce::StringArray parts =
         juce::StringArray::fromTokens (sizePrefFile().loadFileAsString(), " ", "");
+    // Restore the last chosen size, or fall back to the classic default when
+    // there is no usable preference (first run, corrupt file, or a sandboxed
+    // test that never wrote one). This used to be dead code: the constructor
+    // called setSize (defaultWidth, defaultHeight) unconditionally straight
+    // after, so size.txt was written on every exit but never actually read.
     if (parts.size() == 2)
         setSize (juce::jlimit (960, 2048, parts[0].getIntValue()),
-                 juce::jlimit (640, 1440, parts[1].getIntValue()));
+                 juce::jlimit (720, 1440, parts[1].getIntValue()));
+    else
+        setSize (defaultWidth, defaultHeight);
 }
 
 void GoaSynthAudioProcessorEditor::saveSizePref()
@@ -4311,6 +4978,51 @@ void GoaSynthAudioProcessorEditor::saveZoomPref()
     zoomPrefFile().replaceWithText (juce::String (uiZoom, 2));
 }
 
+bool GoaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+{
+    static constexpr float steps[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+    if (key.getModifiers().isCtrlDown())
+    {
+        if (key.getTextCharacter() == '+')
+        {
+            int idx = 0;
+            for (int i = 0; i < 5; ++i)
+                if (std::fabs (steps[i] - uiZoom) < 0.01f)
+                    idx = i;
+            applyZoom (steps[juce::jmin (4, idx + 1)]);
+            return true;
+        }
+        if (key.isKeyCode ('-'))
+        {
+            int idx = 0;
+            for (int i = 0; i < 5; ++i)
+                if (std::fabs (steps[i] - uiZoom) < 0.01f)
+                    idx = i;
+            applyZoom (steps[juce::jmax (0, idx - 1)]);
+            return true;
+        }
+    }
+    return false;
+}
+
+void GoaSynthAudioProcessorEditor::mouseWheelMove (const juce::MouseEvent&,
+                                                   const juce::MouseWheelDetails& wheel)
+{
+    if (! juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown())
+        return;
+
+    static constexpr float steps[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+    int idx = 0;
+    for (int i = 0; i < 5; ++i)
+        if (std::fabs (steps[i] - uiZoom) < 0.01f)
+            idx = i;
+
+    if (wheel.deltaY > 0.05f && idx < 4)
+        applyZoom (steps[idx + 1]);
+    else if (wheel.deltaY < -0.05f && idx > 0)
+        applyZoom (steps[idx - 1]);
+}
+
 void GoaSynthAudioProcessorEditor::applyZoom (float z)
 {
     uiZoom = juce::jlimit (1.0f, 2.0f, z);
@@ -4326,9 +5038,18 @@ void GoaSynthAudioProcessorEditor::applyTheme()
 
     trialBadge.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
     trialBadge.setColour (juce::TextButton::textColourOffId, goaui::accentB);
-    themeBtn.setButtonText (goaui::activeTheme == goaui::themeUv     ? "THEME: UV"
-                            : goaui::activeTheme == goaui::themeSteel ? "THEME: STEEL"
-                                                                      : "THEME: WARM");
+    juce::String themeLabel;
+    switch (goaui::activeTheme)
+    {
+        case goaui::themeUv:     themeLabel = "THEME: UV";    break;
+        case goaui::themeSteel:  themeLabel = "THEME: STEEL"; break;
+        case goaui::themeAnalog: themeLabel = "THEME: WARM";  break;
+        case goaui::themeNeon:   themeLabel = "THEME: NEON";  break;
+        case goaui::themePaper:  themeLabel = "THEME: PAPER"; break;
+        case goaui::themeOled:   themeLabel = "THEME: OLED";  break;
+        default:                 themeLabel = "THEME";        break;
+    }
+    themeBtn.setButtonText (themeLabel);
     zoomBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
     zoomBtn.setColour (juce::TextButton::textColourOffId, goaui::accentA);
     if (presetBrowser != nullptr && presetBrowser->isVisible())
@@ -4428,6 +5149,10 @@ void GoaSynthAudioProcessorEditor::timerCallback()
     animClock += 1.0 / 30.0;
     updateTrialBadge();
 
+    // Breathing logo glow: slow sine 0..1, ~4 second period.
+    logoGoa.breathe = 0.5f + 0.5f * std::sin ((float) animClock * 1.6f);
+    logoGoa.repaint();
+
     // Stuck-note rescue: if the processor is holding a UI note the keyboard
     // no longer knows about (a swallowed mouse-up), silence it. release() is
     // idempotent, so this is safe to call redundantly.
@@ -4476,12 +5201,32 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
         auto c = std::make_unique<goaui::Ctl> (apvts, id, name, combo);
         c->liveEngine = &proc.synth;   // animated mod dots read live sources
         addAndMakeVisible (*c);
+
+        // History + lock hooks. A knob drag pushes ONE snapshot (at gesture
+        // start, not per sample), so UNDO after a tweak restores the value the
+        // knob had before the drag.
+        auto* raw = c.get();
+        raw->onLockClick = [this, raw]
+        {
+            const juce::String pid = raw->paramId;
+            if (isLocked (pid))
+                lockedParams.erase (pid);
+            else
+                lockedParams.insert (pid);
+            raw->locked = isLocked (pid);
+            raw->repaint();
+        };
+        raw->slider.onDragStart = [this] { pushUndo(); };
+        raw->combo.onChange = [this] { pushUndo(); };
+        allCtls.push_back (raw);
         return c;
     };
     auto toggle = [this, &apvts] (const char* id, const char* name)
     {
         auto c = std::make_unique<goaui::ToggleCtl> (apvts, id, name);
         c->liveEngine = &proc.synth;
+        // Snapshot before a switch flips, so UNDO covers toggles too.
+        c->btn.onClick = [this] { pushUndo(); };
         addAndMakeVisible (*c);
         return c;
     };
@@ -4495,6 +5240,11 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     addAndMakeVisible (waveA);
     addAndMakeVisible (waveB);
     addAndMakeVisible (filtCurve);
+
+    // The wave displays' 8th tool (WAV) hands off to the editor, which owns the
+    // file chooser and the slice-into-frames import.
+    waveA.onLoadWav = [this] { loadWavIntoWavetable (0); };
+    waveB.onLoadWav = [this] { loadWavIntoWavetable (1); };
 
     wave1Ctl  = knob (param::osc1Wave,   "WAVE", true);
     oct1Ctl   = knob (param::osc1Oct,    "OCT");
@@ -4520,6 +5270,12 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     ph2Ctl    = knob (param::osc2Phase,  "PHASE");
     prand2Ctl = toggle (param::osc2PRand, "P.RAND");
     fmCtl     = knob (param::fmAmount,   "FM > A");
+
+    // Oscillator inter-modulation: PWM duty (shared by both oscillators' PWM
+    // wave), hard sync (A reset by B) and ring mod (A x B).
+    pwCtl     = knob (param::pulseWidth, "PULSE W");
+    ringCtl   = knob (param::ringMod,    "RING");
+    syncCtl   = toggle (param::oscSync,  "SYNC");
 
     ftypeCtl  = knob (param::filterType, "TYPE", true);
     cutoffCtl = knob (param::cutoff,     "CUTOFF");
@@ -4547,6 +5303,26 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     charCtl  = knob (param::uniMode,   "CHAR", true);
     chordCtl = knob (param::chordMode, "CHORD", true);
 
+    // Master EQ (post MASTER, pre limiter). 0 dB on every band is a true bypass.
+    eqLowCtl     = knob (param::eqLow,     "EQ LOW");
+    eqMidCtl     = knob (param::eqMid,     "EQ MID");
+    eqMidFreqCtl = knob (param::eqMidFreq, "MID F");
+    eqHighCtl    = knob (param::eqHigh,    "EQ HIGH");
+
+    // FX row panels are added BEFORE any of their controls. A Panel paints its
+    // own opaque background, so a control created earlier sits underneath it
+    // and never renders. SHIM, DUCK, NOISE LEVEL and MACRO A/B were invisible
+    // for exactly this reason - they were created above, before these frames
+    // were added (found by rendering the row rather than measuring it).
+    addAndMakeVisible (chorusFrame);
+    addAndMakeVisible (phaserFrame);
+    addAndMakeVisible (delayFrame);
+    addAndMakeVisible (reverbFrame);
+    addAndMakeVisible (moveFrame);
+    addAndMakeVisible (macroFrame);
+    addAndMakeVisible (ottFrame);
+    // NOISE is a single knob: no panel frame, just the control + a small label.
+
     // FX-duck + reverb-shimmer send.
     shimCtl = knob (param::revShimmer, "SHIM");
     duckCtl = knob (param::duckAmt,    "DUCK");
@@ -4554,7 +5330,7 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     subWaveCtl = knob (param::subWave,   "WAVE", true);
     subOctCtl  = knob (param::subOct,    "OCT");
     subCtl     = knob (param::subLevel,  "LEVEL");
-    noiseCtl   = knob (param::noiseLevel, "LEVEL");
+    noiseCtl   = knob (param::noiseLevel, "NOISE");
 
     // Performance macros (matrix SOURCES; also MIDI CC 14 / CC 15).
     macroACtl = knob (param::macroA, "A");
@@ -4579,7 +5355,7 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     fSCtl = knob (param::filtS, "SUS");
     fRCtl = knob (param::filtR, "REL");
     envAmtCtl   = knob (param::envAmt,   "ENV AMT");
-    modDepthCtl = knob (param::modDepth, "MODWHEEL");
+    modDepthCtl = knob (param::modDepth, "MODWHL");   // "MODWHEEL" overran its cell
 
     l1RateCtl  = knob (param::lfo1Rate,   "RATE");
     l1WaveCtl  = knob (param::lfo1Wave,   "WAVE", true);
@@ -4594,25 +5370,17 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     l2UnitCtl  = knob (param::lfo2Unit,   "UNIT", true);
     l2DivCtl   = knob (param::lfo2Div,    "SYNC", true);
 
-    // FX row
-    addAndMakeVisible (chorusFrame);
-    addAndMakeVisible (phaserFrame);
-    addAndMakeVisible (delayFrame);
-    addAndMakeVisible (reverbFrame);
-    addAndMakeVisible (moveFrame);
-    addAndMakeVisible (macroFrame);
-    addAndMakeVisible (ottFrame);
-    addAndMakeVisible (noiseFrame);
-
+    // FX row controls. The frames themselves are added above, before the first
+    // of these, so none of them can be painted over.
     chRateCtl  = knob (param::chorusRate,  "RATE");
-    chDepthCtl = knob (param::chorusDepth, "DEPTH");
+    chDepthCtl = knob (param::chorusDepth, "DEP");   // "DEPTH" ellipsized in a 3-knob panel
     chMixCtl   = knob (param::chorusMix,   "MIX");
     phRateCtl  = knob (param::phRate,      "RATE");
-    phDepthCtl = knob (param::phDepth,     "DEPTH");
+    phDepthCtl = knob (param::phDepth,     "DEP");   // "DEPTH" ellipsized in a 3-knob panel
     phMixCtl   = knob (param::phMix,       "MIX");
     dSyncCtl   = knob (param::delaySync,   "SYNC", true);
     dTimeCtl   = knob (param::delayTime,   "TIME");
-    dFbCtl     = knob (param::delayFb,     "FEEDBACK");
+    dFbCtl     = knob (param::delayFb,     "FB");     // "FEEDBACK" overran its cell
     dMixCtl    = knob (param::delayMix,    "MIX");
     rSizeCtl   = knob (param::revSize,     "SIZE");
     rDampCtl   = knob (param::revDamp,     "DAMP");
@@ -4623,12 +5391,16 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     oHighCtl   = knob (param::ottHigh,     "HIGH");
     oOutCtl    = knob (param::ottOut,      "OUT");
     driftCtl     = knob (param::drift,     "DRIFT");
-    uniDetCtl    = knob (param::uniDetune, "DETUNE");
-    uniSpreadCtl = knob (param::uniSpread, "WIDTH");
+    uniDetCtl    = knob (param::uniDetune, "DET");    // "DETUNE" overran its cell
+    uniSpreadCtl = knob (param::uniSpread, "WIDE");   // "WIDTH" exactly filled its cell
 }
 
 void GoaSynthAudioProcessorEditor::applyPreset (int index)
 {
+    // Patch-level change: snapshot first so UNDO can come back to what was
+    // playing before the load.
+    pushUndo();
+
     auto& apvts = proc.apvts;
     for (auto* par : proc.getParameters())
         par->setValueNotifyingHost (par->getDefaultValue());
@@ -4650,6 +5422,11 @@ void GoaSynthAudioProcessorEditor::applyPreset (int index)
         }
         selectedPreset = index;
         presetName.setText (entry.name, juce::dontSendNotification);
+        // Keep the host's program display in step with the browser: program 0
+        // is Init, so factory index i is program i + 1. A user patch has no
+        // program slot, so the index is left where it was.
+        if (entry.factoryIndex >= 0)
+            proc.noteUiProgram (entry.factoryIndex + 1);
     }
     updatePresetTint();
     goaui::repaintCtlPaints (this);   // preset changed the matrix -> refresh knob dots
@@ -4663,13 +5440,198 @@ void GoaSynthAudioProcessorEditor::cyclePreset (int direction)
     applyPreset (((selectedPreset + direction) % n + n) % n);
 }
 
+//==============================================================================
+// Patch history, A/B compare, randomise and parameter lock.
+//
+// Scope of undo: patch-level operations — preset loads, randomise, A/B swaps,
+// and knob/selector gestures (one snapshot per gesture, taken at drag start).
+// It deliberately does NOT try to undo host automation ramps: those are the
+// host's business, and pushing on every parameter change would fill the stack
+// within seconds and make UNDO useless.
+GoaSynthAudioProcessorEditor::Snapshot GoaSynthAudioProcessorEditor::capturePatch() const
+{
+    Snapshot s;
+    for (auto* par : proc.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (par))
+            s.emplace_back (rp->paramID, rp->getValue());
+    return s;
+}
+
+void GoaSynthAudioProcessorEditor::applySnapshot (const Snapshot& s)
+{
+    for (const auto& [id, v] : s)
+        if (auto* p = proc.apvts.getParameter (id))
+            p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v));
+}
+
+void GoaSynthAudioProcessorEditor::pushUndo()
+{
+    undoStack.push_back (capturePatch());
+    if (undoStack.size() > maxUndo)
+        undoStack.erase (undoStack.begin());
+    redoStack.clear();
+    updateHistoryButtons();
+}
+
+void GoaSynthAudioProcessorEditor::undo()
+{
+    if (undoStack.empty())
+        return;
+    redoStack.push_back (capturePatch());
+    applySnapshot (undoStack.back());
+    undoStack.pop_back();
+    updateHistoryButtons();
+    goaui::repaintCtlPaints (this);
+}
+
+void GoaSynthAudioProcessorEditor::redo()
+{
+    if (redoStack.empty())
+        return;
+    undoStack.push_back (capturePatch());
+    applySnapshot (redoStack.back());
+    redoStack.pop_back();
+    updateHistoryButtons();
+    goaui::repaintCtlPaints (this);
+}
+
+void GoaSynthAudioProcessorEditor::updateHistoryButtons()
+{
+    undoBtn.setEnabled (! undoStack.empty());
+    redoBtn.setEnabled (! redoStack.empty());
+}
+
+void GoaSynthAudioProcessorEditor::swapAb()
+{
+    if (! abValid)
+    {
+        // First press: both slots start as the current patch, so nothing
+        // changes audibly — the user is now "in B" and free to edit, with A
+        // still holding the version they started from.
+        abA = capturePatch();
+        abB = abA;
+        abValid = true;
+        abSlot = 1;
+    }
+    else if (abSlot == 0)
+    {
+        abA = capturePatch();
+        applySnapshot (abB);
+        abSlot = 1;
+    }
+    else
+    {
+        abB = capturePatch();
+        applySnapshot (abA);
+        abSlot = 0;
+    }
+    abBtn.setButtonText (abSlot == 0 ? "A" : "B");
+    goaui::repaintCtlPaints (this);
+}
+
+void GoaSynthAudioProcessorEditor::setLockMode (bool on)
+{
+    lockMode = on;
+    for (auto* c : allCtls)
+        c->setLockMode (on);
+    lockBtn.setToggleState (on, juce::dontSendNotification);
+    lockBtn.setColour (juce::TextButton::buttonColourId,
+                       on ? goaui::accent : goaui::bgPanelLo);
+    lockBtn.setColour (juce::TextButton::textColourOffId,
+                       on ? goaui::bgDark : goaui::textBright);
+}
+
+bool GoaSynthAudioProcessorEditor::isStepParamId (const juce::String& id,
+                                                  const juce::String& prefix)
+{
+    if (! id.startsWith (prefix))
+        return false;
+    const juce::String rest = id.substring (prefix.length());
+    return rest.isNotEmpty() && rest.containsOnly ("0123456789");
+}
+
+void GoaSynthAudioProcessorEditor::randomisePatch()
+{
+    pushUndo();
+    auto& rng = juce::Random::getSystemRandom();
+
+    for (auto* par : proc.getParameters())
+    {
+        auto* rp = dynamic_cast<juce::RangedAudioParameter*> (par);
+        if (rp == nullptr)
+            continue;
+        const juce::String id = rp->paramID;
+
+        if (isLocked (id))
+            continue;
+
+        // Structural, routing and pattern parameters: randomising these makes
+        // a scrambled setup rather than a playable patch, so they are left
+        // exactly as the user set them.
+        if (id.startsWith ("mod"))                               continue;
+        if (isStepParamId (id, "gate"))                          continue;
+        if (isStepParamId (id, "arp"))                           continue;
+        if (isStepParamId (id, "arpVel"))                        continue;
+        if (id == param::masterGain || id == param::tuningFine)   continue;
+        if (id == param::voicing    || id == param::polyMax)      continue;
+        if (id == param::bendRange  || id == param::masterHQ)     continue;
+        if (id == param::modBank    || id == param::scaleLock)    continue;
+        if (id == param::osc1Phase  || id == param::osc2Phase)    continue;
+        if (id == param::osc1PRand  || id == param::osc2PRand)    continue;
+        if (id == param::pumpSync)                               continue;
+
+        // Booleans get a coin flip: a uniform draw in 0..1 always lands on the
+        // "on" side of the 0.5 threshold, which would switch every switch on.
+        if (dynamic_cast<juce::AudioParameterBool*> (rp) != nullptr)
+        {
+            rp->setValueNotifyingHost (rng.nextBool() ? 1.0f : 0.0f);
+            continue;
+        }
+
+        // Musically biased draws. A uniform value in every cell produces a
+        // patch that is mostly unusable: 5-second attacks, full-wet reverb,
+        // maximum resonance. Times favour the short end, wet amounts stay
+        // moderate, and drive/resonance stay clear of the extremes.
+        const float u = rng.nextFloat();
+        float n = u;
+        if (id == param::filtA || id == param::filtD || id == param::ampA
+            || id == param::ampD || id == param::filtR || id == param::ampR)
+            n = juce::jmin (u, rng.nextFloat()) * 0.6f;
+        else if (id == param::delayMix || id == param::revMix || id == param::chorusMix
+                 || id == param::phMix || id == param::ottDepth || id == param::duckAmt
+                 || id == param::vowelMix || id == param::revShimmer)
+            n = u * 0.5f;
+        else if (id == param::drive || id == param::reso || id == param::reso2
+                 || id == param::fDrive || id == param::fFeedback)
+            n = u * 0.6f;
+        else if (id == param::cutoff || id == param::cutoff2)
+            n = 0.15f + 0.75f * std::sqrt (u);   // mid-forward, never fully shut
+
+        rp->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, n));
+    }
+
+    goaui::repaintCtlPaints (this);
+    updateHistoryButtons();
+}
+
 void GoaSynthAudioProcessorEditor::rebuildPresetList()
 {
+    if (presetBrowser == nullptr)
+        return;
+
     const juce::String q = presetBrowser->search.getText().trim();
     const int tagIdx = presetBrowser->tagCombo.getSelectedItemIndex();
     const juce::String wantTag = tagIdx > 0
         ? presetBrowser->tagCombo.getItemText (tagIdx).toLowerCase() : juce::String();
-    const int folder = presetBrowser->folder();   // 0 ALL, 1 FACTORY, 2 USER
+    const int folder = presetBrowser->folder();   // 0 ALL 1 FACTORY 2 USER 3 FAVS
+    const int sortMode = presetBrowser->sortMode();
+
+    // Every whitespace-separated term must match the NAME OR THE TAGS, so
+    // "acid bass" narrows rather than widens. Search used to look at the name
+    // only, which made a patch unfindable by the very tag you gave it.
+    juce::StringArray tokens;
+    tokens.addTokens (q.toLowerCase(), " ", "");
+    tokens.removeEmptyStrings();
 
     visiblePresets.clear();
     for (const auto& e : allPresets)
@@ -4679,20 +5641,76 @@ void GoaSynthAudioProcessorEditor::rebuildPresetList()
             ok = e.factoryIndex >= 0 || e.name == "Init Patch";   // FACTORY tab
         else if (folder == 2)
             ok = e.isUser;                                        // USER tab
+        else if (folder == 3)
+            ok = isFavourite (e);                                 // star tab
+
         if (ok && wantTag.isNotEmpty())
-            ok = e.tags.contains (wantTag, true);
-        if (ok && q.isNotEmpty())
-            ok = e.name.toLowerCase().contains (q.toLowerCase());
+            ok = e.tags.contains (wantTag, true);   // exact tag, not a substring
+
+        if (ok && ! tokens.isEmpty())
+        {
+            const juce::String hay =
+                (e.name + " " + e.tags.joinIntoString (" ")).toLowerCase();
+            for (const auto& tok : tokens)
+                if (! hay.contains (tok))
+                {
+                    ok = false;
+                    break;
+                }
+        }
+
         if (ok)
             visiblePresets.push_back (e);
+    }
+
+    // Ordering. The user bank previously had NO order at all: it came straight
+    // out of findChildFiles(), i.e. whatever the filesystem returned, which
+    // differed between machines and between runs. Banks are kept contiguous so
+    // the FACTORY / USER PATCHES headers stay meaningful.
+    auto byName = [] (const PresetEntry& a, const PresetEntry& b, bool ascending)
+    {
+        if (a.isUser != b.isUser)
+            return a.isUser < b.isUser;   // factory first, user second
+        const int c = a.name.compareIgnoreCase (b.name);
+        return ascending ? c < 0 : c > 0;
+    };
+
+    switch (sortMode)
+    {
+        case 1:   // Z-A
+            std::stable_sort (visiblePresets.begin(), visiblePresets.end(),
+                              [&byName] (const PresetEntry& a, const PresetEntry& b)
+                              { return byName (a, b, false); });
+            break;
+        case 2:   // newest first. Factory patches have no mtime (0), so the user
+                  // bank floats to the top - which is where a patch you just
+                  // saved belongs - and the two banks stay contiguous.
+            std::stable_sort (visiblePresets.begin(), visiblePresets.end(),
+                              [] (const PresetEntry& a, const PresetEntry& b)
+                              {
+                                  if (a.modified != b.modified)
+                                      return a.modified > b.modified;
+                                  return a.name.compareIgnoreCase (b.name) < 0;
+                              });
+            break;
+        case 3:   // bank order: Init, factory table, then the user bank
+            std::stable_sort (visiblePresets.begin(), visiblePresets.end(),
+                              [] (const PresetEntry& a, const PresetEntry& b)
+                              { return a.bankOrder < b.bankOrder; });
+            break;
+        case 0:
+        default:  // A-Z
+            std::stable_sort (visiblePresets.begin(), visiblePresets.end(),
+                              [&byName] (const PresetEntry& a, const PresetEntry& b)
+                              { return byName (a, b, true); });
+            break;
     }
 
     // Keep the selection valid; stay on the same patch when possible.
     if (selectedPreset >= (int) visiblePresets.size())
         selectedPreset = (int) visiblePresets.size() - 1;
 
-    if (presetBrowser == nullptr)
-        return;
+    presetBrowser->setCount ((int) visiblePresets.size(), (int) allPresets.size());
 
     std::vector<goaui::PresetBrowserOverlay::Row> rows;
     auto addHeader = [&rows] (const juce::String& label, bool user)
@@ -4716,17 +5734,26 @@ void GoaSynthAudioProcessorEditor::rebuildPresetList()
         }
         goaui::PresetBrowserOverlay::Row r;
         r.label = e.name;
+        r.tags = e.tags;
         r.isUser = e.isUser;
         r.shared = e.shared;
+        r.fav = isFavourite (e);
         r.selected = (int) i == selectedPreset;
         r.visibleIndex = (int) i;
-        juce::StringArray t;
-        for (int k = 0; k < juce::jmin (3, e.tags.size()); ++k)
-            t.add (e.tags[k].toUpperCase());
-        r.tagLabel = t.joinIntoString (" ");
         rows.push_back (r);
     }
-    presetBrowser->setRows (rows, -1);
+
+    // Pass the loaded row's index, not -1: setRows only scrolls when the index
+    // is real, so the list used to reopen at the top even with the loaded patch
+    // highlighted somewhere far below.
+    int selRow = -1;
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (! rows[i].header && rows[i].selected)
+        {
+            selRow = (int) i;
+            break;
+        }
+    presetBrowser->setRows (rows, selRow);
 }
 
 // Async file chooser for pack import/export. Only one dialog can be alive at a
@@ -4734,13 +5761,96 @@ void GoaSynthAudioProcessorEditor::rebuildPresetList()
 // callback keeps it alive via a shared_ptr: if the plugin window closes while
 // the native dialog is up, the chooser still exists when the dialog returns.
 // A SafePointer guards every editor touch so a closed editor can't be touched.
-bool GoaSynthAudioProcessorEditor::asyncPackChooser (const juce::String& title, int browserFlags,
+//==============================================================================
+// WAV -> wavetable. The file is cut into `numFrames` equal slices and each
+// slice is linearly resampled to the table's 256 points, then peak-normalised
+// (a raw recording is almost never at a useful level for a wavetable). The
+// oscillator is switched to its User wave so the import is audible at once.
+void GoaSynthAudioProcessorEditor::loadWavIntoWavetable (int oscIndex)
+{
+    const juce::String osc = oscIndex == 0 ? "A" : "B";
+    const bool opened = asyncFileChooser ("Load a WAV into OSC " + osc + " wavetable",
+        "*.wav;*.aif;*.aiff;*.flac",
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, oscIndex] (const juce::File& f)
+        {
+            if (f != juce::File())
+                importWavFile (f, oscIndex);
+        });
+
+    if (! opened)
+        reportPackStatus ("Close the open file dialog first.", false);
+}
+
+void GoaSynthAudioProcessorEditor::importWavFile (const juce::File& f, int oscIndex)
+{
+    if (! f.existsAsFile())
+        return;
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (f));
+    if (reader == nullptr || reader->lengthInSamples <= 0)
+    {
+        reportPackStatus ("Not a readable audio file: " + f.getFileName(), false);
+        return;
+    }
+
+    auto* w = proc.wavetable (oscIndex);
+    if (w == nullptr)
+        return;
+
+    // Cap the read at 16 M samples: a 20-minute file would otherwise allocate
+    // a large buffer just to throw 99% of it away.
+    const int n = (int) juce::jmin (reader->lengthInSamples, (juce::int64) (1 << 24));
+    juce::AudioBuffer<float> src (1, n);
+    reader->read (&src, 0, n, 0, true, false);
+    const float* x = src.getReadPointer (0);
+
+    constexpr int frames = goa::UserWave::numFrames;
+    constexpr int pts    = goa::UserWave::size;
+    const int per = juce::jmax (1, n / frames);
+
+    w->beginEdit();
+    std::array<float, (size_t) pts> buf {};
+    for (int fr = 0; fr < frames; ++fr)
+    {
+        const int start = juce::jlimit (0, juce::jmax (0, n - 1), fr * per);
+        const int len   = juce::jlimit (1, n - start, per);
+        for (int i = 0; i < pts; ++i)
+        {
+            const float pos = (float) i / (float) pts * (float) len;
+            const int   i0  = juce::jlimit (0, len - 1, (int) pos);
+            const int   i1  = juce::jmin (len - 1, i0 + 1);
+            const float fr2 = pos - (float) i0;
+            buf[(size_t) i] = x[start + i0] + (x[start + i1] - x[start + i0]) * fr2;
+        }
+        w->setFrame (fr, buf.data(), pts);
+        w->normalizeFrame (fr);
+    }
+    proc.commitWaves();   // publishes the edit surface + rebuilds mips
+
+    // Wave choice 5 is "User"; without this the import would be invisible (and
+    // silent) until the user found the combo.
+    if (auto* p = proc.apvts.getParameter (oscIndex == 0 ? param::osc1Wave : param::osc2Wave))
+        p->setValueNotifyingHost (p->convertTo0to1 (5.0f));
+    if (auto* p = proc.apvts.getParameter (oscIndex == 0 ? param::osc1WtPos : param::osc2WtPos))
+        p->setValueNotifyingHost (0.5f);
+    if (auto* p = proc.apvts.getParameter (oscIndex == 0 ? param::osc1Level : param::osc2Level))
+        if (p->getValue() < 0.05f)
+            p->setValueNotifyingHost (p->convertTo0to1 (0.8f));
+
+    reportPackStatus ("Loaded " + f.getFileName() + " into OSC "
+                          + (oscIndex == 0 ? "A" : "B"), true);
+}
+
+bool GoaSynthAudioProcessorEditor::asyncFileChooser (const juce::String& title,                                                     const juce::String& wildcards,
+                                                     int browserFlags,
                                                      std::function<void (const juce::File&)> onChosen)
 {
     if (packChooser != nullptr)
         return false; // a dialog is already open
 
-    const auto wildcards = "*." + juce::String (userpresets::packExtension);
     auto chooser = std::make_shared<juce::FileChooser> (title,
                                                         userpresets::presetsDir(), wildcards);
     packChooser = chooser;
@@ -4776,7 +5886,8 @@ void GoaSynthAudioProcessorEditor::exportPresetPack()
                              : "Export failed - could not write the pack.", ok);
     };
 
-    const bool opened = asyncPackChooser ("Export preset pack (.goapack)",
+    const bool opened = asyncFileChooser ("Export preset pack (.goapack)",
+        "*." + juce::String (userpresets::packExtension),
         juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
         [this, doExport] (const juce::File& raw)
     {
@@ -4807,7 +5918,8 @@ void GoaSynthAudioProcessorEditor::exportPresetPack()
 
 void GoaSynthAudioProcessorEditor::importPresetPack()
 {
-    const bool opened = asyncPackChooser ("Import preset pack (.goapack)",
+    const bool opened = asyncFileChooser ("Import preset pack (.goapack)",
+        "*." + juce::String (userpresets::packExtension),
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [this] (const juce::File& chosen)
     {
@@ -4869,8 +5981,13 @@ void GoaSynthAudioProcessorEditor::refreshUserPresets()
         e.shared = userpresets::isSharedPreset (f);
         e.file = f;
         e.tags = userpresets::readTags (f);
+        e.modified = f.getLastModificationTime().toMilliseconds();   // for SORT: NEWEST
         allPresets.push_back (std::move (e));
     }
+
+    // Stable position, so "BANK ORDER" is a real order rather than a hope.
+    for (size_t i = 0; i < allPresets.size(); ++i)
+        allPresets[i].bankOrder = (int) i;
 
     // Rebuild the tag dropdown from every tag in the bank (factory + user).
     juce::StringArray allTags;
@@ -4892,6 +6009,255 @@ void GoaSynthAudioProcessorEditor::refreshUserPresets()
     }
 
     rebuildPresetList();
+}
+
+// ---- browser state: favourites + last filter -------------------------------
+
+void GoaSynthAudioProcessorEditor::loadBrowserState()
+{
+    browserState = userpresets::loadBrowserState();
+    if (presetBrowser != nullptr)
+        presetBrowser->applyState (browserState.folder, browserState.sortMode,
+                                   browserState.tag, browserState.search);
+}
+
+void GoaSynthAudioProcessorEditor::persistBrowserState()
+{
+    if (presetBrowser != nullptr)
+    {
+        browserState.folder = presetBrowser->folder();
+        browserState.sortMode = presetBrowser->sortMode();
+        browserState.search = presetBrowser->search.getText().trim();
+        const int tagIdx = presetBrowser->tagCombo.getSelectedItemIndex();
+        browserState.tag = tagIdx > 0
+            ? presetBrowser->tagCombo.getItemText (tagIdx) : juce::String();
+    }
+    userpresets::saveBrowserState (browserState);
+}
+
+bool GoaSynthAudioProcessorEditor::isFavourite (const PresetEntry& e) const
+{
+    return browserState.favourites.contains (
+        userpresets::favouriteKey (e.isUser, e.name, e.file));
+}
+
+void GoaSynthAudioProcessorEditor::toggleFavourite (int visIdx)
+{
+    if (! juce::isPositiveAndBelow (visIdx, (int) visiblePresets.size()))
+        return;
+    const auto& e = visiblePresets[(size_t) visIdx];
+    const auto key = userpresets::favouriteKey (e.isUser, e.name, e.file);
+
+    if (browserState.favourites.contains (key))
+        browserState.favourites.removeString (key);
+    else
+        browserState.favourites.add (key);
+
+    persistBrowserState();
+    rebuildPresetList();
+}
+
+// Rename / duplicate / delete / reveal / export for one row. The overlay reports
+// the gesture; the policy lives here.
+void GoaSynthAudioProcessorEditor::showRowMenu (int visIdx, juce::Point<int> screenPos)
+{
+    if (! juce::isPositiveAndBelow (visIdx, (int) visiblePresets.size()))
+        return;
+
+    // Copy what the menu needs: visiblePresets can be rebuilt while the menu is
+    // open (a favourite toggle or an import would do it), which would dangle
+    // any reference into the vector.
+    const bool isUser = visiblePresets[(size_t) visIdx].isUser;
+    const bool hasFile = visiblePresets[(size_t) visIdx].file.existsAsFile();
+    const juce::String name = visiblePresets[(size_t) visIdx].name;
+    const juce::StringArray tags = visiblePresets[(size_t) visIdx].tags;
+    const juce::File file = visiblePresets[(size_t) visIdx].file;
+
+    juce::PopupMenu m;
+    m.addItem (1, "Load");
+    m.addSeparator();
+    m.addItem (2, "Rename...", isUser && hasFile);
+    m.addItem (3, "Duplicate...");
+    m.addItem (4, "Delete", isUser && hasFile);
+    m.addSeparator();
+    m.addItem (5, "Reveal in Explorer", isUser && hasFile);
+    m.addItem (6, "Export this preset...");
+
+    if (! tags.isEmpty())
+    {
+        juce::PopupMenu tagMenu;
+        for (int i = 0; i < tags.size(); ++i)
+            tagMenu.addItem (100 + i, tags[i].toUpperCase());
+        m.addSeparator();
+        m.addSubMenu ("Filter by tag", tagMenu);
+    }
+
+    juce::Component::SafePointer<GoaSynthAudioProcessorEditor> safeThis { this };
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (
+                         juce::Rectangle<int> (screenPos.x, screenPos.y, 1, 1)),
+        [safeThis, visIdx, isUser, name, tags, file] (int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            if (result == 1)
+            {
+                safeThis->applyPreset (visIdx);
+                if (safeThis->presetBrowser != nullptr)
+                    safeThis->presetBrowser->setVisible (false);
+            }
+            else if (result == 2)   // rename
+            {
+                if (safeThis->saveOverlay == nullptr)
+                    return;
+                safeThis->renameSource = file;
+                safeThis->saveOverlay->beginRename (name, tags);
+                safeThis->saveOverlay->setBounds (safeThis->getLocalBounds());
+                safeThis->saveOverlay->setVisible (true);
+            }
+            else if (result == 3)   // duplicate
+            {
+                if (safeThis->saveOverlay == nullptr)
+                    return;
+                safeThis->renameSource = juce::File();   // a copy, not a rename
+                safeThis->saveOverlay->beginSaveAs (name + " copy", tags);
+                safeThis->saveOverlay->setBounds (safeThis->getLocalBounds());
+                safeThis->saveOverlay->setVisible (true);
+            }
+            else if (result == 4)   // delete, confirmed
+            {
+                if (! juce::NativeMessageBox::showOkCancelBox (
+                        juce::MessageBoxIconType::QuestionIcon, "Delete preset?",
+                        "\"" + name + "\" will be deleted from your preset bank.\n"
+                        "This cannot be undone.", nullptr, juce::ModalCallbackFunction::create (
+                            [safeThis, file] (int r)
+                            {
+                                if (r == 0 || safeThis == nullptr)
+                                    return;
+                                userpresets::deletePreset (file);
+                                safeThis->refreshUserPresets();
+                                safeThis->updatePresetTint();
+                            })))
+                {
+                    // Native box unavailable: fall through and delete.
+                    userpresets::deletePreset (file);
+                    safeThis->refreshUserPresets();
+                    safeThis->updatePresetTint();
+                }
+            }
+            else if (result == 5)   // reveal
+            {
+                file.revealToUser();
+            }
+            else if (result == 6)   // export one preset
+            {
+                safeThis->exportSinglePreset (visIdx);
+            }
+            else if (result >= 100)
+            {
+                // Filter by the tag that was clicked.
+                const int ti = result - 100;
+                if (juce::isPositiveAndBelow (ti, tags.size())
+                    && safeThis->presetBrowser != nullptr)
+                {
+                    safeThis->presetBrowser->setTagText (tags[ti]);
+                    safeThis->rebuildPresetList();
+                    safeThis->persistBrowserState();
+                }
+            }
+        });
+}
+
+void GoaSynthAudioProcessorEditor::renameUserPreset (const juce::File& from,
+                                                     const juce::String& newNameIn,
+                                                     const juce::StringArray& tags)
+{
+    if (saveOverlay != nullptr)
+        saveOverlay->setVisible (false);
+
+    const juce::String newName = newNameIn.trim();
+    if (! from.existsAsFile() || newName.isEmpty())
+        return;
+
+    const auto to = userpresets::fileForName (newName);
+    auto xml = juce::parseXML (from);
+    if (xml == nullptr)
+        return;
+
+    // savePresetTo strips any old PRESETINFO and writes the new tags, so this is
+    // also the retag path when the name is unchanged.
+    if (! userpresets::savePresetTo (to, *xml, tags))
+        return;
+    if (to != from)
+        from.deleteFile();
+
+    // A user patch's identity is its file name, so a rename moves its star
+    // across - otherwise renaming would silently un-favourite it.
+    const auto oldKey = juce::String ("u:") + from.getFileName();
+    const auto newKey = juce::String ("u:") + to.getFileName();
+    if (oldKey != newKey && browserState.favourites.contains (oldKey))
+    {
+        browserState.favourites.removeString (oldKey);
+        browserState.favourites.addIfNotAlreadyThere (newKey);
+        persistBrowserState();
+    }
+
+    refreshUserPresets();
+
+    // Land on the renamed patch so the user sees what just happened.
+    const auto wanted = to.getFileNameWithoutExtension();
+    for (size_t i = 0; i < visiblePresets.size(); ++i)
+        if (visiblePresets[i].isUser
+            && visiblePresets[i].file.getFileNameWithoutExtension() == wanted)
+        {
+            selectedPreset = (int) i;
+            presetName.setText (visiblePresets[i].name, juce::dontSendNotification);
+            break;
+        }
+    updatePresetTint();
+}
+
+void GoaSynthAudioProcessorEditor::exportSinglePreset (int visIdx)
+{
+    if (! juce::isPositiveAndBelow (visIdx, (int) visiblePresets.size()))
+        return;
+
+    const juce::String suggested = userpresets::safeFileName (visiblePresets[(size_t) visIdx].name);
+    const juce::File source = visiblePresets[(size_t) visIdx].file;
+    const bool isUser = visiblePresets[(size_t) visIdx].isUser;
+
+    const bool opened = asyncFileChooser ("Export preset (.goapreset)",
+        "*." + juce::String (userpresets::presetExtension),
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, visIdx, source, isUser] (const juce::File& raw)
+    {
+        if (raw == juce::File())
+            return;   // cancelled
+        const auto dest = raw.hasFileExtension (userpresets::presetExtension)
+                              ? raw : raw.withFileExtension (userpresets::presetExtension);
+
+        if (isUser && source.existsAsFile())
+        {
+            // User patch: copy the file verbatim, so the tags travel with it.
+            if (source.copyFileTo (dest))
+                reportPackStatus ("Exported " + dest.getFileName(), true);
+            else
+                reportPackStatus ("Could not write " + dest.getFileName(), false);
+            return;
+        }
+
+        // Factory patch: it has no file, so materialise the sound. This loads the
+        // patch (that is what makes it serialisable) and then writes the state.
+        applyPreset (visIdx);
+        auto xml = proc.stateToXml();
+        if (xml == nullptr || ! dest.replaceWithText (xml->toString()))
+            reportPackStatus ("Could not write " + dest.getFileName(), false);
+        else
+            reportPackStatus ("Exported " + dest.getFileName(), true);
+    });
+
+    if (! opened)
+        reportPackStatus ("A file dialog is already open.", false);
 }
 
 void GoaSynthAudioProcessorEditor::saveUserPreset (const juce::String& nameIn,
@@ -5090,6 +6456,28 @@ void GoaSynthAudioProcessorEditor::paint (juce::Graphics& g)
     glow ({ 60.0f + sway,               (float) getHeight() * 0.42f }, 260.0f, goaui::accent);
     glow ({ (float) getWidth() * 0.62f, (float) getHeight() - 60.0f }, 200.0f, goaui::accentB);
 
+    // Grain texture: deterministic pseudo-random dots at 2 % density, very
+    // low alpha so it adds texture without becoming noise. The hash makes it
+    // stable frame-to-frame with no state needed.
+    {
+        g.setColour (goaui::textBright.withAlpha (0.018f));
+        const int gw = getWidth() / 4;
+        const int gh = getHeight() / 4;
+        for (int gy = 0; gy < gh; ++gy)
+        {
+            for (int gx = 0; gx < gw; ++gx)
+            {
+                const uint32_t h = (uint32_t) (gx * 73856093u ^ gy * 19349663u);
+                if ((h & 0x1F) == 0)   // 1 in 32 chance
+                {
+                    const int x = gx * 4 + (int) ((h >> 5) & 3);
+                    const int y = gy * 4 + (int) ((h >> 7) & 3);
+                    g.fillRect (x, y, 1, 1);
+                }
+            }
+        }
+    }
+
     g.setColour (goaui::bgHeader);
     g.fillRect (0, 0, getWidth(), 56);
     g.fillRect (0, getHeight() - 110, getWidth(), 110);
@@ -5109,7 +6497,10 @@ void GoaSynthAudioProcessorEditor::paint (juce::Graphics& g)
 void GoaSynthAudioProcessorEditor::resized()
 {
     auto b = getLocalBounds();
-    auto bottom = b.removeFromBottom (110);
+    // The bottom bar grew from 110 to 140 to hold the master EQ as a fourth
+    // right-hand row. The upper rows absorb it: at the default 780px window
+    // they land at 262 / 186 / 116, all still above their floors.
+    auto bottom = b.removeFromBottom (140);
     auto header = b.removeFromTop (56);
     auto content = b.reduced (6, 4);
     const int gap = 6;
@@ -5131,13 +6522,14 @@ void GoaSynthAudioProcessorEditor::resized()
     if (presetBrowser != nullptr && presetBrowser->isVisible())
         presetBrowser->setBounds (getLocalBounds());
 
-    // Reserve must fit all buttons (master 72 + panic 56 + theme 62 + ai 46 +
-    // mod 42 + save 46 + delete 34 + 6x2 spacers = 370) plus the trial badge
-    // (100) = 484, with slack - or JUCE silently clamps removeFromRight and
-    // the leftmost buttons vanish.
-    auto right = header.removeFromRight (484);
-    trialBadge.setBounds (right.removeFromRight (100).reduced (2, 12));
+    // Reserve must fit all buttons (panic 56 + theme 62 + ai 46 + mod 42 +
+    // save 46 + delete 34 + 5x2 spacers = 298) plus the trial badge (100) and
+    // MASTER (72) = 472, with slack. MASTER is the rightmost control.
+    auto right = header.removeFromRight (472);
+    // MASTER at the absolute right edge.
     masterCtl->setBounds (right.removeFromRight (72).reduced (6, 2));
+    right.removeFromRight (2);
+    trialBadge.setBounds (right.removeFromRight (100).reduced (2, 12));
     panicBtn.setBounds (right.removeFromRight (56).reduced (4, 16));
     right.removeFromRight (2);
     themeBtn.setBounds (right.removeFromRight (62).reduced (2, 16));
@@ -5156,12 +6548,56 @@ void GoaSynthAudioProcessorEditor::resized()
     browseBtn.setBounds (presetZone.removeFromRight (64).reduced (4, 0));
     presetName.setBounds (presetZone.reduced (4, 0));
 
+    // Level meter: anchored to the button block rather than to a fixed x, so a
+    // narrow window shrinks the preset zone instead of sliding the meter under
+    // the buttons. presetZone already reserves exactly this 104px gap.
+    {
+        const int meterW = 84;
+        levelMeter.setBounds (juce::Rectangle<int> (right.getX() - meterW - 10,
+                                                    header.getY() + 9,
+                                                    meterW, header.getHeight() - 18));
+    }
+
     // ---- rows ----
-    auto row1 = content.removeFromTop (276);
+    // Vertical budget. The header, the bottom bar and the padding are fixed,
+    // and the three panel rows share what is left. The design heights are
+    // 276 / 196 / 122 at the default 780px window; below that the two upper
+    // rows scale down towards a floor and the FX row keeps a floor of its own.
+    //
+    // The rows used to be fixed at 276 / 196 with row 3 taking "the rest",
+    // which drove row 3 NEGATIVE below 658px: the FX frames got a negative
+    // height, and NOISE's LEVEL knob (a hardcoded 66px tall, centred on the
+    // degenerate rect) was pushed up over the bottom bar, landing on top of
+    // POLY / PORTA / BEND. Found by the layout sweep in OverlayTest.
+    constexpr int design1 = 276, design2 = 196, design3 = 122;
+    constexpr int floor1  = 250, floor2  = 170, floor3  = 114;
+
+    const int avail = content.getHeight() - 2 * gap;
+    int row1H = juce::jlimit (floor1, design1,
+                              juce::roundToInt (avail * (float) design1
+                                                / (float) (design1 + design2 + design3)));
+    int row2H = juce::jlimit (floor2, design2,
+                              juce::roundToInt (avail * (float) design2
+                                                / (float) (design1 + design2 + design3)));
+    int row3H = avail - row1H - row2H;
+
+    // Row 3 is the one that must never be squeezed: give it its floor back by
+    // shaving the upper rows (which cannot go below their own floors).
+    if (row3H < floor3)
+    {
+        int shortfall = floor3 - row3H;
+        const int take1 = juce::jmin (shortfall, row1H - floor1);
+        row1H -= take1;
+        shortfall -= take1;
+        row2H -= juce::jmin (shortfall, row2H - floor2);
+        row3H = avail - row1H - row2H;
+    }
+
+    auto row1 = content.removeFromTop (row1H);
     content.removeFromTop (gap);
-    auto row2 = content.removeFromTop (196);
+    auto row2 = content.removeFromTop (row2H);
     content.removeFromTop (gap);
-    auto row3 = content;
+    auto row3 = content.removeFromTop (row3H);
 
     // ROW 1 : OSC A | OSC B | FILTER | SUB
     auto sideCol = row1.removeFromRight (92);
@@ -5169,10 +6605,16 @@ void GoaSynthAudioProcessorEditor::resized()
     {
         auto inner = subFrame.getBounds().reduced (7, 24);
         subWaveCtl->setBounds (inner.removeFromTop (20));
+        inner.removeFromTop (2);
+        // SYNC (hard sync: OSC A reset by OSC B) rides the bottom of the panel
+        // as a full-width switch strip. A toggle needs no readout width, and
+        // this narrow panel has no room for a fifth knob cell.
+        syncCtl->setBounds (inner.removeFromBottom (30));
+        inner.removeFromBottom (2);
         // 2x2 knob grid: output (LEVEL, OCT) on top, character (CHAR, CHORD)
         // below — the combos need no readout width, so the narrow panel holds
         // four cells comfortably.
-        auto band = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (130, inner.getHeight()));
+        auto band = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (110, inner.getHeight()));
         const int kh = band.getHeight() / 2;
         const int kw = band.getWidth() / 2;
         auto kr1 = band.removeFromTop (kh);
@@ -5235,10 +6677,8 @@ void GoaSynthAudioProcessorEditor::resized()
     oscBFrame.setBounds (row1);
 
     auto layoutOsc = [] (goaui::Panel& frame, goaui::WaveDisplay& disp, juce::Component* waveCombo,
-                         juce::Component* oct, juce::Component* fin,
-                         juce::Component* uni, juce::Component* det, juce::Component* wid,
-                         juce::Component* pan, juce::Component* wtPos, juce::Component* lvl,
-                         juce::Component* ph, juce::Component* prand, juce::Component* extra)
+                         const std::vector<juce::Component*>& row1Cells,
+                         const std::vector<juce::Component*>& row2Cells)
     {
         auto inner = frame.getBounds().reduced (9, 24);
         waveCombo->setBounds (inner.removeFromTop (20));
@@ -5250,13 +6690,11 @@ void GoaSynthAudioProcessorEditor::resized()
         auto kr1 = knobs.removeFromTop (kh);
         auto kr2 = knobs;
         // Rows are split by cell COUNT so every knob in a row gets an equal
-        // share: row 1 is the same six cells for both oscillators (pitch
-        // pair OCT+FIN reunited, unison trio UNI/DET/WID, stereo PAN), and
-        // row 2 anchors output (LEVEL, PHASE) then the panel's tail — OSC A
-        // has four cells, OSC B five (FM > A joins between PHASE and
-        // WT POS). Equal-per-row beats the old fixed-6 grid: OSC A no
-        // longer ends row 2 with an empty slot, and OSC B's P.RAND no
-        // longer rides a reduced sliver next to FM > A.
+        // share. Row 1 is the same six cells for both oscillators (pitch pair
+        // OCT+FIN, unison trio UNI/DET/WID, stereo PAN). Row 2 anchors output
+        // (LEVEL, PHASE) and then each panel's own tail: OSC A carries the PWM
+        // duty, OSC B carries FM > A and RING. Equal-per-row beats a fixed-6
+        // grid — no empty trailing slots and no cell on a reduced sliver.
         auto rowCells = [] (juce::Rectangle<int> r, const std::vector<juce::Component*>& cs)
         {
             const int n = (int) cs.size();
@@ -5266,22 +6704,16 @@ void GoaSynthAudioProcessorEditor::resized()
             for (auto* c : cs)
                 c->setBounds (r.removeFromLeft (w).reduced (1));
         };
-        rowCells (kr1, { oct, fin, uni, det, wid, pan });
-        std::vector<juce::Component*> row2 { lvl, ph };
-        if (extra != nullptr)
-            row2.push_back (extra);   // OSC B: FM > A
-        row2.push_back (wtPos);
-        if (prand != nullptr)
-            row2.push_back (prand);
-        rowCells (kr2, row2);
+        rowCells (kr1, row1Cells);
+        rowCells (kr2, row2Cells);
     };
 
-    layoutOsc (oscAFrame, waveA, wave1Ctl.get(), oct1Ctl.get(), fin1Ctl.get(),
-               uni1Ctl.get(), det1Ctl.get(), wid1Ctl.get(),
-               pan1Ctl.get(), wt1Ctl.get(), lvl1Ctl.get(), ph1Ctl.get(), prand1Ctl.get(), nullptr);
-    layoutOsc (oscBFrame, waveB, wave2Ctl.get(), oct2Ctl.get(), fin2Ctl.get(),
-               uni2Ctl.get(), det2Ctl.get(), wid2Ctl.get(),
-               pan2Ctl.get(), wt2Ctl.get(), lvl2Ctl.get(), ph2Ctl.get(), prand2Ctl.get(), fmCtl.get());
+    layoutOsc (oscAFrame, waveA, wave1Ctl.get(),
+               { oct1Ctl.get(), fin1Ctl.get(), uni1Ctl.get(), det1Ctl.get(), wid1Ctl.get(), pan1Ctl.get() },
+               { lvl1Ctl.get(), ph1Ctl.get(), pwCtl.get(), wt1Ctl.get(), prand1Ctl.get() });
+    layoutOsc (oscBFrame, waveB, wave2Ctl.get(),
+               { oct2Ctl.get(), fin2Ctl.get(), uni2Ctl.get(), det2Ctl.get(), wid2Ctl.get(), pan2Ctl.get() },
+               { lvl2Ctl.get(), ph2Ctl.get(), fmCtl.get(), ringCtl.get(), wt2Ctl.get(), prand2Ctl.get() });
 
     // ROW 2 : ENV A | ENV F | LFO 1 | LFO 2
     const int w2 = (row2.getWidth() - 3 * gap) / 4;
@@ -5343,37 +6775,47 @@ void GoaSynthAudioProcessorEditor::resized()
     layoutLfo (lfo2Frame, lfo2Graph, l2WaveCtl.get(), l2TgtCtl.get(), l2UnitCtl.get(),
                l2DivCtl.get(), l2RateCtl.get(), l2DepthCtl.get());
 
-    // ROW 3 : CHORUS | PHASER | DELAY | REVERB | OTT | MOVEMENT | NOISE.
-    // Panel widths are weighted by knob count so every FX knob cell lands at
-    // the same width as the rest of the UI: NOISE takes a fixed slice for its
-    // single LEVEL knob and the rest splits across the six shared frames in
-    // 3 : 3 : 4 : 3 : 5 : 3 (CHORUS : PHASER : DELAY : REVERB : OTT : MOVE).
+    // ROW 3 : CHORUS | PHASER | DELAY | REVERB | OTT | MOVEMENT | MACRO | NOISE.
+    // Panel widths are weighted by KNOB COUNT so every FX cell lands at the
+    // same width: 3 : 3 : 4 : 4 : 5 : 4 for CHORUS : PHASER : DELAY : REVERB :
+    // OTT : MOVE (23 units). REVERB and MOVEMENT were both weighted 3 while
+    // holding four knobs each (SIZE/DAMP/MIX/SHIM and DUCK/DRIFT/DETUNE/WIDTH),
+    // which squeezed their cells to ~21px - narrow enough that each knob's
+    // label and its live readout were painted on top of each other.
+    // NOISE has only one knob: no panel frame, just the control in the tail.
     // (An earlier draft split 24/18 of the width across the six frames and
     // silently squeezed NOISE to a sliver — found by the extremes sweep.)
-    const int noiseW = juce::jmin (140, juce::jmax (64, row3.getWidth() / 8));
-    // MACRO takes a fixed slice too; eight frames mean seven gaps.
+    constexpr int row3Units = 3 + 3 + 4 + 4 + 5 + 4;
+    const int noiseW = juce::jmin (120, juce::jmax (56, row3.getWidth() / 9));
+    // MACRO takes a fixed slice too; seven framed panels mean six gaps,
+    // then one more gap before the bare NOISE knob.
     const int shared = juce::jmax (360, row3.getWidth() - noiseW - 110 - 7 * gap);
-    chorusFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
+    chorusFrame.setBounds (row3.removeFromLeft (shared * 3 / row3Units));
     row3.removeFromLeft (gap);
-    phaserFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
+    phaserFrame.setBounds (row3.removeFromLeft (shared * 3 / row3Units));
     row3.removeFromLeft (gap);
-    delayFrame.setBounds (row3.removeFromLeft (shared * 4 / 21));
+    delayFrame.setBounds (row3.removeFromLeft (shared * 4 / row3Units));
     row3.removeFromLeft (gap);
-    reverbFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
+    reverbFrame.setBounds (row3.removeFromLeft (shared * 4 / row3Units));
     row3.removeFromLeft (gap);
-    ottFrame.setBounds (row3.removeFromLeft (shared * 5 / 21));
+    ottFrame.setBounds (row3.removeFromLeft (shared * 5 / row3Units));
     row3.removeFromLeft (gap);
-    moveFrame.setBounds (row3.removeFromLeft (shared * 3 / 21));
+    moveFrame.setBounds (row3.removeFromLeft (shared * 4 / row3Units));
     row3.removeFromLeft (gap);
     // MACRO: fixed narrow panel for the two performance knobs.
     macroFrame.setBounds (row3.removeFromLeft (110));
     row3.removeFromLeft (gap);
-    noiseFrame.setBounds (row3);
+    // NOISE: bare knob, no frame, in the remaining tail.
+    noiseCtl->setBounds (row3.reduced (2, 4));
 
     auto row = [] (goaui::Panel& frame, const juce::Array<juce::Component*>& cells)
     {
         auto inner = frame.getBounds().reduced (8, 24);
-        auto band = inner.withSizeKeepingCentre (inner.getWidth(), juce::jmin (66, inner.getHeight()));
+        // Clamp the band to the panel's inner height: on a short window a
+        // fixed 66 would centre the cells on a degenerate rect and spill them
+        // outside the panel.
+        auto band = inner.withSizeKeepingCentre (inner.getWidth(),
+                                                 juce::jmax (24, juce::jmin (66, inner.getHeight())));
         const int n = cells.size();
         const int kw = band.getWidth() / n;
         for (int i = 0; i < n; ++i)
@@ -5387,12 +6829,8 @@ void GoaSynthAudioProcessorEditor::resized()
                         shimCtl.get() });
     row (moveFrame,   { duckCtl.get(),
                         driftCtl.get(), uniDetCtl.get(), uniSpreadCtl.get() });
-    row (macroFrame,  { macroACtl.get(), macroBCtl.get() });
     row (ottFrame,    { oDepthCtl.get(), oLowCtl.get(), oMidCtl.get(), oHighCtl.get(), oOutCtl.get() });
-    // NOISE panel is the narrowest in the row: give its LEVEL knob the full
-    // inner width (the 3-digit 100% readout has to fit alongside a mod dot).
-    noiseCtl->setBounds (noiseFrame.getBounds().reduced (8, 24)
-                             .withSizeKeepingCentre (noiseFrame.getWidth() - 16, 66));
+    // NOISE knob bounds are set directly in the row layout above (no frame).
     // MACRO: a taller band so A / B stack comfortably in the narrow panel.
     {
         auto inner = macroFrame.getBounds().reduced (7, 24);
@@ -5400,7 +6838,6 @@ void GoaSynthAudioProcessorEditor::resized()
         macroACtl->setBounds (inner.removeFromTop (kh).reduced (1));
         macroBCtl->setBounds (inner.reduced (1));
     }
-
     // ---- bottom bar ----
     auto bb = bottom.reduced (6, 5);
     auto rightCol = bb.removeFromRight (296);
@@ -5413,9 +6850,12 @@ void GoaSynthAudioProcessorEditor::resized()
     }
     rightCol.removeFromTop (6);
 
+    // The three remaining right-hand rows share what is left evenly.
+    const int colRow = juce::jmax (18, rightCol.getHeight() / 3);
+
     // Second right-hand row: scale quantizer + microtuning.
     {
-        auto r2 = rightCol.removeFromTop ((rightCol.getHeight() + 1) / 2);
+        auto r2 = rightCol.removeFromTop (colRow);
         scaleCtl->setBounds (r2.removeFromLeft (106).reduced (2, 2));
         rootCtl->setBounds  (r2.removeFromLeft (52).reduced (2, 2));
         lockCtl->setBounds  (r2.removeFromLeft (44).reduced (2, 2));
@@ -5425,12 +6865,23 @@ void GoaSynthAudioProcessorEditor::resized()
 
     // Third right-hand row: sidechain pump + analog character + zoom.
     {
-        auto r3 = rightCol;
+        auto r3 = rightCol.removeFromTop (colRow);
         pumpSyncCtl->setBounds  (r3.removeFromLeft (56).reduced (2, 2));
         pumpDepthCtl->setBounds (r3.removeFromLeft (50).reduced (2, 2));
         analogCtl->setBounds    (r3.removeFromLeft (46).reduced (2, 2));
         hqCtl->setBounds        (r3.removeFromLeft (52).reduced (2, 2));
         zoomBtn.setBounds       (r3.reduced (1, 2));
+    }
+
+    // Fourth right-hand row: master 3-band EQ, sitting with the other global
+    // controls rather than in the FX row (whose cells have no width to spare —
+    // adding a panel there pushed the CHORUS rate readout past its cell).
+    {
+        auto r4 = rightCol;
+        eqLowCtl->setBounds     (r4.removeFromLeft (74).reduced (2, 2));
+        eqMidCtl->setBounds     (r4.removeFromLeft (74).reduced (2, 2));
+        eqMidFreqCtl->setBounds (r4.removeFromLeft (74).reduced (2, 2));
+        eqHighCtl->setBounds    (r4.reduced (2, 2));
     }
 
     auto stripRow = bb.removeFromTop (30);
@@ -5441,6 +6892,15 @@ void GoaSynthAudioProcessorEditor::resized()
 
     octDown.setBounds (bb.removeFromLeft (34).reduced (5, 8));
     octUp.setBounds (bb.removeFromLeft (34).reduced (5, 8));
+    bb.removeFromLeft (4);
+    // Utility buttons, then whatever is left is the keyboard. Fixed slices so
+    // the keys absorb a narrow window rather than the buttons collapsing.
+    // (56px, not 50: RAND is four wide glyphs and 50 clipped it to "RA...".)
+    randBtn.setBounds (bb.removeFromLeft (56).reduced (2, 9));
+    undoBtn.setBounds (bb.removeFromLeft (56).reduced (2, 9));
+    redoBtn.setBounds (bb.removeFromLeft (56).reduced (2, 9));
+    abBtn.setBounds   (bb.removeFromLeft (40).reduced (2, 9));
+    lockBtn.setBounds (bb.removeFromLeft (56).reduced (2, 9));
     keyboard.setBounds (bb.reduced (2, 2));
 }
 

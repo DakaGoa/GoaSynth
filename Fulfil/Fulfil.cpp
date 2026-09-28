@@ -845,7 +845,8 @@ Summary runOnce (const Options& options)
             const juce::File licenseFile (latest.licenseFile);
             if (! options.dryRun && ! licenseFile.existsAsFile())
             {
-                writeLicenseFile (latest.serial, latest.machineId, "order " + order.key, licenseFile);
+                writeLicenseFile (latest.serial, latest.machineId, "order " + order.key, licenseFile,
+                                  order.name, order.email);
                 s.notes.add ("re-wrote missing licence file for order " + order.key);
             }
             continue;
@@ -888,7 +889,8 @@ Summary runOnce (const Options& options)
                                      + " (refund of " + prior.at + " stays on record)");
         }
 
-        if (! writeLicenseFile (serial, order.machineId, "order " + order.key, licenseFile))
+        if (! writeLicenseFile (serial, order.machineId, "order " + order.key, licenseFile,
+                                order.name, order.email))
         {
             ++s.needAttention;
             order.problems.add ("could not write " + licenseFile.getFullPathName());

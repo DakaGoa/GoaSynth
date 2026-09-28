@@ -56,6 +56,32 @@ int replaceAll (const fs::path& p, const std::string& from, const std::string& t
     return n;
 }
 
+// Shift the "// FAMILY (n)" header in Presets.h by `delta`, whatever n happens
+// to be. The fixture must not hard-code the current count: the factory bank
+// grows over time, and a literal "// ACID (15)" silently stopped injecting any
+// drift the moment a preset was added - the self-test then passed while
+// checking nothing. Returns 0 if the header was not found.
+int bumpFamilyCount (const fs::path& p, const std::string& family, int delta)
+{
+    std::string text = readWhole (p);
+    const std::string needle = "// " + family + " (";
+    const std::size_t at = text.find (needle);
+
+    if (at == std::string::npos)
+        return 0;
+
+    const std::size_t numAt  = at + needle.size();
+    const std::size_t numEnd = text.find (')', numAt);
+
+    if (numEnd == std::string::npos || numEnd == numAt)
+        return 0;
+
+    const int n = std::stoi (text.substr (numAt, numEnd - numAt));
+    text.replace (numAt, numEnd - numAt, std::to_string (n + delta));
+    writeWhole (p, text);
+    return 1;
+}
+
 bool anyProblemContains (const std::vector<std::string>& problems, const std::string& needle)
 {
     for (const auto& p : problems)
@@ -147,8 +173,8 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (src / "Presets.h", "// ACID (15)", "// ACID (14)");
-        expect (n == 1, "preset drift: expected one ACID header, found " + std::to_string (n));
+        const int n = bumpFamilyCount (src / "Presets.h", "ACID", -1);
+        expect (n == 1, "preset drift: could not rewrite the ACID family header");
 
         const auto r = scan (docs, root);
         expect (anyProblemContains (r.problems, "ACID"),

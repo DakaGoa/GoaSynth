@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "License.h"
 #include "UserPresets.h"
+#include "Presets.h"
 
 GoaSynthAudioProcessor::GoaSynthAudioProcessor()
     : AudioProcessor (busProps()),
@@ -20,6 +21,7 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
     BIND (osc1Pan); BIND (osc1Phase); BIND (osc1PRand);
     BIND (osc2Pan); BIND (osc2Phase); BIND (osc2PRand);
     BIND (fmAmount); BIND (subWave); BIND (subOct); BIND (subLevel); BIND (noiseLevel);
+    BIND (pulseWidth); BIND (oscSync); BIND (ringMod);
     BIND (uniVoices); BIND (uniDetune); BIND (uniSpread); BIND (drift);
     BIND (filterType); BIND (cutoff); BIND (reso); BIND (envAmt);
     BIND (keytrack); BIND (drive); BIND (modDepth);
@@ -83,6 +85,9 @@ void GoaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
     ott.prepare (sampleRate, juce::jmax (1, samplesPerBlock));
     ott.reset();
+
+    eq.prepare (sampleRate);
+    eq.reset();
 
     maxDelaySamples = (int) (2.5 * sampleRate) + 8;
     const juce::dsp::ProcessSpec mono { sampleRate, (juce::uint32) juce::jmax (1, samplesPerBlock), 1 };
@@ -294,6 +299,83 @@ void GoaSynthAudioProcessor::Ott::process (juce::AudioBuffer<float>& buffer,
 }
 
 //==============================================================================
+// Master EQ: three cascaded biquads per channel (low shelf 200 Hz, peaking
+// mid, high shelf 4 kHz). Coefficients are cached against the last knob value,
+// so a static EQ does no maths per block, and an all-flat setting returns
+// before touching the buffer — a genuine bypass, not a unity-gain filter.
+void GoaSynthAudioProcessor::MasterEq::prepare (double sampleRate)
+{
+    sr = sampleRate;
+    const juce::dsp::ProcessSpec spec { sampleRate, 512, 1 };
+    low.l.prepare (spec);  low.r.prepare (spec);
+    mid.l.prepare (spec);  mid.r.prepare (spec);
+    high.l.prepare (spec); high.r.prepare (spec);
+    low.lastDb = mid.lastDb = high.lastDb = -999.0f;
+    mid.lastHz = -1.0f;
+    reset();
+}
+
+void GoaSynthAudioProcessor::MasterEq::reset()
+{
+    low.l.reset();  low.r.reset();
+    mid.l.reset();  mid.r.reset();
+    high.l.reset(); high.r.reset();
+}
+
+void GoaSynthAudioProcessor::MasterEq::process (juce::AudioBuffer<float>& buffer,
+                                                float lowDb, float midDb,
+                                                float midHz, float highDb)
+{
+    if (std::abs (lowDb) < 0.01f && std::abs (midDb) < 0.01f && std::abs (highDb) < 0.01f)
+        return;
+
+    constexpr float q = 0.707f;
+
+    if (std::abs (lowDb - low.lastDb) > 0.005f)
+    {
+        low.lastDb = lowDb;
+        const auto c = juce::dsp::IIR::Coefficients<float>::makeLowShelf (
+            sr, 200.0f, q, juce::Decibels::decibelsToGain (lowDb));
+        low.l.coefficients = c;
+        low.r.coefficients = c;
+    }
+    if (std::abs (midDb - mid.lastDb) > 0.005f || std::abs (midHz - mid.lastHz) > 1.0f)
+    {
+        mid.lastDb = midDb;
+        mid.lastHz = midHz;
+        const auto c = juce::dsp::IIR::Coefficients<float>::makePeakFilter (
+            sr, juce::jlimit (60.0f, (float) (sr * 0.45), midHz), q,
+            juce::Decibels::decibelsToGain (midDb));
+        mid.l.coefficients = c;
+        mid.r.coefficients = c;
+    }
+    if (std::abs (highDb - high.lastDb) > 0.005f)
+    {
+        high.lastDb = highDb;
+        const auto c = juce::dsp::IIR::Coefficients<float>::makeHighShelf (
+            sr, 4000.0f, q, juce::Decibels::decibelsToGain (highDb));
+        high.l.coefficients = c;
+        high.r.coefficients = c;
+    }
+
+    const int n = buffer.getNumSamples();
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        float* x = buffer.getWritePointer (ch);
+        auto& lf = (ch == 0) ? low.l : low.r;
+        auto& mf = (ch == 0) ? mid.l : mid.r;
+        auto& hf = (ch == 0) ? high.l : high.r;
+        for (int i = 0; i < n; ++i)
+        {
+            float v = lf.processSample (x[i]);
+            v = mf.processSample (v);
+            v = hf.processSample (v);
+            x[i] = v;
+        }
+    }
+}
+
+//==============================================================================
 void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -312,6 +394,9 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     // Pick up wavetable edits from the UI (lock-free snapshot handoff).
     synth.commitWaves();
+
+    // Fresh MIDI output for this block: only the arp writes into it.
+    midiOut.clear();
 
     double bpm = 120.0;
     double ppq = 0.0;
@@ -465,12 +550,26 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 midi.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
                 midi.addEvent (juce::MidiMessage::noteOff (1, note),
                                juce::jmin (numSamples - 1, at + len));
+                // Mirror to the host's MIDI output so the arp can be recorded
+                // or sent on to another instrument.
+                midiOut.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
+                midiOut.addEvent (juce::MidiMessage::noteOff (1, note),
+                                  juce::jmin (numSamples - 1, at + len));
             }
         }
     }
 
     buffer.clear();
     synth.renderNextBlock (buffer, midi, 0, numSamples);
+
+    // ---- MIDI output: the arp's generated notes, and nothing else ---------
+    // `midi` also carries the notes the host just sent us. Echoing those back
+    // would duplicate every note downstream (and, in a chain, re-trigger the
+    // next instrument), so once the synth has consumed the block the buffer is
+    // replaced with the arp's own events. This is what makes producesMidi()
+    // true mean "I generate notes" rather than "I pass them through".
+    midi.clear();
+    midi.swapWith (midiOut);
 
     // Block-rate sample & hold for matrix source 7: one dice per block.
     synth.shValue.store (juce::Random::getSystemRandom().nextFloat() * 2.0f - 1.0f,
@@ -558,7 +657,11 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // next one; OFF unless sync > 0 and depth > 0.
     {
         const int pSync = (int) goa::ld (apvts.getRawParameterValue (param::pumpSync));
-        const float pDepth = goa::ld (apvts.getRawParameterValue (param::pumpDepth));
+        // Depth is a matrix destination too (mdPumpDepth): an envelope or LFO
+        // can duck the whole mix, which is how the PUMPED factory patches move.
+        const float pDepth = juce::jlimit (0.0f, 1.0f,
+            goa::ld (apvts.getRawParameterValue (param::pumpDepth))
+            + synth.mod.globalFx.pumpDepth.load (std::memory_order_relaxed));
         if (playing && pSync > 0 && pDepth > 0.001f)
         {
             static constexpr double beatsPer[] =
@@ -608,8 +711,12 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     phaser.process (ctx);
 
     // OTT multiband squeeze sits after the phaser, before the delay/reverb.
+    // Its depth is also a matrix destination (mdOttDepth), so an LFO or macro
+    // can drive the squeeze amount.
     ott.process (buffer,
-                 goa::ld (apvts.getRawParameterValue (param::ottDepth)),
+                 juce::jlimit (0.0f, 1.0f,
+                     goa::ld (apvts.getRawParameterValue (param::ottDepth))
+                     + synth.mod.globalFx.ottDepth.load (std::memory_order_relaxed)),
                  goa::ld (apvts.getRawParameterValue (param::ottLow)),
                  goa::ld (apvts.getRawParameterValue (param::ottMid)),
                  goa::ld (apvts.getRawParameterValue (param::ottHigh)),
@@ -720,6 +827,26 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     masterGain.setGainDecibels (goa::ld (p.masterGain));
     masterGain.process (ctx);
+
+    // Master EQ sits after the gain stage and before the limiter, so the EQ
+    // shapes the signal the limiter then catches (rather than the limiter
+    // squashing a curve the EQ would otherwise re-shape afterwards).
+    eq.process (buffer,
+                goa::ld (apvts.getRawParameterValue (param::eqLow)),
+                goa::ld (apvts.getRawParameterValue (param::eqMid)),
+                goa::ld (apvts.getRawParameterValue (param::eqMidFreq)),
+                goa::ld (apvts.getRawParameterValue (param::eqHigh)));
+
+    // Pre-limiter peak, for the gain-reduction readout below (the post-limiter
+    // peak is measured by the UI peak follower, so this is the only extra scan).
+    float preLimiterPeak = 0.0f;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        const float* x = buffer.getReadPointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            preLimiterPeak = juce::jmax (preLimiterPeak, std::abs (x[i]));
+    }
+
     limiter.process (ctx);
 
     // Smoothed peak follower for the UI backdrop: fast attack, slow release,
@@ -736,12 +863,88 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         const float target = juce::jlimit (0.0f, 1.0f, peak);
         const float a = target > cur ? 0.35f : 0.045f;   // fast attack, slow release
         uiLevel.store (cur + a * (target - cur), std::memory_order_relaxed);
+
+        // Gain reduction: how far the limiter pulled this block's peak, in dB.
+        // Measured from the signal rather than read off a knob, so the readout
+        // shows what the limiter actually did. Fast to show, slow to release -
+        // a limiter that grabs for a single block must still be visible.
+        const float ratio = preLimiterPeak > 1.0e-6f ? peak / preLimiterPeak : 1.0f;
+        const float grDb = juce::jlimit (-24.0f, 0.0f,
+            juce::Decibels::gainToDecibels (juce::jmin (1.0f, ratio), -24.0f));
+        const float grCur = uiGainReduction.load (std::memory_order_relaxed);
+        const float grA = grDb < grCur ? 0.6f : 0.06f;
+        uiGainReduction.store (grCur + grA * (grDb - grCur), std::memory_order_relaxed);
     }
 }
 
 juce::AudioProcessorEditor* GoaSynthAudioProcessor::createEditor()
 {
     return new GoaSynthAudioProcessorEditor (*this);
+}
+
+//==============================================================================
+// Host program list.
+//
+// Before this existed, getNumPrograms() returned a hardcoded 1 and every name
+// was "Default": a DAW could not see a single one of the factory patches, so
+// the entire bank was reachable only from the plugin's own browser. Program 0
+// is the Init Patch (all parameter defaults), 1..N map onto getPresets().
+int GoaSynthAudioProcessor::getNumPrograms()
+{
+    return (int) getPresets().size() + 1;   // +1 for the Init Patch at index 0
+}
+
+int GoaSynthAudioProcessor::getCurrentProgram()
+{
+    return currentProgram.load (std::memory_order_relaxed);
+}
+
+const juce::String GoaSynthAudioProcessor::getProgramName (int index)
+{
+    if (index <= 0)
+        return "Init Patch";
+
+    const auto& ps = getPresets();
+    const int i = index - 1;
+    return juce::isPositiveAndBelow (i, (int) ps.size())
+               ? juce::String (ps[(size_t) i].name)
+               : juce::String();
+}
+
+void GoaSynthAudioProcessor::changeProgramName (int, const juce::String&)
+{
+    // The factory bank is compiled in, so program names are read-only.
+}
+
+void GoaSynthAudioProcessor::setCurrentProgram (int index)
+{
+    const int idx = juce::jlimit (0, juce::jmax (0, getNumPrograms() - 1), index);
+    currentProgram.store (idx, std::memory_order_relaxed);
+    pendingProgram.store (idx, std::memory_order_release);
+    programLoader.triggerAsyncUpdate();
+}
+
+void GoaSynthAudioProcessor::applyPendingProgram()
+{
+    const int idx = pendingProgram.exchange (-1, std::memory_order_acq_rel);
+    if (idx < 0)
+        return;
+
+    // Reset to defaults first, then apply the patch: identical to the editor's
+    // applyPreset(), so a host program change and a browser click land on the
+    // same sound (a patch only lists the parameters it cares about, so without
+    // the reset the leftovers of the previous patch would survive).
+    for (auto* par : getParameters())
+        par->setValueNotifyingHost (par->getDefaultValue());
+
+    const auto& ps = getPresets();
+    const int i = idx - 1;
+    if (juce::isPositiveAndBelow (i, (int) ps.size()))
+        for (const auto& [id, v] : ps[(size_t) i].values)
+            if (auto* par = apvts.getParameter (id))
+                par->setValueNotifyingHost (par->convertTo0to1 (v));
+
+    updateHostDisplay();   // tell the host the program (and its name) changed
 }
 
 void GoaSynthAudioProcessor::uiNoteOn (int note, float velocity)

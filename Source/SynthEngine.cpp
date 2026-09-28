@@ -593,6 +593,10 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     const float lvl1 = juce::jlimit (0.0f, 2.0f, ld (p.osc1Level) + mv.lvl1);
     const float lvl2 = juce::jlimit (0.0f, 2.0f, ld (p.osc2Level) + mv.lvl2);
     const float fmAmt = ld (p.fmAmount) * 0.5f;
+    // Manual PWM duty: the knob is the base, LFO target 2 (PWM) and the matrix
+    // PULSE W destination both offset it. Shared by OSC A and OSC B so a patch
+    // with both oscillators in PWM mode stays phase-coherent in width.
+    const float pwBase = juce::jlimit (0.05f, 0.95f, ld (p.pulseWidth));
     const float subLvl = ld (p.subLevel);
     const float noiseLvl = ld (p.noiseLevel);
     const float octF1 = std::exp2 ((float) (int) ld (p.osc1Oct));
@@ -603,6 +607,10 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     const float kt = ld (p.keytrack);
     const float ktOct = kt * (float) (currentNote - 60) / 12.0f;
     const float reso = juce::jlimit (0.5f, 15.0f, 0.5f + (ld (p.reso) + mv.reso) * 14.5f);
+    // FILTER B resonance: the RESO B knob is a 0..1 unit value here (unlike
+    // filter A's 0.5..15 mapping), so the matrix destination adds straight on
+    // top. Clamped to a legal minimum so a negative amount cannot reach zero.
+    const float reso2v = juce::jlimit (0.05f, 15.0f, ld (p.reso2) + mv.reso2);
     const float driveAmt = juce::jlimit (0.0f, 1.0f, ld (p.drive) + mv.drive);
     const float envOct = ld (p.envAmt);
     const float modOct = ld (p.modDepth) * engine->modWheel.load (std::memory_order_relaxed);
@@ -672,9 +680,9 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     }
     const bool cascade = route == 0 && curFiltType == 1;   // 24 dB LP = A into A
     svfL1.setResonance (reso); svfR1.setResonance (reso);
-    svfL2.setResonance (ld (p.reso2)); svfR2.setResonance (ld (p.reso2));
+    svfL2.setResonance (reso2v); svfR2.setResonance (reso2v);
     svfL1b.setResonance (reso); svfR1b.setResonance (reso);
-    svfL2b.setResonance (ld (p.reso2)); svfR2b.setResonance (ld (p.reso2));
+    svfL2b.setResonance (reso2v); svfR2b.setResonance (reso2v);
 
     // Vowel/formant filter setup: per-band resonance follows the V-RES knob
     // (formant peaks sharpen towards the top), dry/wet is smoothed per block.
@@ -723,7 +731,7 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     // Analog character: slow tape wow (~0.4 Hz) + irregular flutter, and a
     // slower per-voice pitch drift with its own random walk (uncorrelated
     // between voices = subtle chorus-free thickening).
-    const float an = juce::jlimit (0.0f, 1.0f, ld (p.analogAmt));
+    const float an = juce::jlimit (0.0f, 1.0f, ld (p.analogAmt) + mv.analog);
     const float wowC = an * 18.0f;      // cents
     const float fltC = an * 6.0f;
     const float drift2C = an * driftOffset * 10.0f;   // reuses the walk above
@@ -836,7 +844,8 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
         // sample rate (the old per-sample lerp at 96k settled 2x faster).
         cutoffLog += (std::log2 (targetCut) - cutoffLog) * (1.0f - std::exp (-1.0f / (0.02f * sr)));
         cutoffSmooth = std::exp2 (cutoffLog);
-        const float cut2Target = juce::jlimit (20.0f, 20000.0f, ld (p.cutoff2));
+        const float cut2Target = juce::jlimit (20.0f, 20000.0f,
+            ld (p.cutoff2) * std::exp2 (mv.oct2));
         const float log2Cut2 = std::log2 (cutoff2Smooth);
         cutoff2Smooth = std::exp2 (log2Cut2 + (std::log2 (cut2Target) - log2Cut2)
             * (1.0f - std::exp (-1.0f / (0.02f * sr))));
@@ -866,14 +875,30 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
             float& dcxR = odd ? dcX1Rb : dcX1R;
             float& dcyR = odd ? dcY1Rb : dcY1R;
 
-        // OSC A / B with user-wavetable routing (drawn shapes replace the base wave)
+        // OSC A / B with user-wavetable routing (drawn shapes replace the base wave).
+        // OSC B is also the hard-sync master and the ring-mod partner, so its
+        // per-voice value is kept for the OSC A loop below.
         float o1L = 0.0f, o1R = 0.0f, o2L = 0.0f, o2R = 0.0f, o2Sum = 0.0f;
-        if (lvl2 > 0.0005f || fmAmt > 0.0005f)
+        float ringL = 0.0f, ringR = 0.0f;
+        float o2val[maxUnison] = {};
+        bool  syncWrap[maxUnison] = {};
+        const float ringAmt = juce::jlimit (0.0f, 1.0f, ld (p.ringMod));
+        const bool  syncOn  = ld (p.oscSync) > 0.5f;
+        const float pwB = juce::jlimit (0.05f, 0.95f, pwBase + mv.pulseW);
+
+        // OSC B must keep running when it is the sync master or the ring-mod
+        // partner even at zero level, or the sync would freeze with the master.
+        if (lvl2 > 0.0005f || fmAmt > 0.0005f || syncOn || ringAmt > 0.0005f)
         {
             for (int u = 0; u < uni; ++u)
             {
+                const double before = osc2[u].phase;
                 const float o2 = user2 ? osc2[u].nextUser (freq * detune2F[u] * octF2 / srr, pos2)
-                                       : osc2[u].next (freq * detune2F[u] * octF2 / srr, 0.0f, 0.5f);
+                                       : osc2[u].next (freq * detune2F[u] * octF2 / srr, 0.0f, pwB);
+                // A wrap is a phase that went backwards across this one sample
+                // (dt is clamped positive, so phase only ever rises otherwise).
+                syncWrap[u] = osc2[u].phase < before;
+                o2val[u] = o2;
                 o2Sum += o2;
                 o2L += o2 * panL[u];
                 o2R += o2 * panR[u];
@@ -885,16 +910,36 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
         const float fm = o2Sum * fmAmt;
         if (lvl1 > 0.0005f)
         {
-            const float pwmW = juce::jlimit (0.05f, 0.95f, 0.5f + pwmMod);
+            const float pwmW = juce::jlimit (0.05f, 0.95f, pwBase + pwmMod + mv.pulseW);
             for (int u = 0; u < uni; ++u)
             {
+                // Hard sync: OSC A's phase snaps back to zero on every OSC B
+                // cycle. Resetting *before* next() makes the first sample of the
+                // new cycle land one step in, which is the classic click-free
+                // sync edge rather than a duplicated zero crossing.
+                if (syncOn && syncWrap[u])
+                    osc1[u].resetPhase (0.0f);
                 const float o1 = user1 ? osc1[u].nextUser (freq * detune1F[u] * octF1 / srr, pos1)
                                        : osc1[u].next (freq * detune1F[u] * octF1 / srr, fm, pwmW);
                 o1L += o1 * panL[u];
                 o1R += o1 * panR[u];
+                if (ringAmt > 0.0005f)
+                {
+                    const float rs = o1 * o2val[u];
+                    ringL += rs * panL[u];
+                    ringR += rs * panR[u];
+                }
             }
             const float inv = 1.0f / (float) uni;
-            o1L *= inv; o1R *= inv;
+            o1L *= inv; o1R *= inv; ringL *= inv; ringR *= inv;
+        }
+
+        // Ring modulation: crossfade the straight OSC A signal into the
+        // product of the two oscillators (amount 0 = off, 1 = pure ring).
+        if (ringAmt > 0.0005f)
+        {
+            o1L = o1L * (1.0f - ringAmt) + ringL * ringAmt;
+            o1R = o1R * (1.0f - ringAmt) + ringR * ringAmt;
         }
 
         // Sub oscillator (square / sine / triangle), one octave down by default.
@@ -1035,7 +1080,8 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
         // 0 = pure AH, 1 = pure OO, in between glides through EH-EE-OH.
         if (vowActive)
         {
-            const float pos = juce::jlimit (0.0f, 1.0f, ld (p.vowelMorph) + vowMod);
+            const float pos = juce::jlimit (0.0f, 1.0f,
+                ld (p.vowelMorph) + vowMod + mv.vowelMorph);
             const float seg = pos * 4.0f;
             const int vi = juce::jmin (3, (int) seg);
             const float vfrac = seg - (float) vi;

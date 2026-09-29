@@ -217,6 +217,12 @@ serial. Lose it and you cannot issue another serial for any existing build — b
 also back up your tax records (and never commit it). The master key is the same story: it activates any
 machine, so it belongs in a password manager, not in an email.
 
+**If the master key leaks**, retire it with `GoaSynthKeygen --rotate-master` instead of deleting
+`keys.txt`: that swaps the stretched digest while keeping the keypair, so no buyer has to be re-issued
+and no activation stops working. It records the change in `master_rotations.txt`. Then rebuild and
+re-upload the download — a copy that has already been downloaded keeps accepting the old key, because
+the old digest is inside it, so the rebuild is the part that actually closes the leak.
+
 Set **prices include tax** to on, and the `€15` on the site stays honest for an EU buyer too. If you
 prefer to have VAT added on top, set `vatIncluded: false` in the site config so the pricing card
 says "VAT added at checkout" instead of "VAT included".

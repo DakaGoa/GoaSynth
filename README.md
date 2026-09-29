@@ -251,10 +251,17 @@ Five buttons sit in the bottom bar beside the octave keys:
   corner. A click in lock mode toggles the lock instead of moving the value, so
   the knob does not jump. Press LOCK again to leave lock mode.
 
-The header carries a **stereo output meter** with a **gain-reduction strip**:
-the two bars show the output peak (green to about -6 dBFS, amber to -1, red
-above) and the strip below grows leftwards as the limiter pulls, measured from
-the block's pre/post-limiter peak ratio rather than read off a knob.
+The header carries a **stereo output meter** next to the MASTER knob: true
+per-channel peaks (green to about -6 dBFS, amber to -1, red above) with
+DAW-style **peak-hold ticks** that freeze for about a second and then fall,
+so transient levels are readable against fast programme material.
+
+The **noise** oscillator offers **white or pink** generation (pink is the
+natural -3 dB/oct tilt of cymbals, air and wind) with a decorrelated stereo
+image, the **trancegate** re-slew every step edge over ~1 ms to kill clicks
+while staying sample-accurate on the grid, and the **arp sequencer** accents
+any step whose velocity is pulled to 100% (louder + a longer gate, TB-303
+style).
 
 ## Host integration
 
@@ -519,6 +526,11 @@ the equivalent one-liners:
 
 ```bash
 GoaSynthKeygen --init <master-key>   # ONCE: creates the RSA keypair + master digest
+GoaSynthKeygen --rotate-master [newKey]
+                                     # change ONLY the master key: the RSA keypair
+                                     # is kept, so every serial already issued
+                                     # stays valid. No argument = generate a
+                                     # random 12-character key
 GoaSynthKeygen --machine-id          # your own machine id
 GoaSynthKeygen --gen <machineId> "John's studio PC"   # issue one serial
 GoaSynthKeygen --genfile            # issue a .goalicense file, asked step
@@ -541,6 +553,16 @@ GoaSynthKeygen --master-info         # show the embedded master digest
 > (the public key + master digest) is gitignored for the same reason, and the
 > test suite activates with a throwaway key in `tests/TestMasterKey.h` so it
 > never needs the real one.
+>
+> If it does get out, `GoaSynthKeygen --rotate-master` retires it without
+> touching the keypair, so no serial has to be re-issued: it rewrites the
+> stretched digest in `keys.txt` and in `Source/LicenseKeys.h`, and records the
+> change in `master_rotations.txt` (digests only, never the key). **Rebuild and
+> republish afterwards** — a build that already shipped keeps accepting the old
+> key, because the old digest is inside it, so rotation protects the next build
+> rather than the copies already sold. The digest ships in every binary, so
+> prefer the generated key over something memorable: an offline guess costs the
+> attacker one attempt per 64 SHA-256 rounds.
 
 ### Fulfilling orders in bulk
 
@@ -620,6 +642,8 @@ real gate.
 The **master key** activates any machine when typed into the serial box —
 keep it private (it is never stored in plain text anywhere; only its salted,
 stretched digest is embedded, so the key cannot be extracted from binaries).
+If it is ever exposed, `GoaSynthKeygen --rotate-master` retires it while keeping
+every serial in the wild valid; only a leaked *keypair* would force a re-issue.
 An activation ledger in the shared public folder (`C:\Users\Public\Documents\
 GoaSynth\License\`) binds each serial to the first machine that activated it,
 so a second Windows account cannot re-use the same serial. The machine

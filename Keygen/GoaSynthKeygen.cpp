@@ -9,6 +9,8 @@ using namespace keygen::core;
 // GoaSynth key generator (seller-side console tool).
 //
 //   GoaSynthKeygen --init                    create keypair + master key (once!)
+//   GoaSynthKeygen --rotate-master [newKey]  replace ONLY the master key, keeping the
+//                                            keypair so every issued serial stays valid
 //   GoaSynthKeygen --machine-id              print this machine's id
 //   GoaSynthKeygen --gen <machineId> [note]  issue a serial for a buyer's machine
 //   GoaSynthKeygen --list                    list every issued serial
@@ -57,13 +59,24 @@ juce::String promptLine (const juce::String& question,
     }
 }
 
+// A master key pressing Enter at the rotate prompt is allowed through as empty:
+// that is the "generate one for me" answer. Anything typed has to be long enough
+// to be worth stretching.
+bool masterKeyAcceptable (const juce::String& key)
+{
+    return key.isEmpty() || key.trim().length() >= 8;
+}
+
 //==============================================================================
 int cmdInit (const juce::String& presetMaster)
 {
     if (keysFile().existsAsFile())
     {
         std::cout << "A keypair already exists at:\n  " << keysFile().getFullPathName()
-                  << "\nDelete it first if you really want to invalidate all existing serials.\n";
+                  << "\nDelete it first if you really want to invalidate all existing serials.\n"
+                  << "\nTo change the master key WITHOUT invalidating anything, keeping every\n"
+                  << "serial already issued working, run:\n"
+                  << "\n  GoaSynthKeygen --rotate-master [newKey]\n";
         return 1;
     }
 
@@ -92,6 +105,59 @@ int cmdInit (const juce::String& presetMaster)
         << "====================================================================\n"
         << "\nNext: rebuild the plugin so it embeds the public key.\n"
         << "Keep keys.txt + issued_serials.txt private!\n";
+    return 0;
+}
+
+//==============================================================================
+// Change the master key without touching the keypair. The distinction matters at
+// the moment it is used: --init refuses to run while keys.txt exists precisely
+// because its answer would be to invalidate every serial ever issued, and that is
+// not the answer to "the master key may have leaked".
+int cmdRotateMaster (const juce::String& newMaster)
+{
+    if (! keysFile().existsAsFile())
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    const juce::String trimmed = newMaster.trim();
+
+    std::cout << "Rotating the master key only — the RSA keypair is kept, so every\n"
+                 "serial already issued keeps verifying.\n";
+
+    if (! trimmed.isEmpty() && trimmed.length() < 12)
+        std::cout << "Note: that is shorter than the 12 characters --init generates. The\n"
+                     "      digest ships inside the build, so a short key is worth guessing\n"
+                     "      offline — a long random one costs nothing to copy/paste.\n";
+
+    // Same header path as --init: the plugin's public-key header.
+    const juce::File header (juce::File::getCurrentWorkingDirectory().getChildFile ("Source/LicenseKeys.h"));
+    const auto r = rotateMasterKey (trimmed, header);
+
+    if (! r.ok)
+    {
+        std::cout << r.error << "\n";
+        return 1;
+    }
+
+    std::cout
+        << "\nDigest " << r.previousDigest.substring (0, 8) << "... -> "
+                        << r.digest.substring (0, 8) << "...\n"
+        << header.getFullPathName() << " updated (gitignored)\n"
+        << "\n====================================================================\n"
+        << "  YOUR NEW MASTER KEY (activate any machine, shows only once):\n\n"
+        << "      " << r.masterKey << "\n"
+        << "\n  Store it in your password manager NOW, then delete this window.\n"
+        << "  The old key no longer works in a build made from here on.\n"
+        << "====================================================================\n";
+
+    if (r.logged)
+        std::cout << "\nLogged in " << masterLogFile().getFileName() << " (digests only, never the key).\n";
+
+    std::cout << "\nNext: REBUILD and republish. A build that has already shipped still\n"
+                 "accepts the old key — only a new build carries the new digest.\n"
+                 "Every serial already issued stays valid; there is nothing to re-issue.\n";
     return 0;
 }
 
@@ -437,6 +503,10 @@ void printUsage()
         << "Double-click (no arguments) opens an interactive menu.\n"
         << "Command line:\n"
         << "  GoaSynthKeygen --init [masterKey]         create keypair + master key (once)\n"
+        << "  GoaSynthKeygen --rotate-master [newKey]   replace ONLY the master key: the\n"
+        << "                                            keypair is kept, so every serial\n"
+        << "                                            already issued stays valid. Use this\n"
+        << "                                            when the master key may have leaked\n"
         << "  GoaSynthKeygen --machine-id               print this machine's id\n"
         << "  GoaSynthKeygen --gen <machineId> [note]   issue a serial for a buyer's machine\n"
         << "  GoaSynthKeygen --file <machineId> [note] [out.goalicense]\n"
@@ -451,7 +521,9 @@ void printUsage()
         << "  GoaSynthKeygen --revoke <serial> [reason] pull a serial out of the active\n"
         << "                                            ledger (refunds) and record why\n\n"
         << "Master key check: type the master key into the plugin's serial box on\n"
-        << "any machine to activate it (use sparingly!).\n\n"
+        << "any machine to activate it (use sparingly!). If it ever leaks, rotate it\n"
+        << "(--rotate-master) and rebuild: already-shipped builds keep accepting the\n"
+        << "old key, so the rebuild is the part that closes it.\n\n"
         << "Flow: buyer sends you their MACHINE ID (shown on the plugin's activation\n"
         << "screen)  ->  you run --gen  ->  you send the serial back.\n"
         << "One serial = one machine. Second machine = blocked by the plugin.\n";
@@ -480,6 +552,7 @@ int cmdMenu()
                   << "  6) Unregister a serial (free it for a new machine)\n"
                   << "  7) Revoke a serial (refund - keeps a revocation record)\n"
                   << "  8) Show this machine's id\n"
+                  << "  9) Rotate the master key (keeps every issued serial valid)\n"
                   << "  0) Exit\n\n";
 
         const juce::String choice = promptLine ("Choose an option");
@@ -544,6 +617,33 @@ int cmdMenu()
         {
             std::cout << thisMachineId() << "\n";
         }
+        else if (choice == "9")
+        {
+            if (! haveKeys)
+            {
+                std::cout << "No keypair yet — create one first (option 1).\n";
+            }
+            else
+            {
+                std::cout << "Rotating keeps the RSA keypair, so every serial already issued\n"
+                             "stays valid. The OLD key stops working in the next build you make;\n"
+                             "builds already shipped keep accepting it until they are rebuilt.\n\n";
+
+                const juce::String mk = promptLine (
+                    "New master key (empty = generate a random one)", {},
+                    masterKeyAcceptable,
+                    "Needs at least 8 characters, or press Enter for a generated one.");
+
+                if (! promptLine ("Type ROTATE to confirm").equalsIgnoreCase ("rotate"))
+                {
+                    std::cout << "Cancelled — nothing changed.\n";
+                }
+                else
+                {
+                    cmdRotateMaster (mk);
+                }
+            }
+        }
         else
         {
             std::cout << "Unknown option: " << choice << "\n";
@@ -571,6 +671,7 @@ int run (int argc, char* argv[])
     const juce::String cmd = args[0];
 
     if (cmd == "--init")       return cmdInit (args.size() > 1 ? args[1] : juce::String());
+    if (cmd == "--rotate-master") return cmdRotateMaster (args.size() > 1 ? args[1] : juce::String());
     if (cmd == "--machine-id") { std::cout << thisMachineId() << "\n"; return 0; }
     if (cmd == "--gen")
     {

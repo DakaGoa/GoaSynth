@@ -191,6 +191,19 @@ int main()
 
         // ...and the deterministic signature must match the keygen's ledger.
         expect (ledger.loadFileAsString().contains (serial), "ledger has no entry for the serial of " + id);
+
+        // Regression: the pretty-printed form Fulfil pastes into buyer emails
+        // used to carry 127 stray dashes inside the signature (grouped 4-char
+        // chunks), which the plugin's activate() choked on — a buyer pasting
+        // the email's serial verbatim was refused. The pretty form must be
+        // canonical now, and copy/paste artifacts (stray dashes) must verify.
+        const juce::String pretty = prettySerial (serial);
+        expect (pretty == serial, "prettySerial no longer canonical for " + id);
+        juce::String wrapId, wrapWhy;
+        expect (verifySerial (keys, pretty.substring (0, 100) + "-" + pretty.substring (100),
+                              wrapId, wrapWhy),
+                "dash-mangled pretty serial does not verify: " + wrapWhy);
+        expect (wrapId == id, "dash-mangled serial verifies against the wrong machine");
     }
 
     expect (! licenseDir.getChildFile ("GoaSynth-11111111111111111111.goalicense").existsAsFile(),
@@ -394,6 +407,82 @@ int main()
         expect (countLines (revokedLog, lateMachine) == 0, "events appeared on a later pass");
         expect (ledger.loadFileAsString().contains (makeSerial (keys, lateMachine)),
                 "a later pass dropped the serial from the ledger");
+    }
+
+    // ---- master-key rotation ------------------------------------------------
+    // The command exists for one moment: the master key may have leaked, and the
+    // answer cannot be "delete keys.txt and run --init" — that invalidates every
+    // serial in the wild. What has to survive a rotation is exactly that: the
+    // keypair, and every serial signed with it.
+    {
+        const juce::String idBefore     = "0123456789ABCDEF0123";
+        const juce::String serialBefore = makeSerial (keys, idBefore);
+        const juce::String ledgerBefore = issuedFile().loadFileAsString();
+
+        juce::String seenId, why;
+        expect (verifySerial (serialBefore, keys.pub, seenId, why),
+                "the pre-rotation fixture serial did not verify: " + why);
+
+        const juce::File header = root.getChildFile ("Source/LicenseKeys.h");
+        const auto rot = rotateMasterKey ("RotatedMaster!23", header);
+
+        expect (rot.ok, "rotateMasterKey: " + rot.error);
+        expect (rot.masterKey == "RotatedMaster!23", "rotation did not report the key it was given");
+        expect (rot.digest != rot.previousDigest, "the digest did not change");
+        expect (rot.digest == stretchedMasterDigest ("RotatedMaster!23"),
+                "the new digest is not the stretched new key");
+        expect (rot.headerWritten, "the plugin header was not written");
+        expect (rot.logged, "the rotation was not recorded in the rotation log");
+
+        const auto after = loadKeys();
+        expect (after.ok && after.pub == keys.pub && after.priv == keys.priv,
+                "the keypair changed - every serial ever issued would be dead");
+        expect (after.masterDigest.toUpperCase() == rot.digest, "keys.txt kept the old digest");
+        expect (keysFile().loadFileAsString().contains ("created="),
+                "the rotation dropped the created= stamp");
+
+        // The whole point: a serial signed before the rotation still verifies.
+        expect (verifySerial (serialBefore, after.pub, seenId, why),
+                "a serial issued before the rotation stopped verifying: " + why);
+        expect (stretchedMasterDigest ("TestMaster!23") != after.masterDigest,
+                "the retired master key still matches the embedded digest");
+        expect (issuedFile().loadFileAsString() == ledgerBefore,
+                "the rotation disturbed the issued-serial ledger");
+
+        const juce::String headerText = header.loadFileAsString();
+        expect (headerText.contains (rot.digest), "the header does not carry the new digest");
+        expect (headerText.contains (keys.pub), "the header lost the public key");
+
+        const juce::String logText = masterLogFile().loadFileAsString();
+        expect (logText.contains (rot.digest) && logText.contains (rot.previousDigest),
+                "master_rotations.txt does not record the before and after digests");
+        expect (! logText.contains ("RotatedMaster!23"),
+                "the rotation log wrote the master key itself into master_rotations.txt");
+
+        // Refusals: the key already embedded, a key too short to be worth
+        // stretching, and a store that does not exist at all.
+        expect (! rotateMasterKey ("RotatedMaster!23", header).ok,
+                "rotating to the key already embedded was accepted");
+        expect (! rotateMasterKey ("short", header).ok, "a 5-character master key was accepted");
+        expect (loadKeys().masterDigest.toUpperCase() == rot.digest,
+                "a refused rotation still changed the digest");
+
+        putEnv ("GOASYNTH_KEYGEN_DIR", root.getChildFile ("no-keypair").getFullPathName());
+        const auto absent = rotateMasterKey ("RotatedMaster!23", {});
+        expect (! absent.ok && absent.error.contains ("--init"),
+                "rotating with no keypair did not point at --init: " + absent.error);
+        expect (! keysFile().existsAsFile(), "the refused rotation created a keypair");
+        putEnv ("GOASYNTH_KEYGEN_DIR", keyDir.getFullPathName());
+
+        // An empty key means "generate one", and the key it reports has to be the
+        // one the next build will actually accept.
+        const auto generated = rotateMasterKey ("", {});
+        expect (generated.ok, "rotating with a generated key: " + generated.error);
+        expect (generated.masterKey.length() == 12,
+                "the generated master key is " + juce::String (generated.masterKey.length()) + " characters, expected 12");
+        expect (generated.digest == stretchedMasterDigest (generated.masterKey),
+                "the reported key does not match the digest that was written");
+        expect (! generated.headerWritten, "an empty header path was reported as written");
     }
 
     // ---- CLI -----------------------------------------------------------------

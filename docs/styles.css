@@ -678,3 +678,85 @@ html[data-theme="warm"] .code-block pre { background: #1b1108; }
 .demo-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .demo-controls .demo-bpm { display: flex; align-items: center; gap: .5rem; font-size: .85rem; color: inherit; }
 .demo-controls input[type="range"] { accent-color: var(--accent, #9b6cff); width: 110px; }
+
+/* =========================================================
+   Motion & 3D
+   Four things move, and none of them needs a library, a build
+   step or a network request:
+
+     1. .tunnel     a 3D ring tunnel drawn on the canvas in .swirl,
+                    so the background has real depth behind the two
+                    flat swirl layers (geometry in app.js)
+     2. .tilt       pointer-driven rotateX/rotateY plus a translateZ
+                    pop on screenshots, cards, presets, theme cards,
+                    .deep panels and the price card. app.js writes
+                    the transform inline, which is why the reveal
+                    animation below is left alone: until the pointer
+                    actually lands on a block, its transform still
+                    belongs to .reveal
+     3. #demo-gate  the 16-step grid is a 3D staircase - an "on"
+                    step rises out of the panel
+     4. #sheen       a light sweep across the buy buttons, and a
+                    pulse that walks down the FX chain
+
+   Every one of them is switched off under prefers-reduced-motion.
+   ========================================================= */
+
+/* ---------- 1. the tunnel ---------- */
+.tunnel {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+  opacity: .5;
+  /* strongest near the top, gone well before the sections below it, so the
+     lines never compete with body copy */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.5) 42%, transparent 82%);
+          mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.5) 42%, transparent 82%);
+}
+html[data-theme="warm"] .tunnel { opacity: .32; mix-blend-mode: multiply; }
+
+/* ---------- 2. tilt ---------- */
+.tilt { position: relative; transform-style: preserve-3d; }
+.glare {
+  position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
+  opacity: 0; transition: opacity .4s var(--ease);
+  background: radial-gradient(340px 250px at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,.20), transparent 72%);
+}
+.tilt.is-over .glare { opacity: 1; }
+html[data-theme="warm"] .glare {
+  background: radial-gradient(340px 250px at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,.55), transparent 72%);
+}
+
+/* ---------- 3. the gate grid as a staircase ---------- */
+#demo-gate { perspective: 700px; }
+#demo-gate button {
+  transform: translateZ(0);
+  transition: transform .16s var(--ease), background .18s, border-color .18s, box-shadow .3s;
+}
+#demo-gate button[data-on="1"] {
+  transform: translateZ(15px);
+  box-shadow: 0 9px 20px -11px var(--glow);
+}
+#demo-gate button:active { transform: translateZ(5px) scale(.94); }
+
+/* ---------- 4. sheen on the buy buttons, pulse down the chain ---------- */
+.btn-primary { position: relative; overflow: hidden; }
+.btn-primary::after {
+  content: ""; position: absolute; top: -70%; bottom: -70%; left: 0; width: 34%;
+  pointer-events: none; transform: skewX(-18deg) translateX(-160%);
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.38), transparent);
+  transition: transform .7s var(--ease);
+}
+.btn-primary:hover::after, .btn-primary:focus-visible::after { transform: skewX(-18deg) translateX(360%); }
+
+.chain li:not(.hot) { animation: chain-step 4.6s ease-in-out infinite; }
+@keyframes chain-step {
+  0%, 82%, 100% { transform: none; border-color: var(--line-soft); }
+  88% { transform: translateY(-3px); border-color: var(--accent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tunnel { opacity: .38; }
+  .glare { display: none; }
+  .chain li, .btn-primary::after { animation: none !important; transition: none; transform: none; }
+  #demo-gate button, #demo-gate button[data-on="1"] { transition: none; }
+  #demo-gate button[data-on="1"], #demo-gate button:active { transform: none; }
+}

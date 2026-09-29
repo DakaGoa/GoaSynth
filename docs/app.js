@@ -543,3 +543,339 @@
     bpmVal.textContent = bpmInput.value;
   });
 })();
+
+/* =========================================================
+   Motion & 3D.
+   Same rules as the rest of this page: no dependencies, no
+   network requests, no tracking — and nothing that moves when
+   the visitor asked for less motion.
+
+     1. tunnel   hand-rolled perspective: rings laid out in depth
+                 and projected by 1/z, two wobbles out of step so
+                 the rings breathe instead of staying clean
+                 circles. The palette is read from the current
+                 skin's custom properties and re-read whenever
+                 data-theme changes, so it follows the THEME
+                 button like everything else. Paused on a hidden
+                 tab and capped at ~30 fps, the same rate the
+                 plugin's own swirl runs at.
+     2. tilt     rotateX/rotateY from the pointer position inside
+                 the block, a translateZ pop, and a glare layer
+                 that travels with the pointer across the frames.
+     3. drift    a few pixels of scroll parallax on those same
+                 blocks and on the section headings, so the page
+                 reads as layers rather than one sheet.
+
+   The transform is written inline on each block, so the reveal
+   animation is untouched: until the pointer lands on a block,
+   its transform still belongs to .reveal.
+   ========================================================= */
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var coarse = window.matchMedia('(hover: none)');
+
+  /* ---------------------------------------------------------
+     1. the tunnel — the canvas inside .swirl
+     --------------------------------------------------------- */
+  function initTunnel() {
+    var canvas = document.getElementById('tunnel');
+    if (!canvas || !canvas.getContext) return;
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // One ring every GAP world units of depth, wrapping at SPAN, so a ring is
+    // always somewhere on its way in. Touch devices get the same picture with
+    // fewer lines: this is a background, not the subject.
+    var RINGS = coarse.matches ? 15 : 22;
+    var POINTS = coarse.matches ? 28 : 40;
+    var GAP = 0.42, SPAN = RINGS * GAP, RADIUS = 0.46;
+    var tint = ['168,85,247', '34,211,238', '236,72,153'];
+
+    var w = 0, h = 0, dpr = 1, depth = 0, twist = 0, last = 0, raf = 0, running = false;
+
+    function rgbOf(value) {
+      var hex = String(value).replace('#', '').trim();
+      if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+      var n = parseInt(hex.slice(0, 6), 16);
+      if (!isFinite(n)) return '168,85,247';
+      return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
+    }
+
+    function readTint() {
+      ['--accent', '--accent-2', '--accent-3'].forEach(function (name, i) {
+        tint[i] = rgbOf(getComputedStyle(root).getPropertyValue(name));
+      });
+    }
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      if (!w || !h) return;
+
+      var focal = Math.min(w, h) * 0.92;          // pinhole distance, px
+      var cx = w * 0.5 + Math.sin(depth * 0.31) * w * 0.04;
+      var cy = h * 0.42 + Math.cos(depth * 0.23) * h * 0.03;
+
+      // Back to front, so near rings paint over far ones.
+      for (var i = RINGS - 1; i >= 0; --i) {
+        var d = 0.08 + ((i * GAP + depth) % SPAN);
+        var fade = Math.min(1, d / 0.7) * Math.max(0, 1 - d / SPAN);
+        if (fade < 0.02) continue;
+
+        var scale = focal / d;
+        var r = RADIUS * scale;
+        var wob = depth * 1.5 + i * 0.37;
+        var spin = twist + i * 0.05;
+
+        ctx.beginPath();
+        for (var p = 0; p <= POINTS; ++p) {
+          var a = p / POINTS * Math.PI * 2 + spin;
+          var rr = r * (1 + 0.13 * Math.sin(3 * a + wob) + 0.07 * Math.sin(5 * a - wob * 1.3));
+          var x = cx + Math.cos(a) * rr;
+          var y = cy + Math.sin(a) * rr;
+          if (p === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = 'rgba(' + tint[i % 3] + ',' + (fade * 0.5).toFixed(3) + ')';
+        ctx.lineWidth = Math.max(0.5, Math.min(3, 1.15 / d));
+        ctx.stroke();
+      }
+    }
+
+    function frame(now) {
+      raf = requestAnimationFrame(frame);
+      if (!w || !h) { resize(); return; }
+
+      if (!last) { last = now; return; }           // first frame only measures
+
+      var dt = (now - last) / 1000;
+      if (dt < 1 / 30) return;                     // ~30 fps, as in the plugin
+      last = now;
+      depth += dt * 0.85;
+      twist += dt * 0.05;
+      draw();
+    }
+
+    function start() {
+      if (running || reduce.matches) return;
+      running = true;
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    }
+
+    function halt() {
+      running = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    }
+
+    function still() {                            // one frame, then nothing moves
+      halt();
+      resize();
+      readTint();
+      draw();
+    }
+
+    readTint();
+
+    // Paint before the loop starts, so the tunnel is never briefly blank - and
+    // so a single still frame is what a browser that never ticks requestFrame
+    // still shows.
+    if (reduce.matches) { still(); }
+    else { resize(); draw(); start(); }
+
+    window.addEventListener('resize', function () {
+      resize();
+      if (!running) draw();
+    }, { passive: true });
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) halt(); else start();
+    });
+
+    if (window.MutationObserver) {
+      new MutationObserver(function () {
+        readTint();
+        if (!running) draw();
+      }).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    }
+
+    if (reduce.addEventListener) {
+      reduce.addEventListener('change', function () { if (reduce.matches) still(); else start(); });
+    }
+  }
+
+  /* ---------------------------------------------------------
+     2 + 3. tilt and drift
+     --------------------------------------------------------- */
+  var TILT = '.hero-shot, .shot, .card, .preset, .theme-card, .price-card, .deep';
+  var DRIFT = '.section-head';
+  var MAX_DEG = 6.5;        // furthest the pointer can lean a block
+  var LIFT = 4;             // px the block rises under the pointer
+  var POP_SHOT = 22;        // px of translateZ: screenshots lean out further
+  var POP_CARD = 9;
+  var DRIFT_PX = 13;        // px of parallax at the top/bottom of the viewport
+
+  function initMotion() {
+    var moving = [];
+    var queued = false;
+
+    function paint(m) {
+      if (reduce.matches) { m.el.style.transform = ''; return; }
+
+      m.el.style.transform =
+        'perspective(1100px)' +
+        ' rotateX(' + m.rx.toFixed(2) + 'deg)' +
+        ' rotateY(' + m.ry.toFixed(2) + 'deg)' +
+        ' translate3d(0,' + (m.py + (m.over ? -LIFT : 0)).toFixed(2) + 'px,' +
+          (m.over ? m.dz : 0) + 'px)';
+
+      if (m.glare) {
+        m.el.style.setProperty('--mx', m.mx);
+        m.el.style.setProperty('--my', m.my);
+      }
+    }
+
+    function add(el, tilts) {
+      var m = { el: el, tilts: tilts, rx: 0, ry: 0, dz: 0, py: 0, mx: '50%', my: '50%',
+                over: false, inView: false, glare: false };
+      el._motion = m;
+      moving.push(m);
+      if (tilts) el.classList.add('tilt');
+      if (io) io.observe(el);
+      return m;
+    }
+
+    function wire(m) {
+      var el = m.el;
+
+      el.addEventListener('pointerenter', function () {
+        if (reduce.matches || coarse.matches) return;
+        m.over = true;
+        m.dz = /shot/.test(el.className) ? POP_SHOT : POP_CARD;
+        el.classList.add('is-over');
+        el.style.transition = 'transform .25s cubic-bezier(.22,.68,.24,1)';
+        paint(m);
+      });
+
+      el.addEventListener('pointermove', function (e) {
+        if (reduce.matches || coarse.matches || !m.over) return;
+        var r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return;
+        var px = (e.clientX - r.left) / r.width;
+        var py = (e.clientY - r.top) / r.height;
+        m.ry = (px - 0.5) * 2 * MAX_DEG;
+        m.rx = (0.5 - py) * 2 * MAX_DEG;
+        m.mx = Math.round(px * 100) + '%';
+        m.my = Math.round(py * 100) + '%';
+        paint(m);
+      });
+
+      el.addEventListener('pointerleave', function () {
+        if (!m.over) return;
+        m.over = false;
+        m.dz = 0;
+        m.rx = 0;
+        m.ry = 0;
+        m.mx = '50%';
+        m.my = '50%';
+        el.classList.remove('is-over');
+        el.style.transition = 'transform .55s cubic-bezier(.22,.68,.24,1)';
+        paint(m);
+      });
+    }
+
+    function schedule() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () {
+        queued = false;
+        if (reduce.matches) return;
+
+        var vh = window.innerHeight || 1;
+
+        for (var i = 0; i < moving.length; ++i) {
+          var m = moving[i];
+          if (!m.inView || m.over) continue;
+
+          var r = m.el.getBoundingClientRect();
+          var off = (r.top + r.height / 2 - vh / 2) / vh;          // -1 … 1
+          var want = Math.max(-1, Math.min(1, off)) * (m.tilts ? -DRIFT_PX * 0.6 : -DRIFT_PX);
+          if (Math.abs(want - m.py) < 0.3) continue;
+
+          m.py = want;
+          paint(m);
+        }
+      });
+    }
+
+    var io = null;
+    if (window.IntersectionObserver) {
+      io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          var m = entry.target._motion;
+          if (m) m.inView = entry.isIntersecting;
+        });
+        schedule();
+      }, { rootMargin: '12% 0px 12% 0px' });
+    }
+
+    var targets = [].slice.call(document.querySelectorAll(TILT));
+    targets.forEach(function (el) { add(el, true); });
+
+    // Screenshots get a glare that follows the pointer; a paragraph of copy
+    // does not, so the layer only goes inside the figures.
+    moving.forEach(function (m) {
+      if (!/shot/.test(m.el.className)) return;
+      var host = m.el.querySelector('.shot-frame') || m.el;
+      var glare = document.createElement('span');
+      glare.className = 'glare';
+      glare.setAttribute('aria-hidden', 'true');
+      host.appendChild(glare);
+      m.glare = true;
+    });
+
+    moving.forEach(wire);
+    [].forEach.call(document.querySelectorAll(DRIFT), function (el) { add(el, false); });
+
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule, { passive: true });
+
+    if (reduce.addEventListener) {
+      reduce.addEventListener('change', function () {
+        if (!reduce.matches) { schedule(); return; }
+        moving.forEach(function (m) {
+          m.el.style.transition = '';
+          m.el.style.transform = '';
+          m.el.classList.remove('is-over');
+        });
+      });
+    }
+
+    schedule();
+  }
+
+  /* ---------------------------------------------------------
+     4. the chain pulse walks along the row instead of all at once
+     --------------------------------------------------------- */
+  function initSweeps() {
+    [].forEach.call(document.querySelectorAll('.chain li'), function (li, i) {
+      li.style.animationDelay = (i * 0.17).toFixed(2) + 's';
+    });
+  }
+
+  initTunnel();
+  initMotion();
+  initSweeps();
+})();

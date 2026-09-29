@@ -10,9 +10,7 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
 {
     // Licensing: an unlicensed (or trial-expired) instance renders pure
     // silence; within the 24 h trial everything works.
-    licensed = goa::License::isLicensed();
-    trial = (! licensed) && goa::License::trialActive();
-    licensedFlag.store (licensed || trial, std::memory_order_relaxed);
+    refreshLicensingState();
     sessionSerial = licensed ? goa::License::storedSerial() : juce::String();
 #define BIND(x) synth.p.x = apvts.getRawParameterValue (param::x)
     BIND (osc1Wave); BIND (osc1Oct); BIND (osc1Fine); BIND (osc1Level);
@@ -20,7 +18,8 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
     BIND (osc1WtPos); BIND (osc2WtPos);
     BIND (osc1Pan); BIND (osc1Phase); BIND (osc1PRand);
     BIND (osc2Pan); BIND (osc2Phase); BIND (osc2PRand);
-    BIND (fmAmount); BIND (subWave); BIND (subOct); BIND (subLevel); BIND (noiseLevel);
+    BIND (fmAmount);    BIND (subWave); BIND (subOct); BIND (subLevel); BIND (noiseLevel);
+    BIND (noiseType);
     BIND (pulseWidth); BIND (oscSync); BIND (ringMod);
     BIND (uniVoices); BIND (uniDetune); BIND (uniSpread); BIND (drift);
     BIND (filterType); BIND (cutoff); BIND (reso); BIND (envAmt);
@@ -60,6 +59,27 @@ GoaSynthAudioProcessor::GoaSynthAudioProcessor()
 juce::AudioProcessor::BusesProperties GoaSynthAudioProcessor::busProps()
 {
     return BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+}
+
+// One source of truth for the licensing flags: called from the constructor
+// and from processBlock so a trial expiring mid-session locks the instance
+// (pure silence) even when no editor timer is running. pendingPoke tells the
+// editor's timer to bring the activation screen up the moment this happens.
+void GoaSynthAudioProcessor::refreshLicensingState()
+{
+    const bool wasUsable = licensedFlag.load (std::memory_order_relaxed);
+
+    licensed = goa::License::isLicensed();
+    trial    = (! licensed) && goa::License::trialActive();
+
+    licensedFlag.store (licensed || trial, std::memory_order_relaxed);
+
+    // The transition the editor must react to is usable -> locked (mid-session
+    // trial expiry): flip the activation screen over the running UI. The other
+    // directions need no poke — a constructor-time lock has no editor yet, and
+    // a mid-session activation drives the UI through onActivated itself.
+    if (wasUsable && ! (licensed || trial))
+        pendingPoke.store (true, std::memory_order_relaxed);
 }
 
 bool GoaSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -384,8 +404,19 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         return;
 
     // Unlicensed (or trial-expired): every sample of every block is zero.
-    // MIDI is swallowed so no voice state builds up either.
+    // MIDI is swallowed so no voice state builds up either. The trial is
+    // re-checked here, not only at construction: "1 free day" must hold even
+    // for sessions that outlive it (or run headless, where the editor timer
+    // never fires). The first expired block returns before any synth work.
     if (! licensedFlag.load (std::memory_order_relaxed))
+    {
+        buffer.clear();
+        midi.clear();
+        return;
+    }
+
+    refreshLicensingState();
+    if (! licensedFlag.load (std::memory_order_relaxed))   // trial just expired
     {
         buffer.clear();
         midi.clear();
@@ -509,8 +540,10 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             // Direction: remap the physical step to the played step index.
             // UP = as programmed; DOWN = reversed; UP-DOWN = ping-pong without
             // repeating the ends; RANDOM = per-boundary dice; CONVERGE = outer
-            // pair inward (0,15,1,14,...).
+            // pair inward (0,15,1,14,...); STRUM = every enabled step fires at
+            // once as a staggered chord of all held notes (guitar-strum feel).
             const int dir = (int) goa::ld (apvts.getRawParameterValue (param::arpDir));
+            const bool strum = dir == 5;
             int played = s16;
             switch (dir)
             {
@@ -527,11 +560,17 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 default: break;
             }
 
+            // STRUM plays the whole pattern as one chord per step (upper voices
+            // first, bottom note last — classic down-strum), so build the note
+            // list from every enabled step instead of a single one.
+            const int strumCount = strum ? arpNotesHeld.size() : 1;
+            for (int strumIdx = 0; strumIdx < strumCount; ++strumIdx)
+            {
             const int semi = (int) goa::ld (apvts.getRawParameterValue (
                 param::arpStep (played))) - 1;      // choice 0 = Rest
             if (semi >= 0 && arpClock.stepStartSample >= 0.0)
             {
-                const int held = arpNotesHeld[0];
+                const int held = strum ? arpNotesHeld[strumIdx] : arpNotesHeld[0];
                 int note = juce::jlimit (0, 127,
                     held + semi + 12 * (octs - 1));
 
@@ -540,13 +579,25 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 note = tuning::nearestScaleNote (note,
                     (int) goa::ld (apvts.getRawParameterValue (param::arpScale)),
                     (int) goa::ld (apvts.getRawParameterValue (param::arpRoot)));
-                const float vel = juce::jlimit (0.05f, 1.0f, goa::ld (
+                const float velRaw = juce::jlimit (0.05f, 1.0f, goa::ld (
                     apvts.getRawParameterValue (param::arpVel (s16))));
-                const int at = (int) arpClock.stepStartSample;
-                // Note lasts 3/4 of the step (gated feel, like Serum's arp)
-                // instead of 1 sample — a 1-sample note is just a click.
+                // Accent: a step whose velocity is pulled to 100% plays at full
+                // level and holds ~22% longer (TB-303-style "accent = more"),
+                // instead of just being another step at 0.95.
+                const bool accented = velRaw > 0.949f;
+                const float vel = accented ? 1.0f : velRaw;
+                // Per-step gate length (5%..100% of the step; the UI drag and
+                // the parameter default give the classic 75% gated feel), with
+                // the accent multiplier on top.
+                const float gateFrac = juce::jlimit (0.05f, 1.0f, goa::ld (
+                    apvts.getRawParameterValue (param::arpGate (s16))))
+                                       * (accented ? 1.22f : 1.0f);
+                // Strum stagger: 18 ms between string starts, bottom note last.
+                const int at0 = (int) arpClock.stepStartSample;
+                const int at = juce::jlimit (0, juce::jmax (0, numSamples - 1),
+                    at0 + (strum ? (strumCount - 1 - strumIdx) * (int) (0.018 * currentSR) : 0));
                 const int len = juce::jmax (2, juce::jmin (numSamples,
-                    (int) std::lround (stepBeats * (60.0 / bpm) * currentSR * 0.75)));
+                    (int) std::lround (stepBeats * (60.0 / bpm) * currentSR * gateFrac)));
                 midi.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
                 midi.addEvent (juce::MidiMessage::noteOff (1, note),
                                juce::jmin (numSamples - 1, at + len));
@@ -555,6 +606,7 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 midiOut.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
                 midiOut.addEvent (juce::MidiMessage::noteOff (1, note),
                                   juce::jmin (numSamples - 1, at + len));
+            }
             }
         }
     }
@@ -632,14 +684,27 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                                &gatePlayhead);
             int s16 = ((gateClock.step % 16) + 16) % 16;
             double boundary = gateClock.stepStartSample;
+            // ~1 ms equal-power ramp on step boundaries: sample-accurate edges
+            // of a hard gain step are a click generator; the ramp is short
+            // enough to keep the gate tight and the grid locked.
+            const float rampLen = (float) juce::jmin ((double) numSamples,
+                juce::jmax (8.0, currentSR * 0.001));
+            float rampPos = 0.0f;
             for (int i = 0; i < numSamples; ++i)
             {
                 if (boundary >= 0.0 && (double) i >= boundary)
                 {
                     boundary = -1.0;
                     s16 = (s16 + 1) % 16;
+                    rampPos = 0.0f;               // re-slew every boundary
                 }
-                const float g = on[s16] != 0 ? 1.0f : 1.0f - depth;
+                const float target = on[s16] != 0 ? 1.0f : 1.0f - depth;
+                rampPos = juce::jmin (rampPos + 1.0f, rampLen);
+                const float t = rampLen > 0.0f ? rampPos / rampLen : 1.0f;
+                const float rt = std::sin (t * juce::MathConstants<float>::halfPi);   // equal-power
+                // Slew from wherever the gain was towards the new step's gain.
+                gateSmooth += (target - gateSmooth) * rt;
+                const float g = gateSmooth;
                 gateStep.store (s16, std::memory_order_relaxed);
                 for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                     buffer.getWritePointer (ch)[i] *= g;
@@ -837,43 +902,32 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 goa::ld (apvts.getRawParameterValue (param::eqMidFreq)),
                 goa::ld (apvts.getRawParameterValue (param::eqHigh)));
 
-    // Pre-limiter peak, for the gain-reduction readout below (the post-limiter
-    // peak is measured by the UI peak follower, so this is the only extra scan).
-    float preLimiterPeak = 0.0f;
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-    {
-        const float* x = buffer.getReadPointer (ch);
-        for (int i = 0; i < numSamples; ++i)
-            preLimiterPeak = juce::jmax (preLimiterPeak, std::abs (x[i]));
-    }
-
     limiter.process (ctx);
 
-    // Smoothed peak follower for the UI backdrop: fast attack, slow release,
-    // normalised against full scale so the animation breathes with the mix.
+    // Per-channel true peaks for the header meter's L/R bars, plus the
+    // smoothed mono follower for the UI backdrop pulse.
     {
-        float peak = 0.0f;
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        float peakL = 0.0f, peakR = 0.0f, peak = 0.0f;
+        const int chans = buffer.getNumChannels();
+        const float* xl = buffer.getReadPointer (0);
+        const float* xr = chans > 1 ? buffer.getReadPointer (1) : nullptr;
+        for (int i = 0; i < numSamples; ++i)
         {
-            const float* x = buffer.getReadPointer (ch);
-            for (int i = 0; i < numSamples; ++i)
-                peak = juce::jmax (peak, std::abs (x[i]));
+            const float al = std::abs (xl[i]);
+            peakL = juce::jmax (peakL, al);
+            float ar = al;
+            if (xr != nullptr)
+                ar = std::abs (xr[i]);
+            peakR = juce::jmax (peakR, ar);
+            peak = juce::jmax (peak, juce::jmax (al, ar));
         }
+        uiPeakL.store (juce::jlimit (0.0f, 1.0f, peakL), std::memory_order_relaxed);
+        uiPeakR.store (juce::jlimit (0.0f, 1.0f, peakR), std::memory_order_relaxed);
+
         const float cur = uiLevel.load (std::memory_order_relaxed);
         const float target = juce::jlimit (0.0f, 1.0f, peak);
         const float a = target > cur ? 0.35f : 0.045f;   // fast attack, slow release
         uiLevel.store (cur + a * (target - cur), std::memory_order_relaxed);
-
-        // Gain reduction: how far the limiter pulled this block's peak, in dB.
-        // Measured from the signal rather than read off a knob, so the readout
-        // shows what the limiter actually did. Fast to show, slow to release -
-        // a limiter that grabs for a single block must still be visible.
-        const float ratio = preLimiterPeak > 1.0e-6f ? peak / preLimiterPeak : 1.0f;
-        const float grDb = juce::jlimit (-24.0f, 0.0f,
-            juce::Decibels::gainToDecibels (juce::jmin (1.0f, ratio), -24.0f));
-        const float grCur = uiGainReduction.load (std::memory_order_relaxed);
-        const float grA = grDb < grCur ? 0.6f : 0.06f;
-        uiGainReduction.store (grCur + grA * (grDb - grCur), std::memory_order_relaxed);
     }
 }
 

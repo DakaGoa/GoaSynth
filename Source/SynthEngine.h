@@ -138,6 +138,7 @@ struct EngineParams
     std::atomic<float>* subOct = nullptr;
     std::atomic<float>* subLevel = nullptr;
     std::atomic<float>* noiseLevel = nullptr;
+    std::atomic<float>* noiseType = nullptr;    // choice: 0 = white, 1 = pink
     std::atomic<float>* uniVoices = nullptr;
     std::atomic<float>* uniDetune = nullptr;
     std::atomic<float>* uniSpread = nullptr;
@@ -507,6 +508,10 @@ private:
     juce::dsp::StateVariableTPTFilter<float> svfL1b, svfR1b, svfL2b, svfR2b;
     juce::dsp::StateVariableTPTFilter<float> vowLb[3], vowRb[3];
     juce::Random noiseRnd;
+
+    // Pink-noise state (Paul Kellet's refined 7-pole run), one filter per
+    // channel so L/R noise is decorrelated instead of a dead-mono image.
+    float pinkL[7] = {}, pinkR[7] = {};
     float velocity = 1.0f;
 
     // Modulation matrix: recomputed once per block from the previous block's

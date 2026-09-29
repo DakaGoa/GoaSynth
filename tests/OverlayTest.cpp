@@ -470,27 +470,38 @@ int main()
                                    .getChildFile ("goasynth_overlay_test_size.txt");
     const juce::File zoomTmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
                                    .getChildFile ("goasynth_overlay_test_zoom.txt");
-    sizeTmp.deleteFile(); zoomTmp.deleteFile();
+    const juce::File themeTmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                    .getChildFile ("goasynth_overlay_test_theme.txt");
+    sizeTmp.deleteFile(); zoomTmp.deleteFile(); themeTmp.deleteFile();
     putEnv ("GOASYNTH_SIZE_FILE", sizeTmp.getFullPathName());
     putEnv ("GOASYNTH_ZOOM_FILE",  zoomTmp.getFullPathName());
+    putEnv ("GOASYNTH_THEME_FILE", themeTmp.getFullPathName());
     sizeTmp.replaceWithText ("1024 820");
     zoomTmp.replaceWithText ("1.50");
+    themeTmp.replaceWithText ("2");   // WARM ANALOG: prove the skin is restored
     {
         GoaSynthAudioProcessor probe;
         std::unique_ptr<juce::AudioProcessorEditor> pe (probe.createEditor());
-        const bool sizeOk = pe != nullptr && pe->getWidth() == 1024 && pe->getHeight() == 820;
-        const bool zoomOk = anyButtonReads (pe.get(), "150%");
-        if (! sizeOk || ! zoomOk)
+        const bool sizeOk  = pe != nullptr && pe->getWidth() == 1024 && pe->getHeight() == 820;
+        const bool zoomOk  = anyButtonReads (pe.get(), "150%");
+        const bool themeOk = anyButtonReads (pe.get(), "THEME: WARM");
+        if (! sizeOk || ! zoomOk || ! themeOk)
         {
-            std::printf ("FAIL: GOASYNTH_SIZE_FILE / GOASYNTH_ZOOM_FILE not honoured "
-                         "(probe opened %dx%d, zoom %s) - refusing to run the layout "
-                         "sweeps against the real preferences\n",
+            std::printf ("FAIL: GOASYNTH_SIZE_FILE / GOASYNTH_ZOOM_FILE / GOASYNTH_THEME_FILE "
+                         "not honoured (probe opened %dx%d, zoom %s, theme %s) - "
+                         "refusing to run the layout sweeps against the real preferences\n",
                          pe != nullptr ? pe->getWidth() : -1,
                          pe != nullptr ? pe->getHeight() : -1,
-                         zoomOk ? "150%" : "not 150%");
+                         zoomOk ? "150%" : "not 150%",
+                         themeOk ? "WARM" : "not WARM");
             return 1;
         }
-        std::printf ("[sandbox] size/zoom overrides honoured (probe 1024x820, zoom 150%%)\n");
+        std::printf ("[sandbox] size/zoom/theme overrides honoured (probe 1024x820, zoom 150%%, theme WARM)\n");
+
+        // Back to the house look for the rest of the suite, and drop the seeded
+        // file so any later editor construction loads UV rather than WARM.
+        goaui::setTheme (goaui::themeUv, nullptr);
+        themeTmp.deleteFile();
     }
     // That probe's destructor just wrote its size into the sandbox. Clear both so
     // the editor under test comes up at the documented 1120 x 780 default and

@@ -355,6 +355,9 @@ bool License::activate (const juce::String& serialIn, juce::String& error)
     }
 
     // Serial format is hex + GOA1 prefix, so normalise case from here on.
+    // The signature half may carry cosmetic dashes (pretty-printed or
+    // word-wrapped serials): strip them so parseString sees pure hex. The
+    // structural GOA1-<20 hex>-<signature> shape is checked as before.
     const juce::String serial = trimmed.toUpperCase();
     const juce::File ledger = ledgerFile();
 
@@ -370,7 +373,7 @@ bool License::activate (const juce::String& serialIn, juce::String& error)
         if (ok)
         {
             id     = body.substring (0, dash);
-            sigHex = body.substring (dash + 1);
+            sigHex = body.substring (dash + 1).removeCharacters ("-");
 
             if (id != machineId())
             {

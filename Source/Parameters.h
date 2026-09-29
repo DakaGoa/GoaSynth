@@ -40,6 +40,7 @@ inline constexpr const char* subWave    = "subWave";
 inline constexpr const char* subOct     = "subOct";
 inline constexpr const char* subLevel   = "subLevel";
 inline constexpr const char* noiseLevel = "noiseLevel";
+inline constexpr const char* noiseType  = "noiseType";    // choice: WHITE / PINK
 inline constexpr const char* uniVoices  = "uniVoices";
 inline constexpr const char* uniDetune  = "uniDetune";
 inline constexpr const char* uniSpread  = "uniSpread";
@@ -158,10 +159,14 @@ inline constexpr const char* arpOct    = "arpOct";     // base octave shift
 // createParameterLayout(); gateStep() / arpStep() / arpVel() build their ids.
 
 // The step params are laid out contiguously as gate1..gate16 / arp1..arp16 /
-// arpVel1..arpVel16, so the audio side can index them without string lookups.
+// arpVel1..arpVel16 / arpGate1..arpGate16, so the audio side can index them
+// without string lookups.
 inline juce::String gateStep (int i) { return juce::String ("gate") + juce::String (i + 1); }
 inline juce::String arpStep  (int i) { return juce::String ("arp")  + juce::String (i + 1); }
 inline juce::String arpVel   (int i) { return juce::String ("arpVel") + juce::String (i + 1); }
+// Per-step gate length as a fraction of the step (0.05..1, default 0.75 = the
+// classic 3/4 gated feel; 1.0 = full-step legato).
+inline juce::String arpGate  (int i) { return juce::String ("arpGate") + juce::String (i + 1); }
 
 // Arp playback direction: UP, DOWN, UP-DOWN, RANDOM, CONVERGE.
 inline constexpr const char* arpDir = "arpDir";

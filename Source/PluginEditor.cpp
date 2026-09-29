@@ -129,6 +129,21 @@ Theme themeFromIndex (int i) noexcept
     return (Theme) juce::jlimit (0, (int) themeCount - 1, i);
 }
 
+// Palette lookup by theme index (theme dropdown swatches): lets UI code read a
+// theme's colours WITHOUT switching the live palette.
+static const Palette& paletteForIndex (int i)
+{
+    switch (themeFromIndex (i))
+    {
+        case themeSteel:  return steelPalette();
+        case themeAnalog: return analogPalette();
+        case themeNeon:   return neonPalette();
+        case themePaper:  return paperPalette();
+        case themeOled:   return oledPalette();
+        default:          return uvPalette();
+    }
+}
+
 static void walkRetint (juce::Component* c);
 
 void setTheme (Theme t, juce::Component* root)
@@ -1499,9 +1514,12 @@ StepStrip::StepStrip (GoaSynthAudioProcessor& p, Kind k, ColRole r)
 {
     setTooltip (kind == gateStrip
         ? "Trancegate: click/drag steps to gate the sound; right-click a step for"
-          " gate settings; SYNC/OCT cycle their params; COPY mirrors the arp pattern"
-        : "Arp sequencer: click/drag steps for semitones, lower band sets velocity;"
-          " right-click accents; SYNC/OCT/DIR/SCALE/FILL cycle their params");
+          " gate settings; SYNC/OCT cycle their params; COPY mirrors the arp pattern; "
+          "vel to 100% on an arp step ACCENTS it (louder + longer gate)"
+        : "Arp sequencer: click/drag steps for semitones, lower band sets velocity,"
+          " the band above it sets gate length (5..100% of the step); right-click"
+          " accents; SYNC/OCT/DIR/SCALE/FILL cycle their params; STRUM direction"
+          " plays the held chord as a staggered strum each step");
     if (kind == gateStrip)
     {
         syncPar = proc.apvts.getParameter (param::gateSync);
@@ -1519,8 +1537,13 @@ StepStrip::StepStrip (GoaSynthAudioProcessor& p, Kind k, ColRole r)
         steps[(size_t) i] = proc.apvts.getParameter (
             kind == gateStrip ? param::gateStep (i) : param::arpStep (i));
     if (kind == arpStrip)
+    {
         for (int i = 0; i < 16; ++i)
-            vels[(size_t) i] = proc.apvts.getParameter (param::arpVel (i));
+        {
+            vels[(size_t) i]  = proc.apvts.getParameter (param::arpVel (i));
+            gates[(size_t) i] = proc.apvts.getParameter (param::arpGate (i));
+        }
+    }
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
     startTimerHz (30);
 }
@@ -1748,6 +1771,13 @@ juce::Rectangle<float> StepStrip::velRect (int i) const
     return { c.getX(), c.getBottom() - 7.0f, c.getWidth(), 7.0f };
 }
 
+// Gate-length band: a 6 px strip directly above the velocity band.
+juce::Rectangle<float> StepStrip::gateRect (int i) const
+{
+    const auto c = cellRect (i);
+    return { c.getX(), c.getBottom() - 14.0f, c.getWidth(), 6.0f };
+}
+
 int StepStrip::stepAt (juce::Point<float> pos) const
 {
     for (int i = 0; i < 16; ++i)
@@ -1872,7 +1902,7 @@ void StepStrip::paint (juce::Graphics& g)
                 ? (int) steps[(size_t) i]->getNormalisableRange()
                         .convertFrom0to1 (steps[(size_t) i]->getValue()) - 1
                 : -1;
-            auto body = cell.withTrimmedBottom (9.0f);   // leave room for the vel bar
+            auto body = cell.withTrimmedBottom (16.0f);  // room for gate + vel bands
             if (semi < 0)
             {
                 g.setColour (goaui::bgPanelLo);
@@ -1888,6 +1918,22 @@ void StepStrip::paint (juce::Graphics& g)
                             body, juce::Justification::centred);
             }
 
+            // Per-step gate-length bar (above the velocity bar): width shows
+            // what fraction of the step the note holds, from a 5% stab to a
+            // 100% legato tie.
+            {
+                const float gf = gates[(size_t) i] != nullptr
+                    ? gates[(size_t) i]->getNormalisableRange()
+                            .convertFrom0to1 (gates[(size_t) i]->getValue())
+                    : 0.75f;
+                auto gb = gateRect (i);
+                g.setColour (goaui::bgPanelLo);
+                g.fillRoundedRectangle (gb, 1.5f);
+                auto gFill = gb.withWidth (juce::jmax (1.5f, gb.getWidth() * gf));
+                g.setColour (semi < 0 ? col.withAlpha (0.25f) : goaui::accent.withAlpha (0.85f));
+                g.fillRoundedRectangle (gFill, 1.5f);
+            }
+
             // Per-step velocity bar (accent = full bar + bright crown).
             const float v = vels[(size_t) i] != nullptr
                 ? vels[(size_t) i]->getValue() : 0.9f;
@@ -1900,8 +1946,13 @@ void StepStrip::paint (juce::Graphics& g)
             g.fillRoundedRectangle (fill, 1.5f);
             if (semi >= 0 && v > 0.95f)
             {
+                // Accent crown: 100% velocity steps play louder and hold
+                // longer (TB-303 style), so they get a bolder marker.
                 g.setColour (goaui::textBright);
                 g.fillRect (juce::Rectangle<float> (cell.getX(), cell.getY(),
+                                                    cell.getWidth(), 1.5f));
+                g.setColour (goaui::accentA.withAlpha (0.9f));
+                g.fillRect (juce::Rectangle<float> (cell.getX(), cell.getY() + 1.5f,
                                                     cell.getWidth(), 1.5f));
             }
             if (hoverStep == i)
@@ -1986,7 +2037,7 @@ void StepStrip::cycleAt (juce::Point<float> pos, bool fine)
     if (syncCell().contains (pos) && syncPar != nullptr)
         cycle (syncPar, fine ? -1 : 1, 6);
     else if (kind == arpStrip && dirCell().contains (pos) && dirPar != nullptr)
-        cycle (dirPar, fine ? -1 : 1, 5);
+        cycle (dirPar, fine ? -1 : 1, 6);   // UP..CONVERGE + STRUM
     else if (kind == arpStrip && scaleCell().contains (pos) && scalePar != nullptr)
         cycle (scalePar, fine ? -1 : 1, tuning::numScales());
     else if (kind == arpStrip && fillCell().contains (pos))
@@ -2020,11 +2071,24 @@ void StepStrip::cycleAt (juce::Point<float> pos, bool fine)
     repaint();
 }
 
+void StepStrip::setGate (int step, float frac)
+{
+    if (step < 0 || step >= 16 || gates[(size_t) step] == nullptr)
+        return;
+    auto* par = gates[(size_t) step];
+    par->beginChangeGesture();
+    par->setValueNotifyingHost (par->getNormalisableRange()
+                                    .convertTo0to1 (juce::jlimit (0.05f, 1.0f, frac)));
+    par->endChangeGesture();
+    repaint();
+}
+
 void StepStrip::mouseDown (const juce::MouseEvent& e)
 {
     const bool right = juce::ModifierKeys::currentModifiers.isRightButtonDown();
     lastCell = -1;
     velDragging = false;
+    gateDragging = false;
 
     if (kind == arpStrip && ! right)
     {
@@ -2036,6 +2100,17 @@ void StepStrip::mouseDown (const juce::MouseEvent& e)
             dragStartY = e.position.y;
             dragStartVel = vels[(size_t) step] != nullptr
                 ? vels[(size_t) step]->getValue() : 0.9f;
+            return;
+        }
+        if (step >= 0 && gateRect (step).contains (e.position))
+        {
+            gateDragging = true;
+            lastCell = step;
+            dragStartY = e.position.y;
+            dragStartGate = gates[(size_t) step] != nullptr
+                ? gates[(size_t) step]->getNormalisableRange()
+                        .convertFrom0to1 (gates[(size_t) step]->getValue())
+                : 0.75f;
             return;
         }
     }
@@ -2074,6 +2149,14 @@ void StepStrip::mouseDrag (const juce::MouseEvent& e)
         const float pxPerFull = 60.0f;   // drag distance for a 0..1 sweep
         const float delta = (dragStartY - e.position.y) / pxPerFull;
         setVelocity (lastCell, dragStartVel + delta);
+        return;
+    }
+    if (gateDragging)
+    {
+        // Horizontal drag for gate length: right = longer, left = shorter.
+        const float pxPerFull = 60.0f;
+        const float delta = (e.position.x - e.mouseDownPosition.x) / pxPerFull;
+        setGate (lastCell, dragStartGate + delta);
         return;
     }
 
@@ -2125,18 +2208,45 @@ bool Keyboard::blackAfter (int i) const
 }
 
 //==============================================================================
-// Header meter: two output level bars (L over R) plus a gain-reduction strip
-// that grows leftwards as the limiter pulls harder. Reads only the two atomics
-// the audio thread publishes.
+// Header meter: two output level bars (L over R) with DAW-style peak-hold
+// ticks. Reads the true per-channel peaks the audio thread publishes.
 void LevelMeter::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    const float barH = juce::jmax (3.0f, (b.getHeight() - 12.0f) * 0.5f);
-    auto lBar  = b.removeFromTop (barH);
-    b.removeFromTop (3.0f);
-    auto rBar  = b.removeFromTop (barH);
-    b.removeFromTop (3.0f);
-    auto grBar = b;
+    const float gutterW = 12.0f;
+    const float barH = juce::jmax (3.0f, (b.getHeight() - 5.0f) * 0.5f);
+    auto lRow  = b.removeFromTop (barH);
+    b.removeFromTop (5.0f);
+    auto rRow  = b;
+
+    // Tiny channel tags in a left gutter, matching the header's dim text.
+    g.setFont (juce::Font (juce::FontOptions (8.0f, juce::Font::bold)));
+    g.setColour (goaui::textDim);
+    g.drawText ("L", lRow.removeFromLeft (gutterW), juce::Justification::centredRight);
+    g.drawText ("R", rRow.removeFromLeft (gutterW), juce::Justification::centredRight);
+
+    auto drawBar = [&] (juce::Rectangle<float> row, float v, float peak, juce::Colour fill)
+    {
+        auto bar = row;
+        g.setColour (goaui::bgInset);
+        g.fillRoundedRectangle (bar, 2.0f);
+        if (v > 0.002f)
+        {
+            g.setColour (fill);
+            g.fillRoundedRectangle (bar.withWidth (juce::jmax (2.0f, bar.getWidth() * v)), 2.0f);
+        }
+        // Peak-hold tick: a 1.5 px vertical mark that sits at the recent peak
+        // for ~1.2 s, then falls back at ~12 dB/s, exactly how DAWs make
+        // transients readable against fast-moving programme material.
+        if (peak > 0.004f)
+        {
+            const float px = juce::jmin (bar.getWidth() - 1.0f, bar.getWidth() * peak);
+            g.setColour (goaui::textBright.withAlpha (0.85f));
+            g.fillRect (bar.getX() + px - 0.75f, bar.getY(), 1.5f, bar.getHeight());
+        }
+        g.setColour (goaui::border);
+        g.drawRoundedRectangle (bar.reduced (0.5f), 2.0f, 1.0f);
+    };
 
     // Green up to about -6 dBFS, amber to -1, red above: the same convention
     // as every DAW meter, so a glance needs no legend.
@@ -2147,43 +2257,52 @@ void LevelMeter::paint (juce::Graphics& g)
                          : juce::Colour (0xff1d9e75);
     };
 
-    for (auto* pr : { &lBar, &rBar })
-    {
-        g.setColour (bgInset);
-        g.fillRoundedRectangle (*pr, 2.0f);
-        const float v = juce::jlimit (0.0f, 1.0f, level);
-        if (v > 0.002f)
-        {
-            g.setColour (levelColour (v));
-            g.fillRoundedRectangle (pr->withWidth (juce::jmax (2.0f, pr->getWidth() * v)), 2.0f);
-        }
-        g.setColour (border);
-        g.drawRoundedRectangle (pr->reduced (0.5f), 2.0f, 1.0f);
-    }
-
-    g.setColour (bgInset);
-    g.fillRoundedRectangle (grBar, 2.0f);
-    const float grn = juce::jlimit (0.0f, 1.0f, -gr / 24.0f);   // 24 dB = full strip
-    if (grn > 0.002f)
-    {
-        g.setColour (juce::Colour (0xffd85a30));
-        g.fillRoundedRectangle (grBar.withTrimmedLeft (grBar.getWidth() * (1.0f - grn)), 2.0f);
-    }
-    g.setColour (border);
-    g.drawRoundedRectangle (grBar.reduced (0.5f), 2.0f, 1.0f);
+    drawBar (lRow, levelL, peakHoldL, levelColour (juce::jmax (levelL, peakHoldL)));
+    drawBar (rRow, levelR, peakHoldR, levelColour (juce::jmax (levelR, peakHoldR)));
 }
 
 void LevelMeter::timerCallback()
 {
-    const float l  = proc.uiLevel.load (std::memory_order_relaxed);
-    const float gg = proc.uiGainReduction.load (std::memory_order_relaxed);
-    // Repaint only on a visible change: this runs 30x a second forever.
-    if (std::abs (l - level) > 0.002f || std::abs (gg - gr) > 0.05f)
+    // True per-channel peaks (atomics published by processBlock); the same
+    // smoothing as before - fast attack, slow release.
+    const float l  = proc.uiPeakL.load (std::memory_order_relaxed);
+    const float r  = proc.uiPeakR.load (std::memory_order_relaxed);
+    const float newL = juce::jlimit (0.0f, 1.0f, l);
+    const float newR = juce::jlimit (0.0f, 1.0f, r);
+
+    auto follow = [] (float& disp, float target)
     {
-        level = l;
-        gr = gg;
+        const float a = target > disp ? 0.35f : 0.045f;
+        disp += a * (target - disp);
+    };
+    follow (levelL, newL);
+    follow (levelR, newR);
+
+    // Peak-hold: grab new peaks instantly; hold 36 frames (~1.2 s at 30 Hz);
+    // afterwards decay about 12 dB per second (a factor of ~0.63 per frame).
+    auto hold = [] (float& held, int& age, float target)
+    {
+        if (target >= held || target > 0.002f)
+        {
+            if (target >= held)
+            {
+                held = target;
+                age = 0;
+                return;
+            }
+        }
+        if (++age > 36)
+            held *= 0.63f;
+        if (held < 0.001f)
+            held = 0.0f;
+    };
+    hold (peakHoldL, peakHoldAgeL, newL);
+    hold (peakHoldR, peakHoldAgeR, newR);
+
+    // Repaint only on a visible change: this runs 30x a second forever.
+    if (std::abs (newL - levelL) > 0.002f || std::abs (newR - levelR) > 0.002f
+        || peakHoldAgeL <= 1 || peakHoldAgeR <= 1)
         repaint();
-    }
 }
 
 void Keyboard::paint (juce::Graphics& g)
@@ -3491,7 +3610,7 @@ LicenseOverlay::LicenseOverlay()
     addAndMakeVisible (closeBtn);
     closeBtn.setVisible (false);
 
-    head.setText ("GOASYNTH \u2014 ACTIVATION REQUIRED", juce::dontSendNotification);
+    setHeadline (false);   // default: never activated; showLicenseOverlay() adds "TRIAL EXPIRED"
     head.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
     head.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (head);
@@ -3574,6 +3693,13 @@ LicenseOverlay::LicenseOverlay()
     hint.setFont (juce::Font (juce::FontOptions (9.0f)));
     hint.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (hint);
+}
+
+void LicenseOverlay::setHeadline (bool trialExpired)
+{
+    head.setText (juce::String ("GOASYNTH \u2014 ")
+                      + (trialExpired ? "TRIAL EXPIRED \u2014 " : "") + "ACTIVATION REQUIRED",
+                  juce::dontSendNotification);
 }
 
 void LicenseOverlay::paint (juce::Graphics& g)
@@ -4591,13 +4717,63 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
 
     themeBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
     themeBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
-    themeBtn.setTooltip ("Cycle the skin: UV Goa / steel / warm analog / neon / paper / OLED");
+    themeBtn.setTooltip ("Pick a theme: UV Goa / steel / warm analog / neon / paper / OLED");
     addAndMakeVisible (themeBtn);
     themeBtn.onClick = [this]
     {
-        const int next = ((int) goaui::activeTheme + 1) % (int) goaui::themeCount;
-        goaui::setTheme (goaui::themeFromIndex (next), this);
-        rebuildBackdrop();
+        // Dropdown, not cycling: all themes visible at once, each with a small
+        // swatch of its background + three accents so the palette can be
+        // previewed before picking. A tick marks the active theme; a switch
+        // applies immediately (applyTheme retints the whole chrome, the
+        // badge/zoom buttons and the backdrop).
+        static const char* const names[] = { "UV GOA", "STUDIO STEEL", "WARM ANALOG",
+                                             "NEON", "PAPER", "OLED" };
+
+        auto swatchFor = [] (int i) -> juce::Image
+        {
+            const auto& p = goaui::paletteForIndex (i);
+            constexpr int w = 30, h = 14;
+
+            juce::Image img (juce::Image::ARGB, w, h, true);
+            juce::Graphics g (img);
+
+            const juce::Colour chips[] = { p.bgDark, p.accent, p.accentA, p.accentB };
+            const float cw = (float) w / 4.0f;
+            for (int c = 0; c < 4; ++c)
+            {
+                g.setColour (chips[c]);
+                g.fillRect (juce::Rectangle<float> (c * cw, 0.0f, cw + 0.5f, (float) h));
+            }
+
+            // Hairline frame so light chips (PAPER) read on light menus and
+            // black chips (OLED) read on dark ones.
+            g.setColour (juce::Colours::black.withAlpha (0.4f));
+            g.drawRect (0.0f, 0.0f, (float) w, (float) h);
+            return img;
+        };
+
+        juce::PopupMenu m;
+        for (int i = 0; i < (int) goaui::themeCount; ++i)
+        {
+            auto di = std::make_unique<juce::DrawableImage>();
+            di->setImage (swatchFor (i));
+
+            juce::PopupMenu::Item item;
+            item.itemID    = i + 1;                 // 0 would make it untriggerable
+            item.text      = names[i];
+            item.isEnabled = true;
+            item.isTicked  = (int) goaui::activeTheme == i;
+            item.image     = std::move (di);
+            item.action    = [this, i]
+            {
+                goaui::setTheme (goaui::themeFromIndex (i), this);
+                applyTheme();
+                saveThemePref();   // the pick survives editor reopens
+            };
+            m.addItem (item);
+        }
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (themeBtn));
     };
 
     zoomBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
@@ -4638,11 +4814,6 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
         saveOverlay->setVisible (true);
     };
 
-    deleteBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
-    deleteBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
-    deleteBtn.setTooltip ("Delete the selected user preset");
-    addAndMakeVisible (deleteBtn);
-    deleteBtn.onClick = [this] { deleteUserPreset(); };
 
     addAndMakeVisible (levelMeter);
 
@@ -4787,6 +4958,7 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
     // rows fit, which is what let the FX row overlap the bottom bar.
     setResizeLimits (960, 720, 2048, 1440);
     loadSizePref();   // restores the last chosen size, else the 1120 x 780 default
+    loadThemePref();  // restore the saved skin BEFORE the first paint/retint pass
     applyTheme();
     rebuildBackdrop();
     refreshLicenseUi();
@@ -4806,6 +4978,10 @@ void GoaSynthAudioProcessorEditor::showLicenseOverlay (bool allowClose)
     licenseOverlay->dismissible = allowClose;
     licenseOverlay->closeBtn.setVisible (allowClose);
     licenseOverlay->closeBtn.setEnabled (allowClose);
+
+    // Say why the screen is up: the 24 h trial ran out vs never activated.
+    licenseOverlay->setHeadline (! proc.licensedFlag.load() && ! proc.trial
+                                     && goa::License::trialTimeLeft() == "expired");
 
     if (licenseOverlay->getBounds() != getLocalBounds())   // e.g. DAW resized while a peek was up
         licenseOverlay->setBounds (getLocalBounds());
@@ -4840,6 +5016,15 @@ void GoaSynthAudioProcessorEditor::updateTrialBadge()
     trialBadge.setVisible (trialRunning);     // bounds are assigned in resized() either way
     if (trialRunning)
         trialBadge.setButtonText ("TRIAL " + goa::License::trialTimeLeft().toUpperCase());
+
+    // After mid-session expiry the trial flags are false but the overlay may
+    // still be down (host without processBlock calls, e.g. rendering before
+    // transport starts): keep the activation screen offered here too.
+    if (! proc.licensedFlag.load() && ! proc.trial
+        && licenseOverlay != nullptr && ! licenseOverlay->isVisible())
+    {
+        showLicenseOverlay (false);
+    }
 }
 
 // A modal overlay covers the synth (the activation screen doesn't count:
@@ -4978,6 +5163,26 @@ void GoaSynthAudioProcessorEditor::saveZoomPref()
     zoomPrefFile().replaceWithText (juce::String (uiZoom, 2));
 }
 
+juce::File GoaSynthAudioProcessorEditor::themePrefFile()
+{
+    return envOrAppDataFile ("GOASYNTH_THEME_FILE", "theme.txt");
+}
+
+void GoaSynthAudioProcessorEditor::loadThemePref()
+{
+    // Out-of-range (first run, corrupt file, sandbox that never wrote one)
+    // keeps the house look; themeFromIndex clamps anyway, but keep it explicit.
+    const int idx = themePrefFile().loadFileAsString().trim().getIntValue();
+    if (juce::isPositiveAndBelow (idx, (int) goaui::themeCount))
+        goaui::setTheme (goaui::themeFromIndex (idx), nullptr);
+}
+
+void GoaSynthAudioProcessorEditor::saveThemePref()
+{
+    themePrefFile().getParentDirectory().createDirectory();
+    themePrefFile().replaceWithText (juce::String ((int) goaui::activeTheme));
+}
+
 bool GoaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
     static constexpr float steps[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -5038,6 +5243,8 @@ void GoaSynthAudioProcessorEditor::applyTheme()
 
     trialBadge.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
     trialBadge.setColour (juce::TextButton::textColourOffId, goaui::accentB);
+    themeBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
+    themeBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
     juce::String themeLabel;
     switch (goaui::activeTheme)
     {
@@ -5165,11 +5372,12 @@ void GoaSynthAudioProcessorEditor::timerCallback()
 
     // Trial expiring mid-session must lock the running UI: without this the
     // synth window would stay up with silent audio until the next reopen.
-    if (! proc.licensedFlag.load() && ! proc.trial
-        && licenseOverlay != nullptr && ! licenseOverlay->isVisible())
-    {
-        showLicenseOverlay (false);
-    }
+    // processBlock refreshes proc.trial/licensedFlag from the License store
+    // (that check also runs headless), so the flags now track expiry live and
+    // the pendingPoke debounce means the overlay appears within one tick of
+    // the first silent block.
+    if (proc.pendingPoke.exchange (false, std::memory_order_relaxed))
+        refreshLicenseUi();
 
     const float level = proc.uiLevel.load (std::memory_order_relaxed);
     if (backdropSize > 0.0 && swirl1.isValid() && swirl2.isValid())
@@ -5331,6 +5539,7 @@ void GoaSynthAudioProcessorEditor::buildContent (juce::AudioProcessorValueTreeSt
     subOctCtl  = knob (param::subOct,    "OCT");
     subCtl     = knob (param::subLevel,  "LEVEL");
     noiseCtl   = knob (param::noiseLevel, "NOISE");
+    noiseTypeCtl = knob (param::noiseType, "TYPE", true);   // WHITE / PINK
 
     // Performance macros (matrix SOURCES; also MIDI CC 14 / CC 15).
     macroACtl = knob (param::macroA, "A");
@@ -5572,6 +5781,7 @@ void GoaSynthAudioProcessorEditor::randomisePatch()
         if (isStepParamId (id, "gate"))                          continue;
         if (isStepParamId (id, "arp"))                           continue;
         if (isStepParamId (id, "arpVel"))                        continue;
+        if (isStepParamId (id, "arpGate"))                       continue;
         if (id == param::masterGain || id == param::tuningFine)   continue;
         if (id == param::voicing    || id == param::polyMax)      continue;
         if (id == param::bendRange  || id == param::masterHQ)     continue;
@@ -6291,17 +6501,6 @@ void GoaSynthAudioProcessorEditor::saveUserPreset (const juce::String& nameIn,
     updatePresetTint();
 }
 
-void GoaSynthAudioProcessorEditor::deleteUserPreset()
-{
-    if (! juce::isPositiveAndBelow (selectedPreset, (int) visiblePresets.size()))
-        return;
-    const auto& entry = visiblePresets[(size_t) selectedPreset];
-    if (! entry.isUser || ! entry.file.existsAsFile())
-        return;
-    userpresets::deletePreset (entry.file);
-    refreshUserPresets();
-    updatePresetTint();
-}
 
 void GoaSynthAudioProcessorEditor::updatePresetTint()
 {
@@ -6313,9 +6512,8 @@ void GoaSynthAudioProcessorEditor::updatePresetTint()
 
 void GoaSynthAudioProcessorEditor::updateArrows()
 {
-    // DEL only means something while a user preset is selected.
-    deleteBtn.setEnabled (juce::isPositiveAndBelow (selectedPreset, (int) visiblePresets.size())
-                          && visiblePresets[(size_t) selectedPreset].isUser);
+    // Deletion lives in the preset browser's context menu now (right-click a
+    // user preset there); the header has no DEL button any more.
 }
 
 void GoaSynthAudioProcessorEditor::applyAiPatch (const juce::String& brief, int variation,
@@ -6523,11 +6721,19 @@ void GoaSynthAudioProcessorEditor::resized()
         presetBrowser->setBounds (getLocalBounds());
 
     // Reserve must fit all buttons (panic 56 + theme 62 + ai 46 + mod 42 +
-    // save 46 + delete 34 + 5x2 spacers = 298) plus the trial badge (100) and
-    // MASTER (72) = 472, with slack. MASTER is the rightmost control.
-    auto right = header.removeFromRight (472);
+    // save 46 + 4x2 spacers = 264) plus the trial badge (100), MASTER (72) and
+    // the level meter (84 + 8 gap). MASTER is the rightmost control; the meter
+    // sits directly beside it where a level readout belongs.
+    auto right = header.removeFromRight (528);
     // MASTER at the absolute right edge.
     masterCtl->setBounds (right.removeFromRight (72).reduced (6, 2));
+    // Level meter beside MASTER (anchored from the right so it never slides
+    // under the buttons or the preset name on narrow windows).
+    {
+        const int meterW = 84;
+        levelMeter.setBounds (right.removeFromRight (meterW + 8).removeFromLeft (meterW)
+                                  .reduced (0, 9).withTrimmedBottom (0));
+    }
     right.removeFromRight (2);
     trialBadge.setBounds (right.removeFromRight (100).reduced (2, 12));
     panicBtn.setBounds (right.removeFromRight (56).reduced (4, 16));
@@ -6540,23 +6746,15 @@ void GoaSynthAudioProcessorEditor::resized()
     right.removeFromRight (2);
     saveBtn.setBounds (right.removeFromRight (46).reduced (2, 16));
     right.removeFromRight (2);
-    deleteBtn.setBounds (right.removeFromRight (34).reduced (2, 16));
 
-    auto presetZone = header.withTrimmedLeft (280).withTrimmedRight (104).reduced (0, 13);
+    // The old 104px right trim reserved the gap before the meter; the meter
+    // now lives inside the button block, so only a small gap is needed.
+    auto presetZone = header.withTrimmedLeft (280).withTrimmedRight (8).reduced (0, 13);
     nextBtn.setBounds (presetZone.removeFromRight (30).reduced (2, 0));
     prevBtn.setBounds (presetZone.removeFromLeft (30).reduced (2, 0));
     browseBtn.setBounds (presetZone.removeFromRight (64).reduced (4, 0));
     presetName.setBounds (presetZone.reduced (4, 0));
 
-    // Level meter: anchored to the button block rather than to a fixed x, so a
-    // narrow window shrinks the preset zone instead of sliding the meter under
-    // the buttons. presetZone already reserves exactly this 104px gap.
-    {
-        const int meterW = 84;
-        levelMeter.setBounds (juce::Rectangle<int> (right.getX() - meterW - 10,
-                                                    header.getY() + 9,
-                                                    meterW, header.getHeight() - 18));
-    }
 
     // ---- rows ----
     // Vertical budget. The header, the bottom bar and the padding are fixed,
@@ -6805,8 +7003,12 @@ void GoaSynthAudioProcessorEditor::resized()
     // MACRO: fixed narrow panel for the two performance knobs.
     macroFrame.setBounds (row3.removeFromLeft (110));
     row3.removeFromLeft (gap);
-    // NOISE: bare knob, no frame, in the remaining tail.
-    noiseCtl->setBounds (row3.reduced (2, 4));
+    // NOISE: bare knob + TYPE combo (WHITE/PINK), no frame, in the tail.
+    {
+        auto tail = row3.reduced (2, 4);
+        noiseTypeCtl->setBounds (tail.removeFromTop (20));
+        noiseCtl->setBounds (tail);
+    }
 
     auto row = [] (goaui::Panel& frame, const juce::Array<juce::Component*>& cells)
     {

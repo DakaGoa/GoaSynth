@@ -11,6 +11,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "FakePlayHead.h"
 #include "AiCloudGen.h"
 #include "LearnedPatches.h"
 #include "License.h"
@@ -362,6 +363,7 @@ int main()
         chk ("gateSync"); chk ("gateDepth"); chk ("gate1"); chk ("gate3"); chk ("gate16");
         chk ("arpSync"); chk ("arpOct"); chk ("arpDir"); chk ("arp1"); chk ("arp16");
         chk ("arpVel1"); chk ("arpVel5"); chk ("arpVel16");
+        chk ("arpGate1"); chk ("arpGate8"); chk ("arpGate16");
         chk ("filter2Type"); chk ("cutoff2"); chk ("reso2"); chk ("filterRoute");
         chk ("mod1Src"); chk ("mod1Dst"); chk ("mod1Amt");
         chk ("mod2Src"); chk ("mod2Dst"); chk ("mod2Amt");
@@ -1269,6 +1271,29 @@ int main()
                 std::printf ("license: ledger failed to block a bound serial\n"), ++fails;
         }
 
+        // 4b) Copy/paste tolerance: the same serial with cosmetic dashes inside
+        //     the signature half must still activate — users paste serials as
+        //     pretty-printed or word-wrapped by emails and consoles. Forgery is
+        //     still impossible: the signature check, not the dash layout, is
+        //     the security boundary.
+        goa::License::setTestMachineId (devId);
+        {
+            const juce::String body = juce::String (devSerialText).substring (5);
+            const int d = body.indexOfChar ('-');
+            juce::String wrapped;
+            const juce::String sig = body.substring (d + 1);
+            for (int i = 0; i < sig.length(); i += 16)
+            {
+                if (i > 0) wrapped << "-";
+                wrapped << sig.substring (i, i + 16);
+            }
+
+            juce::String errWrap;
+            if (! goa::License::activate ("GOA1-" + body.substring (0, d) + "-" + wrapped, errWrap))
+                std::printf ("license: dash-wrapped serial refused: %s\n", (const char*) errWrap.toRawUTF8()), ++fails;
+            goa::License::deactivate();
+        }
+
         // 5) The raw master key activates any machine...
         goa::License::deactivate();
         goa::License::setTestMachineId ("ABCD0123456789EFABCD");
@@ -1367,6 +1392,36 @@ int main()
             for (int ch = 0; ch < 2; ++ch)
                 if (buf.getSample (ch, 10) != 0.0f)
                     std::printf ("license: expired-trial instance produced audio\n"), ++fails;
+        }
+
+        // 8b) Trial expiring mid-session: an instance armed during the trial
+        //     must lock itself on the first block after the window ends,
+        //     even headless (processBlock re-checks the stamp; the editor
+        //     timer only paints the result).
+        goa::License::setTrialTestStart (0);   // fresh 24 h window again
+        {
+            GoaSynthAudioProcessor mid;
+            mid.prepareToPlay (48000.0, 256);
+            mid.uiNoteOn (48, 1.0f);
+
+            juce::AudioBuffer<float> buf (2, 256);
+            juce::MidiBuffer emptyMidi;
+            buf.clear();
+            mid.processBlock (buf, emptyMidi);
+            if (! mid.licensedFlag.load())
+                std::printf ("license: mid-life trial instance started locked\n"), ++fails;
+
+            goa::License::setTrialTestStart (juce::Time::currentTimeMillis() / 1000 - 25 * 3600);
+            buf.clear();
+            mid.processBlock (buf, emptyMidi);
+            if (mid.licensedFlag.load())
+                std::printf ("license: mid-session expiry did not lock the instance\n"), ++fails;
+            if (! mid.pendingPoke.load())
+                std::printf ("license: mid-session expiry did not poke the editor\n"), ++fails;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < buf.getNumSamples(); ++i)
+                    if (buf.getSample (ch, i) != 0.0f)
+                        std::printf ("license: mid-session expiry still produced audio\n"), ++fails;
         }
 
         // A real license supersedes the trial readout entirely.
@@ -1470,14 +1525,14 @@ int main()
     }
 
     // A licensed instance still renders audio (smoke check through the real path).
+    // Activating the sandbox store (rather than poking licensedFlag by hand) is
+    // load-bearing since processBlock re-checks the store per block: a manually
+    // forced flag would be silently corrected back to locked and the block
+    // would render silence.
     {
+        juce::String smokeErr;
+        goa::License::activate (GOA_TEST_MASTER_KEY, smokeErr);
         GoaSynthAudioProcessor inst;
-        if (! inst.licensed)
-        {
-            // Not licensed in this test env: force the flag the way the UI does.
-            inst.licensed = true;
-            inst.licensedFlag.store (true);
-        }
         inst.prepareToPlay (48000.0, 512);
         juce::AudioBuffer<float> buf (2, 512);
         buf.clear();
@@ -2187,6 +2242,137 @@ int main()
                              activeVoices()), ++fails;
         }
         setF (param::chordMode, 0.0f);
+    }
+
+    // ========================================================================
+    phase ("19) arp gate-length + strum (fake playing host)");
+    // A FakePlayHead makes the host transport "playing", so the arp clock runs:
+    // per-step gate length must schedule note-offs at the programmed fraction,
+    // accents must hold longer, and STRUM must fire every held note per step.
+    {
+        goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
+        juce::String arpErr;
+        goa::License::activate (GOA_TEST_MASTER_KEY, arpErr);
+        GoaSynthAudioProcessor arp;                        // ctor snapshots license
+        FakePlayHead fake;
+        arp.setPlayHead (&fake);
+        arp.prepareToPlay (48000.0, 512);
+
+        auto setA = [&arp] (const char* id, float v)
+        { if (auto* p = arp.apvts.getRawParameterValue (id)) p->store (v); };
+
+        // Arp pattern: step 1 = +0, step 5 = +7 at full velocity (accent),
+        // everything else rests; 1/16 steps.
+        setA (param::arpSync, 1.0f);
+        setA (param::arpOct, 1.0f);
+        setA (param::arpDir, 0.0f);              // UP
+        for (int i = 0; i < 16; ++i)
+        {
+            setA (param::arpStep (i).toRawUTF8(), 0.0f);
+            setA (param::arpVel (i).toRawUTF8(), 0.55f);
+            setA (param::arpGate (i).toRawUTF8(), 0.75f);
+        }
+        setA (param::arpStep (0).toRawUTF8(), 1.0f);   // +0 semitone
+        setA (param::arpStep (4).toRawUTF8(), 8.0f);   // +7 semitones
+        setA (param::arpVel (4).toRawUTF8(), 1.0f);    // accent
+
+        // Hold one note; render while advancing the fake transport.
+        juce::MidiBuffer held;
+        held.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+
+        int noteOns = 0;
+        double offQuartersStep0 = -1.0;   // note-off position of the +0 step
+        double onQuartersStep4 = -1.0;
+        const double spq = 0.125;         // 1/16 at 120 bpm, in quarters
+
+        auto render = [&] (int blocks)
+        {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer m;
+                if (b == 0)
+                    m = held;
+                arp.processBlock (buf, m);
+
+                for (const auto& ev : m)
+                {
+                    const auto msg = ev.getMessage();
+                    const double q = fake.ppq + ev.samplePosition / 48000.0 * 2.0;
+                    if (msg.isNoteOn())  ++noteOns;
+                    if (msg.isNoteOff() && msg.getNoteNumber() == 60 && offQuartersStep0 < 0.0)
+                        offQuartersStep0 = q;
+                    if (msg.isNoteOn() && msg.getNoteNumber() == 67)
+                        onQuartersStep4 = q;
+                }
+                fake.ppq += 512 / 48000.0 * 2.0;
+            }
+        };
+
+        render (8);
+        if (noteOns < 2)
+            std::printf ("arp19: fake-host run produced %d note-ons\n", noteOns), ++fails;
+
+        // Gate length: the +0 step's off must land at about 75% of its 1/16
+        // step (0.125 quarters), i.e. near 0.094 quarters after the step start.
+        if (offQuartersStep0 > 0.0)
+        {
+            const double stepFrac = offQuartersStep0 / spq;   // how far into a 1/16
+            const double within = stepFrac - std::floor (stepFrac);
+            if (within < 0.55 || within > 0.95)
+                std::printf ("arp19: default gate off at %.2f of the step (want ~0.75)\n",
+                             within), ++fails;
+        }
+
+        // Strum: switch direction to STRUM, hold a three-note chord, and count
+        // notes fired per step boundary (3 enabled steps x 3 held notes... no:
+        // only ONE step is enabled per boundary in UP; STRUM fires all enabled
+        // steps' semitones against every held note each boundary).
+        setA (param::arpStep (1).toRawUTF8(), 5.0f);   // +4 semitones on step 2
+        setA (param::arpDir, 5.0f);                    // STRUM
+        {
+            juce::MidiBuffer chord;
+            chord.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            chord.addEvent (juce::MidiMessage::noteOn (1, 64, 0.9f), 0);
+            chord.addEvent (juce::MidiMessage::noteOn (1, 67, 0.9f), 0);
+            held = chord;
+        }
+
+        int strumOns = 0;
+        for (int b = 0; b < 4; ++b)
+        {
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer m;
+            if (b == 0)
+                m = held;
+            arp.processBlock (buf, m);
+            for (const auto& ev : m)
+                if (ev.getMessage().isNoteOn())
+                    ++strumOns;
+            fake.ppq += 512 / 48000.0 * 2.0;
+        }
+        // Each boundary fires every enabled step (2) against every held note
+        // (3) = 6 note-ons per boundary; one full boundary must land in the
+        // first 4 blocks (2 blocks per 1/16 at 48 kHz).
+        if (strumOns < 6)
+            std::printf ("arp19: strum produced only %d note-ons (want >= 6)\n",
+                         strumOns), ++fails;
+
+        // Audio path stays sane with the arp live.
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer m;
+        arp.processBlock (buf, m);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 512; ++i)
+                if (! std::isfinite (buf.getSample (ch, i)) || std::fabs (buf.getSample (ch, i)) > 4.0f)
+                {
+                    std::printf ("arp19: strum render produced non-finite/hot audio\n"), ++fails;
+                    ch = 2; break;
+                }
+
+        arp.setPlayHead (nullptr);
+        goa::License::deactivate();
+        goa::License::setTestMachineId ("");
     }
 
     // Factory presets block follows (outside phase 18's scope)

@@ -61,6 +61,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addI (param::subOct,     "Sub Octave", -2, 0, 0);
     addF (param::subLevel,   "Sub Level", unitRange, 0.0f);
     addF (param::noiseLevel, "Noise Level", unitRange, 0.0f);
+    // Noise character: white = brightness/hats, pink = -3 dB/oct natural tilt
+    // (cymbals, air, wind, sea). Choice keeps the knob position meaningful
+    // across both.
+    const StringArray noiseTypes { "White", "Pink" };
+    addC (param::noiseType, "Noise Type", noiseTypes, 0);
     addI (param::uniVoices,  "Unison Voices", 1, 7, 1);
     addF (param::uniDetune,  "Unison Detune (cents)", NormalisableRange<float>(0.0f, 50.0f, 0.0f), 12.0f);
     addF (param::uniSpread,  "Unison Width", unitRange, 0.7f);
@@ -183,9 +188,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addF (param::arpVel (i).toRawUTF8(),
               ("Arp Vel " + String (i + 1)).toRawUTF8(),
               unitRange, 0.9f);
+    // Per-step gate length as a fraction of the step (5%..100%, default 75% =
+    // the classic gated feel; 100% = legato into the next step).
+    for (int i = 0; i < 16; ++i)
+        addF (param::arpGate (i).toRawUTF8(),
+              ("Arp Gate " + String (i + 1)).toRawUTF8(),
+              NormalisableRange<float>(0.05f, 1.0f, 0.0f), 0.75f);
 
     // Arp playback direction.
-    addC (param::arpDir, "Arp Direction", { "UP", "DOWN", "UP-DOWN", "RANDOM", "CONVERGE" }, 0);
+    addC (param::arpDir, "Arp Direction", { "UP", "DOWN", "UP-DOWN", "RANDOM", "CONVERGE", "STRUM" }, 0);
 
     // Scale quantizer: snaps arp notes (and, with Scale Lock, live playing)
     // into a musical scale relative to a root pitch class.

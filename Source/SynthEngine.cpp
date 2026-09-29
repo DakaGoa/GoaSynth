@@ -537,6 +537,8 @@ void GoaVoice::resetVoice()
     filtEnv.reset();
     mv = ModMatrix::Values();
     latchedL1 = latchedL2 = latchedFe = latchedAe = 0.0f;
+    for (float& s : pinkL) s = 0.0f;   // pink-noise state starts silent per note
+    for (float& s : pinkR) s = 0.0f;
     clearCurrentNote();
 }
 
@@ -598,7 +600,8 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
     // with both oscillators in PWM mode stays phase-coherent in width.
     const float pwBase = juce::jlimit (0.05f, 0.95f, ld (p.pulseWidth));
     const float subLvl = ld (p.subLevel);
-    const float noiseLvl = ld (p.noiseLevel);
+    const float noiseLvl  = ld (p.noiseLevel);
+    const float noiseKind = ld (p.noiseType);   // 0 = white, 1 = pink
     const float octF1 = std::exp2 ((float) (int) ld (p.osc1Oct));
     const float octF2 = std::exp2 ((float) (int) ld (p.osc2Oct));
     const float ampVel = 0.35f + 0.65f * velocity;
@@ -959,10 +962,46 @@ void GoaVoice::renderNextBlock (juce::AudioBuffer<float>& buffer, int startSampl
                 subSig = subOsc.nextSquare (dtSub);
         }
 
-        const float noise = noiseRnd.nextFloat() * 2.0f - 1.0f;
+        // Noise source: white, or pink through Paul Kellet's refined 7-pole
+        // run (≈ ±0.05 dB down to 10 Hz). One filter state per channel so the
+        // stereo image is decorrelated, not a dead mono point. Pink's −3 dB/oct
+        // tilt matches cymbals/air/hibiscus-hiss far better than white; both
+        // are attenuated ~3 dB so equal knob positions feel equally loud.
+        float noiseL, noiseR;
+        if (noiseKind > 0.5f)
+        {
+            const float w = noiseRnd.nextFloat() * 2.0f - 1.0f;
+            float& a0 = pinkL[0]; float& a1 = pinkL[1]; float& a2 = pinkL[2];
+            float& b0 = pinkL[3]; float& b1 = pinkL[4]; float& b2 = pinkL[5]; float& b3 = pinkL[6];
+            a0 += 0.178339f * w; a1 += 0.296654f * a0 + 0.006f * w;
+            a2 += 0.072184f * a0 + 0.029597f * a1;
+            const float outP = 0.330139f * a2 + 0.164842f * a1 + 0.087153f * a0
+                             + 0.010625f * b0 + 0.020982f * b1 + 0.002899f * b2 + 0.000741f * b3;
+            b3 = b2; b2 = b1; b1 = b0; b0 = w;
+            a0 = a1; a1 = a2; a2 = 0.0f;
+            noiseL = outP * 1.4142f;
 
-        float sigL = o1L * lvl1 * pan1L + o2L * lvl2 * pan2L + subSig * subLvl + noise * noiseLvl;
-        float sigR = o1R * lvl1 * pan1R + o2R * lvl2 * pan2R + subSig * subLvl + noise * noiseLvl;
+            const float w2 = noiseRnd.nextFloat() * 2.0f - 1.0f;
+            float& c0 = pinkR[0]; float& c1 = pinkR[1]; float& c2 = pinkR[2];
+            float& d0 = pinkR[3]; float& d1 = pinkR[4]; float& d2 = pinkR[5]; float& d3 = pinkR[6];
+            c0 += 0.178339f * w2; c1 += 0.296654f * c0 + 0.006f * w2;
+            c2 += 0.072184f * c0 + 0.029597f * c1;
+            const float outP2 = 0.330139f * c2 + 0.164842f * c1 + 0.087153f * c0
+                              + 0.010625f * d0 + 0.020982f * d1 + 0.002899f * d2 + 0.000741f * d3;
+            d3 = d2; d2 = d1; d1 = d0; d0 = w2;
+            c0 = c1; c1 = c2; c2 = 0.0f;
+            noiseR = outP2 * 1.4142f;
+        }
+        else
+        {
+            noiseL = noiseRnd.nextFloat() * 2.0f - 1.0f;
+            noiseR = noiseRnd.nextFloat() * 2.0f - 1.0f;
+        }
+        noiseL *= 0.7071f;
+        noiseR *= 0.7071f;
+
+        float sigL = o1L * lvl1 * pan1L + o2L * lvl2 * pan2L + subSig * subLvl + noiseL * noiseLvl;
+        float sigR = o1R * lvl1 * pan1R + o2R * lvl2 * pan2R + subSig * subLvl + noiseR * noiseLvl;
         sigL *= trem;
         sigR *= trem;
 

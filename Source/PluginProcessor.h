@@ -114,12 +114,15 @@ public:
     std::atomic<float> gatePlayhead { -1.0f };  // 0..1 through the step, -1 idle
     std::atomic<int>   gateStep    { -1 };      // currently sounding gate step
 
+    // Header meter: TRUE per-channel peak per block (the UI bars are L/R), so
+    // hard-panned sources read on the right bar instead of smeared across both.
+    std::atomic<float> uiPeakL    { 0.0f };
+    std::atomic<float> uiPeakR    { 0.0f };
+
     // Smoothed output level 0..1 (audio thread writes, editor backdrop reads).
     std::atomic<float> uiLevel { 0.0f };
 
-    // Limiter gain reduction in dB (<= 0), measured as the block's pre/post
-    // limiter peak ratio. Feeds the header meter's reduction strip.
-    std::atomic<float> uiGainReduction { 0.0f };
+
 
     // ---- licensing -----------------------------------------------------------
     // Unlicensed (and trial-expired) instances output pure silence; during the
@@ -127,6 +130,17 @@ public:
     bool licensed = false;                      // real license, checked at construction
     bool trial = false;                         // inside the 24 h trial window
     std::atomic<bool> licensedFlag { false };   // lock-free read on the audio thread
+
+    // Recompute licensed/trial/licensedFlag from the License store. Called at
+    // construction and from processBlock, so a trial expiring mid-session
+    // locks the instance immediately (pure silence) even without an editor
+    // timer around to notice.
+    void refreshLicensingState();
+
+    // Set by refreshLicensingState() when the instance transitions into the
+    // locked state; the editor timer consumes it (exchange) to bring the
+    // activation screen up. Atomic because processBlock is the producer.
+    std::atomic<bool> pendingPoke { false };
     juce::String sessionSerial;                 // serial this session was licensed with
 
     // Synth engine (public: the test harness drives it directly to verify
@@ -221,6 +235,10 @@ private:
     juce::SmoothedValue<float> delayTimeSmoothed;
     float fbL = 0.0f, fbR = 0.0f;                // damped delay-feedback state
     StepClock gateClock, arpClock, pumpClock;
+
+    // Trancegate smoothing: re-drawn gate edges get a ~1 ms equal-power ramp
+    // (sample-accurate boundaries keep the grid, ramps kill the clicks).
+    float gateSmooth = 1.0f;
     std::atomic<float> pumpPlayhead { -1.0f };  // 0..1 through the pump period
     juce::Array<int> arpNotesHeld;              // most-recent-first, for the injector
     juce::MidiBuffer uiMidi;

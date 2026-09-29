@@ -398,6 +398,10 @@ struct LicenseOverlay : juce::Component
     // overlay; a successful activation fires onActivated.
     void importLicenseFile (const juce::File& f);
 
+    // "TRIAL EXPIRED \u2014 ACTIVATION REQUIRED" after the 24 h trial ran out,
+    // plain "ACTIVATION REQUIRED" for never-activated instances.
+    void setHeadline (bool trialExpired);
+
     juce::Label head;
     juce::Label machineLabel;
     juce::Label machineId;
@@ -717,6 +721,7 @@ struct StepStrip : juce::Component, private juce::Timer, public juce::SettableTo
 private:
     juce::Rectangle<float> cellRect (int i) const;
     juce::Rectangle<float> velRect (int i) const;
+    juce::Rectangle<float> gateRect (int i) const;   // arp strip: gate-length band
     juce::Rectangle<float> syncCell() const;
     juce::Rectangle<float> octCell() const;
     juce::Rectangle<float> copyCell() const;   // gate strip: ARP → GATE copy
@@ -729,6 +734,7 @@ private:
     int stepAt (juce::Point<float> pos) const;
     void poke (juce::Point<float> pos, bool erase);
     void setVelocity (int step, float v01);
+    void setGate (int step, float frac);   // arp strip: per-step gate length
     void applyPattern (int idx);
     void copyFromArp();
     void cycleAt (juce::Point<float> pos, bool fine);
@@ -747,6 +753,9 @@ private:
     std::array<juce::uint8, 16> lastSteps {};       // step-value cache for repaints
     std::array<juce::RangedAudioParameter*, 16> steps {};
     std::array<juce::RangedAudioParameter*, 16> vels {};
+    std::array<juce::RangedAudioParameter*, 16> gates {};
+    bool gateDragging = false;  // gate-length drag in progress
+    float dragStartGate = 0.75f;
     bool dragToggle = false;
     bool velDragging = false;   // velocity drag in progress
     float dragStartVel = 0.0f;  // velocity at drag start (relative dragging)
@@ -764,12 +773,18 @@ public:
 };
 
 // Stereo output level + limiter gain-reduction readout. Polls the two atomics
-// the audio thread publishes (uiLevel, uiGainReduction) on a 30 Hz timer; it
+// the audio thread publishes (uiPeakL / uiPeakR) on a 30 Hz timer; it
 // never touches audio state directly, and it repaints only when a value moved
 // far enough to matter.
-struct LevelMeter : juce::Component, private juce::Timer
+struct LevelMeter : juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
-    explicit LevelMeter (GoaSynthAudioProcessor& p) : proc (p) { startTimerHz (30); }
+    explicit LevelMeter (GoaSynthAudioProcessor& p)
+        : proc (p)
+    {
+        setTooltip ("Output level, L over R (white ticks hold recent peaks);\n"
+                    "the backdrop pulse follows the same signal");
+        startTimerHz (30);
+    }
     ~LevelMeter() override { stopTimer(); }
 
     void paint (juce::Graphics&) override;
@@ -777,8 +792,11 @@ struct LevelMeter : juce::Component, private juce::Timer
     void retint() { repaint(); }        // theme hook
 
     GoaSynthAudioProcessor& proc;
-    float level = 0.0f;                 // smoothed output peak, 0..1
-    float gr = 0.0f;                    // limiter gain reduction, dB (<= 0)
+    // Smoothed per-channel display level 0..1, plus DAW-style peak-hold ticks
+    // (hold ~1.2 s, then fall at ~12 dB/s).
+    float levelL = 0.0f, levelR = 0.0f;
+    float peakHoldL = 0.0f, peakHoldR = 0.0f;
+    int   peakHoldAgeL = 999, peakHoldAgeR = 999;   // frames since the last new peak
 };
 
 // Minimal clickable piano keyboard feeding the synth directly.
@@ -899,7 +917,6 @@ private:
     juce::File renameSource;
     void saveUserPreset (const juce::String& name, const juce::StringArray& tags,
                          bool shared);
-    void deleteUserPreset();
     void updatePresetTint();
     void updateArrows();
 
@@ -958,9 +975,8 @@ private:
     juce::TextButton prevBtn { "<", "Previous preset" }, nextBtn { ">", "Next preset" };
     juce::TextButton panicBtn { "PANIC", "All notes off" };
     juce::TextButton aiBtn { "AI", "AI patch designer" };
-    juce::TextButton themeBtn { "THEME", "Cycle the skin: UV Goa / steel / warm analog" };
+    juce::TextButton themeBtn { "THEME", "Pick a theme: UV Goa / steel / warm analog / neon / paper / OLED" };
     juce::TextButton saveBtn { "SAVE", "Save user preset" };
-    juce::TextButton deleteBtn { "DEL", "Delete selected user preset" };
     // Output level + limiter gain reduction, in the header gap between the
     // preset zone and the button block. Declared after `proc` (above) so the
     // reference it stores is already bound when it is constructed.
@@ -986,6 +1002,7 @@ private:
     std::unique_ptr<goaui::Ctl> wave1Ctl, oct1Ctl, fin1Ctl, uni1Ctl, det1Ctl, wid1Ctl,
         pan1Ctl, wt1Ctl, lvl1Ctl, ph1Ctl, wave2Ctl, oct2Ctl, fin2Ctl, uni2Ctl, det2Ctl, wid2Ctl,
         pan2Ctl, wt2Ctl, lvl2Ctl, ph2Ctl, fmCtl, subWaveCtl, subOctCtl, subCtl, noiseCtl,
+        noiseTypeCtl,                           // WHITE / PINK
         pwCtl, ringCtl,                          // PWM duty + ring mod
         ftypeCtl, cutoffCtl, resoCtl, driveCtl, keyCtl,
         ftype2Ctl, cutoff2Ctl, reso2Ctl, routeCtl,
@@ -1057,6 +1074,12 @@ private:
     void loadZoomPref();
     void saveZoomPref();
     static juce::File zoomPrefFile();
+
+    // Theme persistence: the skin picked in the THEME dropdown survives editor
+    // reopens (same %APPDATA%\GoaSynth folder as the size/zoom preferences).
+    void loadThemePref();
+    void saveThemePref();
+    static juce::File themePrefFile();
 
     // Window size persistence: the plugin's default stays 1120 x 780, but the
     // editor remembers the last size for hosts that start every session at

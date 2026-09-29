@@ -172,6 +172,26 @@ target_link_libraries(GoaSynthFulfil PRIVATE
 )
 target_include_directories(GoaSynthFulfil PRIVATE Source Keygen Fulfil)
 
+# Headless check of the REAL activation path (no GOA_TEST_BUILD: compiles
+# against the seller's real LicenseKeys.h, so its verdict is the VST3's).
+# Storage goes through the usual env hooks; not a ctest entry on purpose.
+juce_add_console_app(VerifySerial PRODUCT_NAME "VerifySerial")
+target_sources(VerifySerial PRIVATE
+    tools/VerifySerial.cpp
+    Source/License.cpp
+)
+target_compile_definitions(VerifySerial PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+)
+target_link_libraries(VerifySerial PRIVATE
+    juce::juce_core
+    juce::juce_cryptography
+    juce::juce_recommended_config_flags
+)
+target_include_directories(VerifySerial PRIVATE Source tools)
+
 # Fulfilment test: runs the scan against a throwaway keypair redirected with
 # GOASYNTH_KEYGEN_DIR, so the seller's real keys and ledger are never touched.
 add_executable(FulfilTest tests/Fulfil.cpp Fulfil/Fulfil.cpp)

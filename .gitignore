@@ -9,3 +9,6 @@ _build/
 
 # licensing secrets — never commit
 Source/LicenseKeys.h
+
+# MCP server config holds a live GitHub token — never commit
+.mcp.json

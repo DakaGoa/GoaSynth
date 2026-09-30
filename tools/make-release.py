@@ -98,7 +98,7 @@ def project_version() -> str:
     return match.group(1)
 
 
-def guard_tree_is_committed() -> str:
+def guard_tree_is_committed() -> None:
     """The package must be buildable again from a commit, so nothing may be dirty."""
     status = git("status", "--porcelain")
     dirty = [line for line in status.splitlines() if line[:2] != "??"]
@@ -109,7 +109,16 @@ def guard_tree_is_committed() -> str:
             print("   " + line)
         die("commit them first - a release is built from a commit, not from a working tree")
 
-    return git("rev-parse", "--short", "HEAD")
+
+def source_commit() -> str:
+    """The commit that last changed what the plugin is built from.
+
+    Deliberately not HEAD. The package records this hash, and the packaging run
+    then commits the files it generated - docs, checksums - which moves HEAD
+    without moving the sources. Quoting HEAD would mean no run could ever
+    reproduce the previous one, and the release would never settle.
+    """
+    return git("log", "-1", "--format=%h", "--", "Source", "CMakeLists.txt")
 
 
 def guard_build_is_current(version: str) -> None:
@@ -141,6 +150,7 @@ def guard_build_is_current(version: str) -> None:
             "        cmake --build build --config Release --target GoaSynth_VST3 --clean-first --parallel")
 
     print(f"  version {version}, committed, and the binary is newer than every source file")
+    print(f"  the plugin's own sources were last changed in {source_commit()}")
 
 
 # ---------------------------------------------------------------------------
@@ -437,8 +447,9 @@ def main() -> int:
     print("make-release: cutting the Windows package\n")
 
     version = project_version()
-    commit = guard_tree_is_committed()
+    guard_tree_is_committed()
     guard_build_is_current(version)
+    commit = source_commit()
 
     built = datetime.fromtimestamp(VST3_BINARY.stat().st_mtime)
     built_text = built.strftime("%d %B %Y at %H:%M")

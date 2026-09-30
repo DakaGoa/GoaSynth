@@ -6,6 +6,11 @@ A polyphonic virtual-analog synthesizer plugin (VST3) designed for Goa trance
 production: TB-303-style acid bass, supersaw leads, hoover stabs, FM bleeps,
 PWM pads — with tempo-synced ping-pong delay, chorus, phaser and reverb built in.
 
+**[The GoaSynth site →](https://y4m4.github.io/GoaSynth/)** — the full feature
+tour, screenshots, install steps and the 24-hour full trial. €15 one-time for
+Windows, macOS and Linux, activated offline. The site lives in [`docs/`](docs/)
+in this repository and is published from it by GitHub Pages.
+
 ## Scale quantizer & microtuning
 The arp sequencer (and, with **LOCK**, live playing) snaps into one of nine
 scales — MINOR, PHRYGIAN, HARM MIN, HUNG MIN, DBL HARM, DORIAN, MAJOR,
@@ -361,9 +366,9 @@ containing `.goapreset` files — so it's easy to email, torrent or archive.
 ## Website
 
 The landing/documentation site lives in [`docs/`](docs/) as plain static files — no build step,
-no dependencies, no external requests. Open `docs/index.html` directly, or point any static host
-(GitHub Pages, Netlify, Cloudflare Pages) at the `docs` folder. `docs/.nojekyll` is already there
-for GitHub Pages.
+no dependencies, no external requests. It is published at **https://y4m4.github.io/GoaSynth/**.
+Open `docs/index.html` directly, or point any static host (GitHub Pages, Netlify, Cloudflare Pages)
+at the `docs` folder. `docs/.nojekyll` is already there for GitHub Pages.
 
 It covers the whole plugin — engine, wavetable drawing, filters and routing (including F-DRIVE /
 F-FB and the vowel bank), envelopes/LFOs, the mod matrix, the FX chain and OTT, trancegate and arp

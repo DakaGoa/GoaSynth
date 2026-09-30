@@ -17,7 +17,9 @@
 //   5. the trial length   - License.h's trialHours vs the copy
 //   6. the address        - the canonical link in every page, sitemap.xml and
 //                           robots.txt all naming one origin, with the sitemap
-//                           listing every published page (and nothing else).
+//                           listing every published page (and nothing else),
+//                           and og:url / the social images derived from the
+//                           canonicals rather than written down again.
 //                           Search-engine verification files are tokens, not
 //                           pages, so they are exempt and stay out of the list
 //
@@ -35,6 +37,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <regex>
 #include <set>
 #include <string>
@@ -452,6 +455,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         static const std::regex verificationFile (R"(^google[a-z0-9]+\.html$)", std::regex::icase);
 
         std::set<std::string> pages;    // the canonical URL of every published page
+        std::map<std::string, std::string> canonByRel;
         std::string origin;
 
         for (const auto& rel : htmlFilesUnder (docsRoot))
@@ -481,6 +485,80 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
                       "two hosts, and a crawler will index whichever half it trusts");
 
             pages.insert (url);
+            canonByRel[rel] = url;
+        }
+
+        // The head repeats the address in absolute URLs, and a stale one is
+        // invisible on the page: it surfaces as a preview card showing a broken
+        // image, or as a link to a host that has moved, weeks later. og:url is
+        // this page's own canonical, and the social images are served from
+        // beside the site root, so both are derived rather than written down.
+        static const std::regex metaTag (R"re(<meta\s[^>]*>)re");
+        static const std::regex contentAttr (R"re(content="([^"]*)")re", std::regex::icase);
+
+        auto metaValues = [&] (const std::string& page, const std::string& keyIs,
+                               const std::string& key)
+        {
+            std::vector<std::string> values;
+            const std::regex hasKey (keyIs + "=\"" + key + "\"", std::regex::icase);
+
+            for (auto it = std::sregex_iterator (page.begin(), page.end(), metaTag);
+                 it != std::sregex_iterator(); ++it)
+            {
+                const std::string tag = (*it)[0].str();
+
+                if (! std::regex_search (tag, hasKey))
+                    continue;
+
+                std::smatch m;
+                values.push_back (std::regex_search (tag, m, contentAttr) ? m[1].str()
+                                                                         : std::string());
+            }
+
+            return values;
+        };
+
+        const auto baseAt = canonByRel.find ("index.html");
+        const std::string base = baseAt == canonByRel.end() ? std::string() : baseAt->second;
+
+        if (base.empty())
+            r.problems.push_back ("docs/index.html: its canonical link is missing or unreadable, "
+                                  "so there is no site root to check the head's absolute URLs "
+                                  "against");
+
+        for (const auto& entry : canonByRel)
+        {
+            const std::string page = readFile (docsRoot / entry.first);
+            const auto ogUrls = metaValues (page, "property", "og:url");
+
+            if (ogUrls.empty())
+                r.problems.push_back ("docs/" + entry.first + ": no <meta property=\"og:url\"> - "
+                    "a shared link then resolves to whatever address it was shared at, which is "
+                    "not necessarily the canonical one");
+
+            for (const auto& value : ogUrls)
+                if (value != entry.second)
+                    r.problems.push_back ("docs/" + entry.first + ": og:url is " + value
+                        + " but its canonical link says " + entry.second + " - the head and the "
+                          "canonical link disagree about this page's own address");
+
+            auto checkImage = [&] (const char* keyIs, const char* key)
+            {
+                for (const auto& value : metaValues (page, keyIs, key))
+                {
+                    if (value.rfind ("https://", 0) != 0)
+                        r.problems.push_back ("docs/" + entry.first + ": " + key + " is \"" + value
+                            + "\", which is not an absolute https:// URL - a preview card cannot "
+                              "resolve it");
+                    else if (! base.empty() && value.compare (0, base.size(), base) != 0)
+                        r.problems.push_back ("docs/" + entry.first + ": " + key + " points at "
+                            + value + ", which is not under the site root " + base + " - the page "
+                              "still names an address the site no longer lives at");
+                }
+            };
+
+            checkImage ("property", "og:image");
+            checkImage ("name", "twitter:image");
         }
 
         const fs::path sitemap = docsRoot / "sitemap.xml";

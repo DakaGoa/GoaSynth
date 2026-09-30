@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Generate docs/robots.txt and docs/sitemap.xml from the pages that exist.
+"""Generate the site's crawl files and its absolute URLs from the pages.
 
-Two files answer the same question - what is published here, and at which
-address? - and a hand-written answer goes wrong quietly: a page added without a
-sitemap entry is a page nobody crawls, and a host changed in one file but not
-the others splits the site across two origins. Neither file is written by hand
-any more:
+Three places repeat the site's address, and all three are easy to leave behind
+when it moves: robots.txt, sitemap.xml, and the absolute URLs in each page's
+head (og:url, og:image, twitter:image). None of them is written by hand:
 
     python tools/make-site-index.py           # rewrite them if they drifted
     python tools/make-site-index.py --check   # fail if they would change
@@ -14,25 +12,37 @@ Where the facts come from
 -------------------------
 The pages say where they live. Every .html file under docs/ declares its own
 address in <link rel="canonical">, and those declarations are the only input:
-sitemap.xml lists exactly them, and the Sitemap: line in robots.txt names the
-sitemap beside the canonical of the site root. So a new page is picked up by
-being a page - its canonical link is the thing that puts it on the list - and
-there is no second list to keep in step.
 
-Search-engine verification files (google*.html) are tokens, not pages: they are
-skipped here, and they belong in no sitemap.
+  * sitemap.xml lists exactly them;
+  * the Sitemap: line in robots.txt names the sitemap beside the canonical of
+    the site root, which is also the base every og:image is built on;
+  * og:url in a page's head is rewritten to that page's own canonical, so the
+    head cannot disagree with the canonical link beside it;
+  * og:image and twitter:image are re-rooted at the site base, keeping the
+    asset path they already have (see SITE_IMAGE below).
+
+So a new page is picked up by being a page, and moving the site to a custom
+domain is: edit the canonical links, run this, commit. Nothing else knows the
+host.
+
+The one asset path that is not in the pages
+-------------------------------------------
+SITE_IMAGE is the shared social-preview image, named here rather than in five
+files. Change it here when the screenshot it points at changes; the pages are
+rewritten from this constant. It is a path under the site root, not a URL.
 
 What it refuses
 ---------------
   * a page with no canonical link, or with more than one;
   * a canonical that is not an absolute https:// URL;
   * pages claiming two different origins - the sitemap can only advertise one,
-    so that is a page to fix, not a sitemap to guess at;
+    so that is a page to fix, not a value to guess at;
+  * a page with no og:url, or an og:image that is not absolute;
   * a missing docs/index.html, or a docs/ with no pages in it.
 
 The output is deterministic - sorted, LF endings, no timestamps - so re-running
 it over an unchanged tree rewrites identical bytes and says so. tests/DocsCheck
-compares the same three files during the test suite; this tool exists so that a
+compares the same values during the test suite; this tool exists so that a
 failure is a one-command fix rather than a hand edit.
 
 Plain Python 3, no third-party modules, nothing to install.
@@ -47,6 +57,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 ROBOTS = DOCS / "robots.txt"
 SITEMAP = DOCS / "sitemap.xml"
+
+# The social-preview image every page shares, as a path under the site root.
+SITE_IMAGE = "assets/ui-overview.png"
 
 CANONICAL = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"')
 TOKEN_FILE = re.compile(r"^google[a-z0-9]+\.html$", re.IGNORECASE)
@@ -150,6 +163,50 @@ def site_base(pages: list[tuple[str, str]]) -> str:
         "site root its address")
 
 
+def rewrite_meta(text: str, key_is: str, key: str, value: str, rel: str) -> tuple[str, int]:
+    """Set content="..." on every <meta> tag matching this property/name.
+
+    Attribute order is not assumed: the tag is matched as a whole and only its
+    content attribute is replaced, so anything else about it survives untouched.
+    """
+    tag = re.compile(r'<meta\s[^>]*\b' + key_is + r'="' + re.escape(key) + r'"[^>]*>')
+    changed = 0
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changed
+        updated, n = re.subn(r'content="[^"]*"', f'content="{value}"', match.group(0))
+
+        if n != 1:
+            die(f"docs/{rel}: a <meta {key_is}=\"{key}\"> tag has no content=\"...\" "
+                f"to rewrite - fix the tag, not this tool")
+
+        changed += n
+        return updated
+
+    return tag.sub(replace, text), changed
+
+
+def rehome_head(rel: str, canonical: str, base: str) -> str:
+    """The page, with the absolute URLs in its head re-derived."""
+    text = (DOCS / rel).read_text(encoding="utf-8")
+    image = base + SITE_IMAGE
+
+    text, urls = rewrite_meta(text, "property", "og:url", canonical, rel)
+
+    if urls == 0:
+        die(f"docs/{rel} has no <meta property=\"og:url\"> - every page needs one, "
+            f"pointing at its own canonical, or a shared link resolves to whatever "
+            f"address it was shared at")
+
+    if urls > 1:
+        die(f"docs/{rel} declares {urls} og:url values - there must be exactly one")
+
+    text, _ = rewrite_meta(text, "property", "og:image", image, rel)
+    text, _ = rewrite_meta(text, "name", "twitter:image", image, rel)
+
+    return text
+
+
 def build(pages: list[tuple[str, str]]) -> tuple[str, str, str]:
     origins = sorted({origin_of(url) for _, url in pages})
 
@@ -166,59 +223,65 @@ def build(pages: list[tuple[str, str]]) -> tuple[str, str, str]:
     return (
         ROBOTS_TEMPLATE.format(base=base),
         SITEMAP_TEMPLATE.format(entries=entries),
-        origins[0],
+        base,
     )
 
 
-def write_if_changed(path: Path, text: str, check: bool) -> bool:
+def write_if_changed(path: Path, text: str, check: bool, label: str) -> bool:
     """True when the file had to change (or, in --check mode, would have to)."""
     current = path.read_text(encoding="utf-8") if path.exists() else None
 
     if current == text:
-        print(f"  docs/{path.name:<12} already current")
+        print(f"  {label:<24} already current")
         return False
 
     if check:
         state = "missing" if current is None else "out of date"
-        print(f"  docs/{path.name:<12} {state}")
+        print(f"  {label:<24} {state}")
         return True
 
     # newline="\n" so a Windows checkout does not turn these into CRLF and make
     # every run look like a change.
     path.write_text(text, encoding="utf-8", newline="\n")
-    print(f"  docs/{path.name:<12} {'written' if current is None else 'rewritten'}")
+    print(f"  {label:<24} {'written' if current is None else 'rewritten'}")
     return True
 
 
 def main() -> int:
-    check = "--check" in sys.argv[1:]
+    args = sys.argv[1:]
 
-    if check and any(a not in ("--check",) for a in sys.argv[1:]):
+    if any(a not in ("--check",) for a in args):
         die("usage: make-site-index.py [--check]")
 
-    print("make-site-index: rebuilding the crawl files from the pages\n")
+    check = "--check" in args
+
+    print("make-site-index: rebuilding the crawl files and the page URLs\n")
 
     pages = read_pages()
-    robots, sitemap, origin = build(pages)
+    robots, sitemap, base = build(pages)
 
-    print(f"  {len(pages)} page(s) under docs/, all on {origin}")
+    print(f"  {len(pages)} page(s) under docs/, all on {base}")
 
     changed = [
-        write_if_changed(ROBOTS, robots, check),
-        write_if_changed(SITEMAP, sitemap, check),
+        write_if_changed(ROBOTS, robots, check, "docs/robots.txt"),
+        write_if_changed(SITEMAP, sitemap, check, "docs/sitemap.xml"),
     ]
 
+    for rel, canonical in pages:
+        changed.append(write_if_changed(DOCS / rel, rehome_head(rel, canonical, base),
+                                        check, f"docs/{rel}"))
+
     if check and any(changed):
-        print("\nThe crawl files do not match the pages. Run this without --check "
-              "to rewrite them.", file=sys.stderr)
+        print("\nThe files do not match the pages. Run this without --check to "
+              "rewrite them.", file=sys.stderr)
         return 1
 
     if not any(changed):
-        print("\nNothing to do: robots.txt and sitemap.xml already list exactly "
-              "the pages that exist.")
+        print("\nNothing to do: the crawl files and every page URL already agree "
+              "with the pages' canonical links.")
     else:
-        print("\nCommit the two files: search engines read them from the deployed "
-              "site, so they only count once they are pushed.")
+        print("\nCommit the changed files: search engines read them from the "
+              "deployed site, so they only count once they are pushed.")
 
     return 0
 

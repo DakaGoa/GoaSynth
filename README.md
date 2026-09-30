@@ -449,10 +449,20 @@ canonical address against the sitemap and `robots.txt`, fails when a published p
 the sitemap, and fails when the sitemap lists a URL that nothing serves. So a forgotten page fails the
 build, and this tool is the one-command fix.
 
+It also re-derives the absolute URLs in each page's head: `og:url` becomes that page's own canonical,
+and `og:image` / `twitter:image` are re-rooted at the site root — including social cards, which is the
+one place a stale host stayed invisible until somebody shared a link and got a broken image. The
+shared screenshot's path lives in `SITE_IMAGE` at the top of the tool, since it belongs to the site
+rather than to any one page.
+
 Everything still names `https://y4m4.github.io/GoaSynth/` — the GitHub Pages address of this
-repository. Moving to a custom domain is therefore: change the canonical link in `docs/index.html` and
-the four legal pages (that is the whole source of truth), change the absolute `og:image` /
-`twitter:image` URLs in the landing page's head, then run the tool. Nothing else knows the host.
+repository — and the pages are the only place that address is written down. So moving to a custom
+domain is: edit the canonical links, run the tool, commit. `DocsCheck` fails if a page is left behind.
+
+The one host still written by hand is the `SoftwareApplication` JSON-LD block in the landing page's
+head, which names absolute URLs for the site and for its three screenshots. Re-deriving those needs
+the screenshot paths declared somewhere the tool can see them, so they are a deliberate hand edit
+until then — change them in the same commit as the canonicals.
 
 One file under `docs/` is deliberately *not* a page: `docs/googlebe8101dec58dcb76.html` is Google
 Search Console's proof that the site is ours. It has to be served from the site root, carries no

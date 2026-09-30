@@ -286,7 +286,47 @@ int main()
         report ("sitemap drift", r.problems, true);
     }
 
-    // ---- 6c. a verification token is not a page ----------------------------
+    // ---- 6c. a hand-written host left behind in the head -------------------
+    // The point of deriving og:url and the social images from the canonicals is
+    // that a move is one edit per page. A stale absolute URL does not break the
+    // page, which is exactly why it needs a guard: it shows up as a broken
+    // preview card in someone else's timeline.
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html",
+                                  "<meta property=\"og:image\" content=\"https://y4m4.github.io/GoaSynth/assets/ui-overview.png\">",
+                                  "<meta property=\"og:image\" content=\"https://old-site.example/assets/ui-overview.png\">");
+        expect (n == 1, "head drift: expected exactly one og:image tag to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "og:image"),
+                "head drift: an og:image pointing at an address the site left was not reported");
+        expect (anyProblemContains (r.problems, "no longer lives at"),
+                "head drift: the stale host was not explained as a moved address");
+        report ("head drift", r.problems, true);
+    }
+
+    // ---- 6d. og:url contradicting the canonical beside it ------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html",
+                                  "<meta property=\"og:url\" content=\"https://y4m4.github.io/GoaSynth/\">",
+                                  "<meta property=\"og:url\" content=\"https://y4m4.github.io/GoaSynth/index.html\">");
+        expect (n == 1, "og:url drift: expected exactly one og:url tag to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "disagree about this page's own address"),
+                "og:url drift: a head disagreeing with its own canonical link was not reported");
+        report ("og:url drift", r.problems, true);
+    }
+
+    // ---- 6e. a verification token is not a page ----------------------------
     // Google's (and Bing's) site-verification file has to sit at the site root,
     // has no canonical and belongs in no sitemap - so demanding either would
     // make the guard fight the one file that proves the site is yours.

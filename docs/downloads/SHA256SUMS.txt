@@ -1,6 +1,6 @@
 # GoaSynth 1.1.0 - checksums for the published download
 #
-# Built 30 September 2026 at 03:25, from commit 7c32e6b.
+# Built 30 September 2026 at 03:25, from commit 75f2984.
 # Site and install notes: https://y4m4.github.io/GoaSynth/
 #
 # Check the ZIP before you install it. Windows (PowerShell):
@@ -15,7 +15,7 @@
 # The hash below must match the file you have. If it does not, the download was
 # damaged or replaced on the way to you - do not install it, and tell support.
 #
-590c3d225d471ad95da9d2067fd8476ee34e14118c4d6a423084710ea9164a82  GoaSynth-1.1.0-win64.zip
+bd47c1be56f290cd3c3ffc291553e513832c71e8c59e70236311ae1a7c367820  GoaSynth-1.1.0-win64.zip
 #
 # And the plugin inside the ZIP, once it is unpacked, should hash to:
 #

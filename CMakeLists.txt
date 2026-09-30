@@ -14,14 +14,25 @@ FetchContent_Declare(JUCE
 FetchContent_MakeAvailable(JUCE)
 
 # Plugin formats. VST3 everywhere; AU (Logic) only on Apple, where the AU
-# wrapper exists at all, and LV2 on Linux. JUCE 8.0.8 has no CLAP wrapper, so
-# CLAP cannot be built here without a third-party shim - see README.
-set(GOASYNTH_FORMATS VST3)
+# wrapper exists at all; LV2 on Linux. JUCE 8.0.8 has no CLAP wrapper, so CLAP
+# cannot be built here without a third-party shim - see README.
+# Standalone is the .exe that runs the synth without a DAW (all desktop OSes).
+set(GOASYNTH_FORMATS VST3 Standalone)
 if(APPLE)
     list(APPEND GOASYNTH_FORMATS AU AUv3)
 elseif(UNIX)
     list(APPEND GOASYNTH_FORMATS LV2)
 endif()
+
+# Brand icon: juceaide turns these PNGs into the exe/bundle icons (Windows
+# .ico inside the rc, macOS .icns, the VST3 bundle's Plugin.ico). Regenerate
+# them with `python tools/make-brand.py` - see Assets/.
+set(GOA_ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon_512.png")
+set(GOA_ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon_32.png")
+# GoaSynth-Setup carries the same face plus a teal install badge
+# (make-brand.py's setup-icon_*).
+set(GOA_SETUP_ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/setup-icon_512.png")
+set(GOA_SETUP_ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/setup-icon_32.png")
 
 juce_add_plugin(GoaSynth
     COMPANY_NAME "FreebuffAudio"
@@ -36,6 +47,8 @@ juce_add_plugin(GoaSynth
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_AFTER_BUILD FALSE
+    ICON_BIG ${GOA_ICON_BIG}
+    ICON_SMALL ${GOA_ICON_SMALL}
 )
 
 target_sources(GoaSynth PRIVATE
@@ -60,6 +73,8 @@ target_link_libraries(GoaSynth
     PRIVATE
         juce::juce_audio_processors
         juce::juce_audio_formats
+        juce::juce_audio_utils
+        juce::juce_audio_devices
         juce::juce_dsp
         juce::juce_cryptography
         juce::juce_recommended_config_flags
@@ -251,7 +266,9 @@ add_test(NAME DocsCheckTest COMMAND DocsCheckTest)
 
 # Double-click helper for .goalicense files (ships to buyers). Shares the
 # plugin's License core so a double-click runs the identical activation path.
-juce_add_gui_app(GoaSynthLicense PRODUCT_NAME "GoaSynthLicense" COMPANY_NAME "GoaSynth")
+juce_add_gui_app(GoaSynthLicense PRODUCT_NAME "GoaSynthLicense" COMPANY_NAME "GoaSynth"
+    ICON_BIG ${GOA_ICON_BIG}
+    ICON_SMALL ${GOA_ICON_SMALL})
 target_sources(GoaSynthLicense PRIVATE
     Helper/GoaSynthLicense.cpp
     Source/License.cpp
@@ -268,3 +285,45 @@ target_link_libraries(GoaSynthLicense PRIVATE
     juce::juce_recommended_config_flags
 )
 target_include_directories(GoaSynthLicense PRIVATE Source)
+
+# Buyer-facing installer (Windows): embeds the built VST3 bundle and the
+# standalone exe as RCDATA resources and installs them to the standard VST3
+# folder (elevated) or a custom folder, with Add/Remove-Programs + Start-menu
+# entries and a --silent mode. Depends on both payloads, so a normal
+# "cmake --build build --config Release" builds everything in order.
+if (WIN32)
+    # JUCE places the artefacts under <build>/GoaSynth_artefacts/<Config>/.
+    # The installer targets the Release payload, like make-release.py.
+    set(GOA_ARTEFACTS "${CMAKE_BINARY_DIR}/GoaSynth_artefacts/Release")
+    set(GOA_PAYLOAD_PLUGIN     "${GOA_ARTEFACTS}/VST3/GoaSynth.vst3/Contents/x86_64-win/GoaSynth.vst3")
+    set(GOA_PAYLOAD_MODULEINFO "${GOA_ARTEFACTS}/VST3/GoaSynth.vst3/Contents/Resources/moduleinfo.json")
+    set(GOA_PAYLOAD_STANDALONE "${GOA_ARTEFACTS}/Standalone/GoaSynth.exe")
+
+    string(REPLACE "." "," GOA_VERSION_CSV "${PROJECT_VERSION}")
+
+    configure_file(Installer/installer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/generated/installer.rc" @ONLY)
+
+    juce_add_gui_app(GoaSynthSetup PRODUCT_NAME "GoaSynth-Setup" COMPANY_NAME "GoaSynth"
+        ICON_BIG ${GOA_SETUP_ICON_BIG}
+        ICON_SMALL ${GOA_SETUP_ICON_SMALL})
+    target_sources(GoaSynthSetup PRIVATE
+        Installer/GoaSynthSetup.cpp
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/installer.rc"
+    )
+    target_compile_definitions(GoaSynthSetup PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_MODAL_LOOPS_PERMITTED=0
+        GOASYNTH_VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(GoaSynthSetup PRIVATE
+        Installer
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    )
+    target_link_libraries(GoaSynthSetup PRIVATE
+        juce::juce_core
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+    )
+    add_dependencies(GoaSynthSetup GoaSynth_VST3 GoaSynth_Standalone)
+endif()

@@ -2,6 +2,7 @@ build/
 _build/
 *.user
 .vs/
+__pycache__/
 
 # Agent/tooling state, not project source
 .freebuff/

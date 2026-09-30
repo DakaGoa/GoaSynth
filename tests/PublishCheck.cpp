@@ -55,6 +55,8 @@ const std::set<std::string> allowlist =
     "assets/preset-browser.png",
     "assets/mod-dots.png",
     "assets/mod-pick-flash.png",
+    "favicon.ico",                // the site favicon (docs/favicon.ico)
+    "assets/icon_256.png",        // apple-touch-icon referenced by index.html
     "downloads/SHA256SUMS.txt",   // the checksums buyers verify their download with
     "legal/eula.html",
     "legal/privacy.html",

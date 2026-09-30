@@ -8,7 +8,8 @@
 <meta property="og:title" content="GoaSynth — Goa Trance VST3 Synthesizer">
 <meta property="og:description" content="303 acid, supersaws, trancegate and arp locked to the transport, OTT, an AI patch designer that runs offline or on your own API key, and a 24-hour full trial. €15 one-time for Windows, macOS and Linux, activated offline.">
 <meta name="theme-color" content="#0b0714">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='.5' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230b0714'/%3E%3Cpath d='M12 40c6-18 12-18 18 0s12 18 22-14' fill='none' stroke='url(%23g)' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="assets/icon_256.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,7 +25,7 @@
   <div class="wrap topbar-inner">
     <a class="brand" href="#top">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="26" height="26"><defs><linearGradient id="bm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a855f7"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs><path d="M8 42c7-22 13-22 20 0s13 22 28-16" fill="none" stroke="url(#bm)" stroke-width="7" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 512 512" width="26" height="26"><defs><linearGradient id="bm" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9b6cff"/><stop offset=".5" stop-color="#36d6c3"/><stop offset="1" stop-color="#ff5f9e"/></linearGradient></defs><path d="M44 330C128 176 216 176 256 300s140 148 192-162" fill="none" stroke="url(#bm)" stroke-width="58" stroke-linecap="round"/></svg>
       </span>
       <span class="brand-text">
         <strong>GOA <span>SYNTH</span></strong>
@@ -204,8 +205,8 @@
         <!-- release:end -->
         <p class="fine">Windows: <code>Get-FileHash .\GoaSynth-1.1.0-win64.zip -Algorithm SHA256</code>.
           macOS and Linux: <code>sha256sum -c SHA256SUMS.txt</code> in the folder you downloaded to.
-          The plugin's own hash is over the unpacked <code>GoaSynth.vst3</code> binary, so you can
-          verify it after installing as well as before.</p>
+          The Setup hash is over the <code>GoaSynth-Setup.exe</code> inside the ZIP — the installer
+          that puts the plugin and the standalone app in place.</p>
       </div>
     </div>
   </section>
@@ -1191,12 +1192,13 @@
         <ol class="steps">
           <li>Grab the Windows build from the download page linked in your purchase email.
             <button class="copy" data-copy-target="dlWin">Copy link</button></li>
-          <li>Copy the whole <code>GoaSynth.vst3</code> folder — it's a bundle, the folder <em>is</em> the plugin — into:
+          <li>Unzip and double-click <code>GoaSynth-Setup.exe</code>, then choose where the plugin goes:
             <button class="copy" data-copy="C:\Program Files\Common Files\VST3\">Copy path</button>
-            <code class="path">C:\Program Files\Common Files\VST3\</code>
-            <span class="muted">…or into your DAW's own VST3 folder.</span>
+            <code class="path">Standard VST3 folder → C:\Program Files\Common Files\VST3\</code>
+            <span class="muted">(every DAW; Windows asks once for admin) — or pick a custom folder your DAW scans, no admin needed.</span>
           </li>
-          <li>Rescan plugins in your DAW, create an instrument track, and play.</li>
+          <li>Rescan plugins in your DAW, create an instrument track, and play. To play without a DAW,
+            run the <code>GoaSynth.exe</code> the installer put next to the plugin.</li>
         </ol>
       </div>
 

@@ -425,13 +425,29 @@ remembering to submit it:
   link preview and a rich result read the price, the platforms and the preset count from data rather
   than guessing them from prose.
 
-They all name `https://y4m4.github.io/GoaSynth/` — the GitHub Pages address of this repository. Moving
-to a custom domain means changing that one base in four kinds of place: the canonical link in
-`docs/index.html`, the same link in each legal page, every `<loc>` in `docs/sitemap.xml`, the
-`Sitemap:` line in `docs/robots.txt`, and the absolute `og:image` / `twitter:image` URLs in the
-landing page's head. `DocsCheck` fails if they disagree: it compares every page's canonical address
-against the sitemap and `robots.txt`, fails when a published page is missing from the sitemap, and
-fails when the sitemap lists a URL that nothing serves.
+Neither file is written by hand. The pages say where they live — each page's canonical link — and
+the tool reads that and writes the other two:
+
+```bash
+python tools/make-site-index.py           # rewrite robots.txt and sitemap.xml
+python tools/make-site-index.py --check   # report whether they have drifted (exit 1 if so)
+```
+
+It reads every `.html` file under `docs/`, refuses a page with no canonical link (or with two, or with
+a relative one), refuses two pages claiming different origins, and writes the sitemap from the
+canonicals that remain — so a new page is picked up by *being* a page, and there is no second list to
+keep in step. Search-engine verification files (`google*.html`) are recognised as tokens and skipped.
+The output is deterministic, so re-running it over an unchanged tree is a no-op.
+
+`DocsCheck` checks the same three files at test time, which is the backstop: it compares every page's
+canonical address against the sitemap and `robots.txt`, fails when a published page is missing from
+the sitemap, and fails when the sitemap lists a URL that nothing serves. So a forgotten page fails the
+build, and this tool is the one-command fix.
+
+Everything still names `https://y4m4.github.io/GoaSynth/` — the GitHub Pages address of this
+repository. Moving to a custom domain is therefore: change the canonical link in `docs/index.html` and
+the four legal pages (that is the whole source of truth), change the absolute `og:image` /
+`twitter:image` URLs in the landing page's head, then run the tool. Nothing else knows the host.
 
 One file under `docs/` is deliberately *not* a page: `docs/googlebe8101dec58dcb76.html` is Google
 Search Console's proof that the site is ours. It has to be served from the site root, carries no

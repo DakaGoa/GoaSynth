@@ -18,3 +18,9 @@ Source/LicenseKeys.h
 # library, never in a public repository. The checksums it is verified with are
 # published from docs/downloads/ instead — see tools/make-release.py
 dist/
+
+# Buyer reviews: real names, order references and email addresses are other
+# people's personal data, and this repository is public. Only the text a buyer
+# agreed to have quoted is published, by tools/make-reviews.py — see
+# Fulfil/REVIEWS.md
+Fulfil/reviews.json

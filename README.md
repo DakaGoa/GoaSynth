@@ -488,6 +488,35 @@ and the first crawl of a new site can take days — so submit it rather than wai
 `docs/`, add a `Disallow` to `robots.txt` *and* a note there saying why, because access control is not
 what a robots file does.
 
+### Buyer reviews, and the star rating they earn
+
+Stars in a search result need an `aggregateRating`, and Google's review snippet guidelines are
+narrow about what may back one: the reviews have to be **visible on the page that carries the markup**,
+the count has to be the reviews a reader can see, and reviews cannot be aggregated in from another
+website. So the reviews are collected from buyers directly and published to the site by one tool:
+
+```bash
+python tools/make-reviews.py           # write the reviews section and the aggregateRating
+python tools/make-reviews.py --check   # fail if the page and the store disagree
+```
+
+- The store is `Fulfil/reviews.json`, **gitignored** — it holds buyers' names, order references and
+  email addresses, and this repository is public. Only a review the buyer agreed to have quoted, in
+  writing, is ever published.
+- `tools/make-reviews.py` writes both halves: a reviews section between `<!-- reviews:begin -->` and
+  `<!-- reviews:end -->`, and the `aggregateRating` inside the `SoftwareApplication` JSON-LD. One run,
+  so they cannot disagree.
+- Withdrawal works: set `consent` to `false` and the section and the rating come back out, leaving
+  `docs/index.html` byte-identical to what it was before the review was published.
+- `DocsCheck` fails the suite when the two halves drift apart — a count larger than the reviews on the
+  page, a rating the visible reviews do not average to, an incentivized review that does not disclose
+  it, or stars with no reviews under them at all.
+
+[`Fulfil/REVIEWS.md`](Fulfil/REVIEWS.md) has the capture process: when to ask, the email to send, what
+to record, why a bad review gets published too, and the guidelines this is built around. A review
+written in exchange for a free copy or a discount has to say so, clearly and prominently — since
+24 July 2026 that is a guideline rather than good manners.
+
 ### Before you publish: the preflight check
 
 Because `docs/` *is* the website, a file dropped in there is public the moment you deploy — which is

@@ -39,6 +39,12 @@ void writeWhole (const fs::path& p, const std::string& text)
     out << text;
 }
 
+void append (const fs::path& p, const std::string& text)
+{
+    std::ofstream out (p, std::ios::binary | std::ios::app);
+    out << text;
+}
+
 // Replace every occurrence; returns how many were swapped so the test can fail
 // loudly if the text it injects into has moved.
 int replaceAll (const fs::path& p, const std::string& from, const std::string& to)
@@ -147,7 +153,7 @@ int main()
         const auto r = scan (docs, root);
 
         expect (! r.fatal, "clean tree: the guard could not run at all");
-        expect (r.checks == 6, "clean tree: expected 6 checks to run, got " + std::to_string (r.checks));
+        expect (r.checks == 7, "clean tree: expected 7 checks to run, got " + std::to_string (r.checks));
         report ("clean docs/ + Source/", r.problems, false);
     }
 
@@ -361,6 +367,68 @@ int main()
         expect (! anyProblemContains (r.problems, "googleTESTtoken"),
                 "verification token: a search-engine verification file was treated as a page");
         report ("verification token", r.problems, false);
+    }
+
+    // ---- 7. stars with nothing under them ---------------------------------
+    // The failure this check exists for: an aggregate rating a reader cannot
+    // see the evidence for. It is a manual action, not a lost snippet.
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html", "\"offers\": {",
+                                  "\"aggregateRating\": { \"@type\": \"AggregateRating\","
+                                  " \"ratingValue\": 4.9, \"ratingCount\": 42 },\n      \"offers\": {");
+        expect (n == 1, "invented stars: expected exactly one offers block to inject before, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "no review is visible"),
+                "invented stars: an aggregateRating with no reviews on the page was not reported");
+        report ("rating with no reviews", r.problems, true);
+    }
+
+    // ---- 7b. the reviews and the rating telling different stories ----------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html", "\"offers\": {",
+                                  "\"aggregateRating\": { \"@type\": \"AggregateRating\","
+                                  " \"ratingValue\": 4.9, \"ratingCount\": 42 },\n      \"offers\": {");
+        expect (n == 1, "review drift: could not inject an aggregate rating");
+
+        // Two reviews, one of them written for a free copy and not disclosing it.
+        append (docs / "index.html",
+                "\n<section id=\"reviews\">\n"
+                "<p><b data-review-average>4.9</b> out of 5, from <b data-review-count>42</b> buyers.</p>\n"
+                "<article class=\"review\" data-rating=\"5\" data-incentive=\"true\">A</article>\n"
+                "<article class=\"review\" data-rating=\"4\" data-incentive=\"false\">B</article>\n"
+                "</section>\n");
+
+        const auto r = scan (docs, root);
+
+        expect (anyProblemContains (r.problems, "ratings but 2 review(s)"),
+                "review drift: a count larger than the visible reviews was not reported");
+        expect (anyProblemContains (r.problems, "the visible reviews average 4.5"),
+                "review drift: a rating the visible reviews do not average to was not reported");
+        expect (anyProblemContains (r.problems, "say so, clearly and prominently"),
+                "review drift: an undisclosed incentivized review was not reported");
+        report ("reviews vs rating", r.problems, true);
+    }
+
+    // ---- 7c. reviews on the page with nothing rating them ------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        append (docs / "index.html",
+                "\n<article class=\"review\" data-rating=\"5\" data-incentive=\"false\">A</article>\n");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "no aggregateRating"),
+                "missing aggregate: reviews without an aggregate rating were not reported");
+        report ("reviews without a rating", r.problems, true);
     }
 
     // ---- and clean again, so a sticky failure cannot pass for a fresh one --

@@ -23,6 +23,9 @@
 //                           down again.
 //                           Search-engine verification files are tokens, not
 //                           pages, so they are exempt and stay out of the list
+//   7. the reviews        - the visible reviews, their average, the count and
+//                           the aggregateRating in the head all agreeing, and
+//                           every incentivized review disclosing that it was
 //
 // Each check reads the number from the code that implements it, so it keeps
 // working when the value changes - what it refuses to allow is the page and
@@ -654,6 +657,140 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         }
     }
 
+    // ---- 7. the reviews the page shows back the rating it claims -----------
+    // Stars in a search result are a claim about the product, and the claim is
+    // made in two places that a hand edit can pull apart: the aggregateRating in
+    // the head, and the reviews section on the page. Google's review snippet
+    // guidelines require the marked-up reviews to be visible on the marked-up
+    // page, and "don't include fake reviews" covers an aggregate nobody can see
+    // the evidence for. This is a manual action, not a lost snippet, so it is
+    // worth a check rather than a convention.
+    ++r.checks;
+    {
+        const std::string page = readFile (docsRoot / "index.html");
+
+        // data-rating is what the generator writes on each review card; the
+        // section itself is generated, so this reads the generated contract.
+        // Digit runs are bounded so the std::stoi calls below cannot throw: an
+        // unhandled exception in a checker prints nothing at all and exits on a
+        // fast-fail code, which is the one failure that reads like a pass.
+        static const std::regex ratingAttr  (R"re(data-rating="([1-5])")re");
+        static const std::regex visibleAvg  (R"re(data-review-average>([0-9]{1,3}(\.[0-9])?)<)re");
+        static const std::regex visibleCount(R"re(data-review-count>([0-9]{1,6})<)re");
+        static const std::regex aggregate   (R"re("aggregateRating")re");
+        static const std::regex aggValue    (R"re("ratingValue"\s*:\s*([0-9]{1,3}(\.[0-9])?))re");
+        static const std::regex aggCount    (R"re("(?:ratingCount|reviewCount)"\s*:\s*([0-9]{1,6}))re");
+        static const std::regex incentivizedRe (R"re(data-incentive="true")re");
+        static const std::regex disclosure  (R"re(class="review-disclosure")re");
+
+        auto occurrences = [&page] (const std::regex& re)
+        {
+            int n = 0;
+            for (auto it = std::sregex_iterator (page.begin(), page.end(), re);
+                 it != std::sregex_iterator(); ++it)
+                ++n;
+            return n;
+        };
+
+        // A rating as a whole number of tenths, so 4.6 is 46 and 4 is 40 - the
+        // same arithmetic tests/DocsCheck.cpp's counterpart in
+        // tools/make-reviews.py uses, and for the same reason: two roundings of
+        // one mean is how a guard starts failing on 4.25.
+        auto tenthsOf = [] (const std::string& value)
+        {
+            const auto dot = value.find ('.');
+            const std::string whole = dot == std::string::npos ? value : value.substr (0, dot);
+            const int frac = dot == std::string::npos ? 0 : value[dot + 1] - '0';
+            return std::stoi (whole) * 10 + frac;
+        };
+
+        int total = 0, reviews = 0;
+        for (auto it = std::sregex_iterator (page.begin(), page.end(), ratingAttr);
+             it != std::sregex_iterator(); ++it)
+        {
+            total += (*it)[1].str()[0] - '0';
+            ++reviews;
+        }
+
+        std::smatch m;
+        const bool rated = std::regex_search (page, m, aggregate);
+        const std::string afterRating = rated ? page.substr ((std::size_t) m.position (0))
+                                             : std::string();
+
+        std::smatch valueMatch, countMatch;
+        const bool hasValue = std::regex_search (afterRating, valueMatch, aggValue);
+        const bool hasCount = std::regex_search (afterRating, countMatch, aggCount);
+
+        std::smatch visible;
+        const int shownAverage = std::regex_search (page, visible, visibleAvg)
+                                     ? tenthsOf (visible[1].str()) : -1;
+        const int shownCount = std::regex_search (page, visible, visibleCount)
+                                   ? std::stoi (visible[1].str()) : -1;
+
+        if (reviews == 0 && rated)
+            r.problems.push_back ("docs/index.html: it carries an aggregateRating but no review "
+                "is visible on the page - a rating the reader cannot check the evidence for is "
+                "the fake-review case Google takes manual action over, and the guidelines "
+                "require the marked-up reviews to be on the marked-up page");
+
+        if (reviews > 0 && ! rated)
+            r.problems.push_back ("docs/index.html: it shows " + std::to_string (reviews)
+                + " review(s) but carries no aggregateRating - where individual reviews are "
+                  "marked up, the aggregate of those reviews has to be there too");
+
+        if (rated && reviews > 0)
+        {
+            if (! hasValue || ! hasCount)
+            {
+                r.problems.push_back ("docs/index.html: the aggregateRating has no "
+                    "ratingValue or no ratingCount/reviewCount - both are required before Google "
+                    "will show the stars at all");
+            }
+            else
+            {
+                const int claimed = tenthsOf (valueMatch[1].str());
+                const int counted = std::stoi (countMatch[1].str());
+                const int mean = (total * 20 + reviews) / (2 * reviews);
+
+                if (counted != reviews)
+                    r.problems.push_back ("docs/index.html: the aggregateRating says "
+                        + std::to_string (counted) + " ratings but " + std::to_string (reviews)
+                        + " review(s) are on the page - the count has to be the reviews a reader "
+                          "can see, not a bigger number");
+
+                if (claimed != mean)
+                    r.problems.push_back ("docs/index.html: the aggregateRating says "
+                        + valueMatch[1].str() + " but the visible reviews average "
+                        + std::to_string (mean / 10) + "." + std::to_string (mean % 10)
+                        + " - the stars and the reviews come from the same set or the stars are "
+                          "not backed by anything");
+
+                if (shownAverage != claimed)
+                    r.problems.push_back ("docs/index.html: the reviews section says the average "
+                        "is " + std::to_string (shownAverage / 10) + "."
+                        + std::to_string (shownAverage % 10) + " while the markup says "
+                        + valueMatch[1].str() + " - a reader has to be able to see the rating "
+                          "the markup claims");
+
+                if (shownCount != counted)
+                    r.problems.push_back ("docs/index.html: the reviews section says there are "
+                        + std::to_string (shownCount) + " buyers while the markup says "
+                        + std::to_string (counted));
+            }
+        }
+
+        // Google, 24 July 2026: a review written in exchange for a free copy, a
+        // discount or anything else has to say so, clearly and prominently.
+        const int incentivized = occurrences (incentivizedRe);
+        const int disclosed = occurrences (disclosure);
+
+        if (incentivized != disclosed)
+            r.problems.push_back ("docs/index.html: " + std::to_string (incentivized)
+                + " review(s) are marked as incentivized but " + std::to_string (disclosed)
+                + " carry a disclosure - a review written for a free copy or a discount has to "
+                  "say so, clearly and prominently, or the markup is against the guidelines");
+    }
+
     return r;
 }
 } // namespace
@@ -677,7 +814,7 @@ int main (int argc, char* argv[])
     if (r.problems.empty())
     {
         std::cout << "docs check: " << r.checks << " claim(s) across the site still match the plugin "
-                     "(price, preset bank, AI defaults, local storage, trial, address)\n";
+                     "(price, preset bank, AI defaults, local storage, trial, address, reviews)\n";
         return 0;
     }
 

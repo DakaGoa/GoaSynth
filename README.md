@@ -464,6 +464,14 @@ head, which names absolute URLs for the site and for its three screenshots. Re-d
 the screenshot paths declared somewhere the tool can see them, so they are a deliberate hand edit
 until then — change them in the same commit as the canonicals.
 
+One piece of structured data is **deliberately absent**: there is no `FAQPage` block for the FAQ
+section. Google retired FAQ rich results — its FAQPage documentation now redirects to the
+[Search changelog](https://developers.google.com/search/updates), which records the removal on
+15 June 2026 ("the FAQ rich result feature is no longer shown in Google Search results") — so the
+markup would show nothing in Google while duplicating fifteen answers in a second place to keep in
+step. The FAQ stays visible prose, which still serves readers and AI answer engines. Add it only if
+something that reads it starts paying off; don't add it expecting a rich result.
+
 One file under `docs/` is deliberately *not* a page: `docs/googlebe8101dec58dcb76.html` is Google
 Search Console's proof that the site is ours. It has to be served from the site root, carries no
 canonical and belongs in no sitemap, so `DocsCheck` recognises `google*.html` as a token and exempts

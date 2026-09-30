@@ -307,16 +307,14 @@ def build_zip(zip_path: Path, version: str, commit: str, built: str) -> tuple[in
 
     # Explicit directory entries, because the bundle *is* a folder and some
     # extractors (and every double-click) are happier when the archive says so.
-    directories = []
+    directories = {VST3_BUNDLE.name}
     for member in members:
         parent = member.relative_to(VST3_BUNDLE.parent).parent.as_posix()
         while parent not in ("", "."):
-            if parent not in directories:
-                directories.append(parent)
+            directories.add(parent)
             parent = parent.rsplit("/", 1)[0] if "/" in parent else ""
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        add_directory(archive, VST3_BUNDLE.name, stamp)
         for directory in sorted(directories):
             add_directory(archive, directory, stamp)
 

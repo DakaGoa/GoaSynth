@@ -1,6 +1,6 @@
 # GoaSynth 1.1.0 - checksums for the published download
 #
-# Built 30 September 2026 at 03:25, from commit 75f2984.
+# Built 30 September 2026 at 11:14, from commit 20a3a25.
 # Site and install notes: https://y4m4.github.io/GoaSynth/
 #
 # Check the ZIP before you install it, in the folder you downloaded it to:
@@ -12,11 +12,17 @@
 # The hash below must match the file you have. If it does not, the download was
 # damaged or replaced on the way to you - do not install it, and tell support.
 #
-3183034d33ecdf33581f1acc60878a06ff3e1de7d2222080b632d8e0b0829869  GoaSynth-1.1.0-win64.zip
+6bbbca8b6934e7cd6279b26e5c4cf8a95c97bc668f037832ca2512c2a9cb4d14  GoaSynth-1.1.0-win64.zip
 #
-# And the plugin inside the ZIP, once it is unpacked, should hash to:
+# And the GoaSynth-Setup.exe inside the ZIP should hash to:
 #
-#     16ce3b5f5452751e3697aa833b3d217b9de511df70ffadf04ad04d4338ab4fc0  GoaSynth.vst3  (8,511,488 bytes)
+#     98dcb01bb7e5e2a7395125aaf409a9538ac7d35ced2176bc9d823b29985ad02c  GoaSynth-Setup.exe  (22,882,816 bytes)
 #
-# The ZIP is 5.8 MB and holds the GoaSynth.vst3 bundle, the
-# licence helper that opens .goalicense files, a README.txt and the EULA.
+# Once it is installed, the standalone GoaSynth.exe on disk (next to the
+# plugin, by default in C:\Program Files\Common Files\VST3) should hash to:
+#
+#     3430103372c7bb3f48640fc0122affe773e07ead15e2d11bd298af4ce9fe7b4e  GoaSynth.exe  (8,802,816 bytes)
+#
+# The ZIP is 12.1 MB and holds the Setup installer (which puts
+# the plugin and the standalone app in place), the licence helper that opens
+# .goalicense files, a README.txt and the EULA.

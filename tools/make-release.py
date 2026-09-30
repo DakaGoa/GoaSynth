@@ -212,14 +212,11 @@ The plugin binary inside this package should hash to:
 The hash of the ZIP itself cannot live inside the ZIP, so it is published
 next to the download at {SITE_URL}downloads/SHA256SUMS.txt along with the
 plugin hash above. Check it before you install: a mismatch means the file was
-damaged or replaced in transit. On Windows (PowerShell):
+damaged or replaced in transit. In the folder you downloaded to:
 
-    Get-FileHash .\\{zip_name} -Algorithm SHA256
-
-On macOS or Linux, in the folder you downloaded to:
-
-    shasum -a 256 {zip_name}
-    sha256sum -c SHA256SUMS.txt
+    Windows   (PowerShell)  Get-FileHash .\\{zip_name} -Algorithm SHA256
+    macOS                   shasum -a 256 -c SHA256SUMS.txt
+    Linux                   sha256sum -c SHA256SUMS.txt
 
 Source code
 -----------
@@ -297,8 +294,11 @@ def add_text(archive: zipfile.ZipFile, text: str, name: str, stamp: tuple) -> No
     info = zipfile.ZipInfo(name, date_time=stamp)
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = 0o644 << 16
-    archive.writestr(info, text.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED,
-                     compresslevel=9)
+    # These are the only UTF-8 text files a buyer opens by hand, and the em
+    # dashes and section marks would otherwise render as mojibake in whatever
+    # Windows tool they use. The byte order mark is what makes it unambiguous.
+    payload = ("\ufeff" + text).encode("utf-8") if name.endswith(".txt") else text.encode("utf-8")
+    archive.writestr(info, payload, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
 def build_zip(zip_path: Path, version: str, commit: str, built: str) -> tuple[int, str, str, int]:
@@ -349,14 +349,11 @@ def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
 # Built {built}, from commit {commit}.
 # Site and install notes: {SITE_URL}
 #
-# Check the ZIP before you install it. Windows (PowerShell):
+# Check the ZIP before you install it, in the folder you downloaded it to:
 #
-#     Get-FileHash .\\{zip_name} -Algorithm SHA256
-#
-# macOS or Linux, in the folder you downloaded to:
-#
-#     shasum -a 256 {zip_name}
-#     sha256sum -c SHA256SUMS.txt
+#     Windows (PowerShell)  Get-FileHash .\\{zip_name} -Algorithm SHA256
+#     macOS                 shasum -a 256 -c SHA256SUMS.txt
+#     Linux                 sha256sum -c SHA256SUMS.txt
 #
 # The hash below must match the file you have. If it does not, the download was
 # damaged or replaced on the way to you - do not install it, and tell support.
@@ -367,8 +364,8 @@ def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
 #
 #     {plugin_sha}  GoaSynth.vst3  ({thousands(plugin_size)} bytes)
 #
-# The ZIP is {pretty_size(zip_size)}. Its contents are listed in the manifest
-# next to it on the download page.
+# The ZIP is {pretty_size(zip_size)} and holds the GoaSynth.vst3 bundle, the
+# licence helper that opens .goalicense files, a README.txt and the EULA.
 """
     PUBLISHED_SUMS.parent.mkdir(parents=True, exist_ok=True)
     PUBLISHED_SUMS.write_text(published, encoding="utf-8", newline="\n")

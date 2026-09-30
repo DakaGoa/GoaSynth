@@ -212,17 +212,23 @@ redesign waves, octaves and groove density wholesale.
   cell sets chop depth. A **PATTERN cell** launches classic trancegate shapes —
   UPLIFT (3-on/1-off), OFF-BEAT house, ROLLER 8ths, SLOWROCK half-time, 16THS,
   OFF+4TH swell — cycling with left/right click; hand edits flip it back to
-  MANUAL. All steps on = bypass. The **COPY cell** mirrors the arp strip's
+  MANUAL. The **SHAPE cell** sets the edge contour for every step: SQUARE (the
+  hard gate), SMOOTH (half-cosine rise/fall), SAW (instant-on, falling ramp) and
+  TRIANGLE (sine swell) — the whole pattern hard-chops or swoons together. All
+  steps on = bypass. The **COPY cell** mirrors the arp strip's
   active/rest pattern onto the gate in one click, so a programmed arp run gets
   an identically gated trance chop.
 - **Arp sequencer**: a second 16-step strip plays the held note as a programmed
   semitone run (each step: Rest or +0...+11), with 0-3 octave range and the same
   sync divisions — classic Goa rolling arp lines. Each step has a **velocity
   bar** (drag it up/down; right-click toggles a full-velocity accent) that the
-  synth plays back exactly, for pumping off-beat dynamics. The playhead cell
-  lights up while the transport runs. The **DIR cell** cycles playback
-  direction: UP, DOWN, UP-DOWN (ping-pong), RANDOM (fresh roll every step) and
-  CONVERGE (outer pair inward, 0-15-1-14-...). The arp also **emits the notes it
+  synth plays back exactly, for pumping off-beat dynamics, plus a **gate band**
+  (drag left/right) that sets the step's note length from 5% to 100% of the
+  step. The playhead cell lights up while the transport runs. The **DIR cell**
+  cycles playback direction: UP, DOWN, UP-DOWN (ping-pong), RANDOM (fresh roll
+  every step), CONVERGE (outer pair inward, 0-15-1-14-...) and STRUM (every held
+  note fires at each boundary, staggered ~18 ms bottom-up — a strummed chord,
+  with the step's semitone transposing the whole chord). The arp also **emits the notes it
   plays to the host's MIDI output**, so a generated line can be recorded to a
   track or fed to another instrument; only the arp's own events are sent (the
   incoming notes are never echoed back).
@@ -258,10 +264,11 @@ so transient levels are readable against fast programme material.
 
 The **noise** oscillator offers **white or pink** generation (pink is the
 natural -3 dB/oct tilt of cymbals, air and wind) with a decorrelated stereo
-image, the **trancegate** re-slew every step edge over ~1 ms to kill clicks
-while staying sample-accurate on the grid, and the **arp sequencer** accents
-any step whose velocity is pulled to 100% (louder + a longer gate, TB-303
-style).
+image, the **trancegate** renders every step edge click-free — a ~1 ms slew on
+the hard SQUARE shape, half-cosine, falling-ramp and sine contours on SMOOTH,
+SAW and TRIANGLE — while staying sample-accurate on the grid, and the **arp
+sequencer** accents any step whose velocity is pulled to 100% (louder + a
+longer gate, TB-303 style).
 
 ## Host integration
 

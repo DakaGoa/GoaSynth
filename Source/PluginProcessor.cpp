@@ -92,6 +92,8 @@ void GoaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 {
     currentSR = sampleRate;
     synth.setCurrentPlaybackSampleRate (sampleRate);
+    pendingArpEvents.clear();
+    totalSamplesRendered = 0;
 
     const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) juce::jmax (1, samplesPerBlock), 2 };
     chorus.prepare (spec); chorus.reset();
@@ -433,6 +435,22 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     double ppq = 0.0;
     bool playing = false;
     {
+#ifdef GOA_TEST_BUILD
+        // Test hook: the suite injects a fake transport (tests/FakePlayHead.h)
+        // without shipping any test code in release builds.
+        if (testPlayHead != nullptr)
+        {
+            if (auto pos = testPlayHead->getPosition())
+            {
+                if (pos->getBpm().hasValue())
+                    bpm = *pos->getBpm();
+                if (pos->getPpqPosition().hasValue())
+                    ppq = *pos->getPpqPosition();
+                playing = pos->getIsPlaying();
+            }
+        }
+        else
+#endif
         if (auto* ph = getPlayHead())
             if (auto pos = ph->getPosition())
             {
@@ -594,22 +612,50 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                                        * (accented ? 1.22f : 1.0f);
                 // Strum stagger: 18 ms between string starts, bottom note last.
                 const int at0 = (int) arpClock.stepStartSample;
-                const int at = juce::jlimit (0, juce::jmax (0, numSamples - 1),
-                    at0 + (strum ? (strumCount - 1 - strumIdx) * (int) (0.018 * currentSR) : 0));
-                const int len = juce::jmax (2, juce::jmin (numSamples,
-                    (int) std::lround (stepBeats * (60.0 / bpm) * currentSR * gateFrac)));
-                midi.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
-                midi.addEvent (juce::MidiMessage::noteOff (1, note),
-                               juce::jmin (numSamples - 1, at + len));
-                // Mirror to the host's MIDI output so the arp can be recorded
-                // or sent on to another instrument.
-                midiOut.addEvent (juce::MidiMessage::noteOn (1, note, vel), at);
-                midiOut.addEvent (juce::MidiMessage::noteOff (1, note),
-                                  juce::jmin (numSamples - 1, at + len));
+                const int stagger = (strum ? (strumCount - 1 - strumIdx)
+                                           * (int) (0.018 * currentSR) : 0);
+                const int len = juce::jmax (2,
+                    (int) std::lround (stepBeats * (60.0 / bpm) * currentSR * gateFrac));
+
+                // Both events are parked with ABSOLUTE sample times and the
+                // owning block delivers them (see PendingArpEvent in the
+                // header): gate lengths and staggers routinely outlive or
+                // overflow one block, and clamping used to truncate both.
+                pendingArpEvents.push_back ({ note, vel,
+                    totalSamplesRendered + at0 + stagger, false });
+                pendingArpEvents.push_back ({ note, vel,
+                    totalSamplesRendered + at0 + stagger + len, true });
             }
             }
         }
     }
+
+    // Deliver arp events whose scheduled absolute sample falls in this block.
+    // Runs every block (also while stopped, so parked events always arrive);
+    // offs on an already-released voice are harmless (release is idempotent).
+    if (! pendingArpEvents.empty())
+    {
+        const juce::int64 blockEnd = totalSamplesRendered + numSamples;
+        std::vector<PendingArpEvent> remaining;
+        remaining.reserve (pendingArpEvents.size());
+        for (const auto& ev : pendingArpEvents)
+        {
+            if (ev.when < blockEnd)
+            {
+                const int at = (int) juce::jlimit ((juce::int64) 0,
+                    (juce::int64) numSamples - 1, ev.when - totalSamplesRendered);
+                const auto msg = ev.isOff
+                    ? juce::MidiMessage::noteOff (1, ev.note)
+                    : juce::MidiMessage::noteOn  (1, ev.note, ev.vel);
+                midi.addEvent (msg, at);
+                midiOut.addEvent (msg, at);   // keep producesMidi() mirroring
+            }
+            else
+                remaining.push_back (ev);
+        }
+        pendingArpEvents.swap (remaining);
+    }
+    totalSamplesRendered += numSamples;
 
     buffer.clear();
     synth.renderNextBlock (buffer, midi, 0, numSamples);
@@ -684,27 +730,72 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                                &gatePlayhead);
             int s16 = ((gateClock.step % 16) + 16) % 16;
             double boundary = gateClock.stepStartSample;
-            // ~1 ms equal-power ramp on step boundaries: sample-accurate edges
-            // of a hard gain step are a click generator; the ramp is short
-            // enough to keep the gate tight and the grid locked.
-            const float rampLen = (float) juce::jmin ((double) numSamples,
-                juce::jmax (8.0, currentSR * 0.001));
-            float rampPos = 0.0f;
+
+            // Edge shape: SQUARE keeps the (click-free 1 ms) hard gate; the
+            // others generate the classic trance envelopes per step. Samples
+            // are measured from the CURRENT step's start, so a shape's rise
+            // and fall always complete within its own step on the grid.
+            const int shape = juce::jlimit (0, 3,
+                (int) goa::ld (apvts.getRawParameterValue (param::gateShape)));
+            // Anti-click floor for SQUARE: ~1 ms edge slew. Shape steps are
+            // already smooth by construction.
+            const float antiClick = (float) juce::jmax (8.0, currentSR * 0.001);
+            // Fractional progress through the current step, updated per sample
+            // (sample-accurate grid lock, phase carried across blocks).
+            const double spq = bpm > 0.5 ? 60.0 / bpm : 0.5;
+            const double stepSamples = juce::jmax (2.0, stepBeats * spq * currentSR);
+            float stepPhase = gatePlayhead.load (std::memory_order_relaxed);
+            const float phaseInc = (float) (1.0 / stepSamples);
+            // Shape envelope spans ~70% of the step (rise+fall), so the step
+            // still holds its level for a musical plateau instead of sawing
+            // the whole step.
+            const float envSpan = 0.70f;
+
             for (int i = 0; i < numSamples; ++i)
             {
                 if (boundary >= 0.0 && (double) i >= boundary)
                 {
                     boundary = -1.0;
                     s16 = (s16 + 1) % 16;
-                    rampPos = 0.0f;               // re-slew every boundary
+                    stepPhase = 0.0f;
                 }
-                const float target = on[s16] != 0 ? 1.0f : 1.0f - depth;
-                rampPos = juce::jmin (rampPos + 1.0f, rampLen);
-                const float t = rampLen > 0.0f ? rampPos / rampLen : 1.0f;
-                const float rt = std::sin (t * juce::MathConstants<float>::halfPi);   // equal-power
-                // Slew from wherever the gain was towards the new step's gain.
-                gateSmooth += (target - gateSmooth) * rt;
-                const float g = gateSmooth;
+                stepPhase = juce::jmin (1.0f, stepPhase + phaseInc);
+
+                // Step level (hard gate value for this step).
+                const float level = on[s16] != 0 ? 1.0f : 1.0f - depth;
+                float g = level;
+
+                if (shape == 1)          // SMOOTH: half-cosine rise/fall
+                {
+                    const float span = envSpan * 0.5f;
+                    float t;
+                    if (stepPhase < span)              t = 0.5f - 0.5f * std::cos (stepPhase / span * juce::MathConstants<float>::pi);
+                    else if (stepPhase > 1.0f - span)  t = 0.5f + 0.5f * std::cos ((stepPhase - (1.0f - span)) / span * juce::MathConstants<float>::pi);
+                    else                               t = 1.0f;
+                    g = level * t;
+                }
+                else if (shape == 2)     // SAW: instant in, linear fall to the
+                {                        // next boundary (classic sidechain-feel gate)
+                    g = level * (1.0f - stepPhase * 0.85f);
+                }
+                else if (shape == 3)     // TRIANGLE: sine rise, sine fall
+                {
+                    const float span = envSpan * 0.5f;
+                    float t;
+                    if (stepPhase < span)              t = std::sin (stepPhase / span * juce::MathConstants<float>::halfPi);
+                    else if (stepPhase > 1.0f - span)  t = std::sin ((1.0f - stepPhase) / span * juce::MathConstants<float>::halfPi);
+                    else                               t = 1.0f;
+                    g = level * t;
+                }
+                else                     // SQUARE: hard gate with 1 ms anti-click slew
+                {
+                    const float target = level;
+                    const float rt = juce::jmin (1.0f, 1.0f / antiClick);
+                    gateSmooth += (target - gateSmooth) * rt;
+                    g = gateSmooth;
+                }
+                gateSmooth = g;          // shapes carry state for the next block too
+
                 gateStep.store (s16, std::memory_order_relaxed);
                 for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                     buffer.getWritePointer (ch)[i] *= g;

@@ -360,7 +360,7 @@ int main()
         };
         chk ("cutoff"); chk ("reso"); chk ("osc1Wave"); chk ("glide"); chk ("lfo1Wave");
         chk ("osc1WtPos");
-        chk ("gateSync"); chk ("gateDepth"); chk ("gate1"); chk ("gate3"); chk ("gate16");
+        chk ("gateSync"); chk ("gateDepth"); chk ("gateShape"); chk ("gate1"); chk ("gate3"); chk ("gate16");
         chk ("arpSync"); chk ("arpOct"); chk ("arpDir"); chk ("arp1"); chk ("arp16");
         chk ("arpVel1"); chk ("arpVel5"); chk ("arpVel16");
         chk ("arpGate1"); chk ("arpGate8"); chk ("arpGate16");
@@ -2255,14 +2255,15 @@ int main()
         goa::License::activate (GOA_TEST_MASTER_KEY, arpErr);
         GoaSynthAudioProcessor arp;                        // ctor snapshots license
         FakePlayHead fake;
-        arp.setPlayHead (&fake);
+        arp.testPlayHead = &fake;   // test-only transport injection
         arp.prepareToPlay (48000.0, 512);
 
         auto setA = [&arp] (const char* id, float v)
         { if (auto* p = arp.apvts.getRawParameterValue (id)) p->store (v); };
 
-        // Arp pattern: step 1 = +0, step 5 = +7 at full velocity (accent),
-        // everything else rests; 1/16 steps.
+        // Arp pattern: step 2 = +0, step 5 = +7 at full velocity (accent),
+        // everything else rests; 1/16 steps (choice idx 1 = 0.25 quarters;
+        // idx 0 is 1/32).
         setA (param::arpSync, 1.0f);
         setA (param::arpOct, 1.0f);
         setA (param::arpDir, 0.0f);              // UP
@@ -2272,8 +2273,9 @@ int main()
             setA (param::arpVel (i).toRawUTF8(), 0.55f);
             setA (param::arpGate (i).toRawUTF8(), 0.75f);
         }
-        setA (param::arpStep (0).toRawUTF8(), 1.0f);   // +0 semitone
-        setA (param::arpStep (4).toRawUTF8(), 8.0f);   // +7 semitones
+        setA (param::arpStep (1).toRawUTF8(), 1.0f);   // step idx 1: +0 semitone
+        setA (param::arpStep (2).toRawUTF8(), 5.0f);   // step idx 2: +4 semitones
+        setA (param::arpStep (4).toRawUTF8(), 8.0f);   // step idx 4: +7 semitones
         setA (param::arpVel (4).toRawUTF8(), 1.0f);    // accent
 
         // Hold one note; render while advancing the fake transport.
@@ -2282,8 +2284,7 @@ int main()
 
         int noteOns = 0;
         double offQuartersStep0 = -1.0;   // note-off position of the +0 step
-        double onQuartersStep4 = -1.0;
-        const double spq = 0.125;         // 1/16 at 120 bpm, in quarters
+        const double spq = 0.25;          // 1/16 at 120 bpm, in quarter notes
 
         auto render = [&] (int blocks)
         {
@@ -2291,8 +2292,11 @@ int main()
             {
                 juce::AudioBuffer<float> buf (2, 512);
                 juce::MidiBuffer m;
-                if (b == 0)
-                    m = held;
+                // A real host keeps the key down; per-block MIDI streams carry
+                // no state, so re-assert the held note-ons every block (the
+                // processor's removeFirstMatchingValue keeps duplicates from
+                // stacking in arpNotesHeld).
+                m.addEvents (held, 0, -1, 0);
                 arp.processBlock (buf, m);
 
                 for (const auto& ev : m)
@@ -2302,33 +2306,36 @@ int main()
                     if (msg.isNoteOn())  ++noteOns;
                     if (msg.isNoteOff() && msg.getNoteNumber() == 60 && offQuartersStep0 < 0.0)
                         offQuartersStep0 = q;
-                    if (msg.isNoteOn() && msg.getNoteNumber() == 67)
-                        onQuartersStep4 = q;
                 }
                 fake.ppq += 512 / 48000.0 * 2.0;
             }
         };
 
-        render (8);
+        render (40);
+        // The fake transport must actually have been consulted (hook sanity).
+        if (fake.calls == 0)
+            std::printf ("arp19: test play head was never consulted\n"), ++fails;
+        // 40 blocks = 0.853 quarters; a programmed step fires at its ENDING
+        // boundary: idx1 at ppq 0.50, idx2 at 0.75 (idx4's 1.25 is out of
+        // range) - so two note-ons must have been produced.
         if (noteOns < 2)
-            std::printf ("arp19: fake-host run produced %d note-ons\n", noteOns), ++fails;
+            std::printf ("arp19: fake-host run produced %d note-ons (calls=%d)\n",
+                         noteOns, fake.calls), ++fails;
 
-        // Gate length: the +0 step's off must land at about 75% of its 1/16
-        // step (0.125 quarters), i.e. near 0.094 quarters after the step start.
+        // Gate length: the note-off must land at about 75% of its 1/16 step.
         if (offQuartersStep0 > 0.0)
         {
-            const double stepFrac = offQuartersStep0 / spq;   // how far into a 1/16
-            const double within = stepFrac - std::floor (stepFrac);
+            const double within = std::fmod (offQuartersStep0, spq) / spq;
             if (within < 0.55 || within > 0.95)
                 std::printf ("arp19: default gate off at %.2f of the step (want ~0.75)\n",
                              within), ++fails;
         }
+        else
+            std::printf ("arp19: no note-off observed for the gate check\n"), ++fails;
 
-        // Strum: switch direction to STRUM, hold a three-note chord, and count
-        // notes fired per step boundary (3 enabled steps x 3 held notes... no:
-        // only ONE step is enabled per boundary in UP; STRUM fires all enabled
-        // steps' semitones against every held note each boundary).
-        setA (param::arpStep (1).toRawUTF8(), 5.0f);   // +4 semitones on step 2
+        // Strum: hold a three-note chord; each boundary now fires the whole
+        // chord staggered (top note first, bottom last), transposed by the
+        // current step's semitone.
         setA (param::arpDir, 5.0f);                    // STRUM
         {
             juce::MidiBuffer chord;
@@ -2337,26 +2344,33 @@ int main()
             chord.addEvent (juce::MidiMessage::noteOn (1, 67, 0.9f), 0);
             held = chord;
         }
+        fake.ppq = 0.745;    // the 0.75 boundary (step idx 2, +4) lands block ~1
 
         int strumOns = 0;
-        for (int b = 0; b < 4; ++b)
+        int firstOnAt = -1, lastOnAt = -1;
+        for (int b = 0; b < 8; ++b)
         {
             juce::AudioBuffer<float> buf (2, 512);
             juce::MidiBuffer m;
-            if (b == 0)
-                m = held;
+            m.addEvents (held, 0, -1, 0);   // keep the chord held (see above)
             arp.processBlock (buf, m);
             for (const auto& ev : m)
                 if (ev.getMessage().isNoteOn())
+                {
                     ++strumOns;
+                    if (firstOnAt < 0) firstOnAt = ev.samplePosition;
+                    lastOnAt = ev.samplePosition;
+                }
             fake.ppq += 512 / 48000.0 * 2.0;
         }
-        // Each boundary fires every enabled step (2) against every held note
-        // (3) = 6 note-ons per boundary; one full boundary must land in the
-        // first 4 blocks (2 blocks per 1/16 at 48 kHz).
-        if (strumOns < 6)
-            std::printf ("arp19: strum produced only %d note-ons (want >= 6)\n",
+        // One boundary (a 1/16 spans ~5.9 blocks) fires all three held notes.
+        if (strumOns < 3)
+            std::printf ("arp19: strum produced only %d note-ons (want >= 3)\n",
                          strumOns), ++fails;
+        // The stagger must be audible in the MIDI stream: strings start at
+        // different sample offsets (18 ms apart), never all on one sample.
+        if (strumOns >= 3 && firstOnAt == lastOnAt)
+            std::printf ("arp19: strum notes were not staggered\n"), ++fails;
 
         // Audio path stays sane with the arp live.
         juce::AudioBuffer<float> buf (2, 512);
@@ -2370,7 +2384,98 @@ int main()
                     ch = 2; break;
                 }
 
-        arp.setPlayHead (nullptr);
+        arp.testPlayHead = nullptr;
+        goa::License::deactivate();
+        goa::License::setTestMachineId ("");
+    }
+
+    // ========================================================================
+    phase ("20) trancegate shapes (square/smooth/saw/triangle)");
+    // Every shape must stay bounded, differ from the others, and keep the
+    // output finite; SMOOTH and TRIANGLE must not click (their max per-sample
+    // jump stays far below SQUARE's hard 1 ms-slewed edge).
+    {
+        goa::License::setTestMachineId ("2D6EFDDAA1AC30F510C8");
+        juce::String gErr;
+        goa::License::activate (GOA_TEST_MASTER_KEY, gErr);
+        GoaSynthAudioProcessor gProc;
+        FakePlayHead fake;
+        gProc.testPlayHead = &fake;
+        gProc.prepareToPlay (48000.0, 512);
+
+        auto setG = [&gProc] (const char* id, float v)
+        { if (auto* p = gProc.apvts.getRawParameterValue (id)) p->store (v); };
+
+        // Gate pattern: odd steps on, even off, depth 1 (silence), 1/16 steps.
+        setG (param::gateSync, 1.0f);
+        setG (param::gateDepth, 1.0f);
+        setG (param::gateShape, 0.0f);
+        for (int i = 0; i < 16; ++i)
+            setG (param::gateStep (i).toRawUTF8(), (i % 2) == 0 ? 1.0f : 0.0f);
+
+        // A held note; the gate shapes its volume while the transport runs.
+        double prevPeak[4] = { -1.0, -1.0, -1.0, -1.0 };
+        double maxJump[4]  = { 0.0, 0.0, 0.0, 0.0 };
+        for (int shape = 0; shape < 4; ++shape)
+        {
+            setG (param::gateShape, (float) shape);
+            fake.ppq = 0.0;
+            gProc.synth.allNotesOff (1, false);
+
+            juce::MidiBuffer m;
+            m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            float prev = 0.0f;
+            double peak = 0.0;
+            for (int b = 0; b < 16; ++b)
+            {
+                juce::AudioBuffer<float> buf (2, 512);
+                if (b > 0) { m.clear(); m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0); }
+                gProc.processBlock (buf, m);
+                for (int i = 0; i < 512; ++i)
+                {
+                    const float s = std::fabs (buf.getSample (0, i));
+                    maxJump[(size_t) shape] = juce::jmax (maxJump[(size_t) shape],
+                        (double) std::fabs (s - prev));
+                    prev = s;
+                    peak = juce::jmax (peak, (double) s);
+                }
+                fake.ppq += 512 / 48000.0 * 2.0;
+            }
+
+            if (peak <= 0.0)
+                std::printf ("gate20: shape %d produced silence\n", shape), ++fails;
+            prevPeak[(size_t) shape] = peak;
+
+            // Finite and bounded.
+            if (peak > 4.0)
+                std::printf ("gate20: shape %d render too hot (%.2f)\n", shape, peak), ++fails;
+        }
+
+        // Shapes must actually differ: saw/triangle ramp the step volume, so
+        // their peak differs from square's full-level plateau.
+        if (std::abs (prevPeak[2] - prevPeak[0]) < 1.0e-3
+            || std::abs (prevPeak[3] - prevPeak[1]) < 1.0e-3)
+            std::printf ("gate20: shapes produced identical peaks (square=%.4f saw=%.4f smooth=%.4f tri=%.4f)\n",
+                         prevPeak[0], prevPeak[2], prevPeak[1], prevPeak[3]), ++fails;
+
+        // Click check: SMOOTH and TRIANGLE are band-limited by construction, so
+        // their worst per-sample jump |ds| must stay below HALF the raw sample
+        // amplitude 0.9 (a shape-faithful edge slew never gets near a full-scale
+        // discontinuity; a hard ungated edge would jump ~0.9 in one sample).
+        // SQUARE is exempt from this check: its full-level bursts drive the
+        // downstream limiter, which reshapes the waveform and can exceed this
+        // bound without being a click.
+        if (maxJump[1] > 0.45)
+            std::printf ("gate20: SMOOTH clicks (jump %.4f)\n", maxJump[1]), ++fails;
+        if (maxJump[3] > 0.45)
+            std::printf ("gate20: TRIANGLE clicks (jump %.4f)\n", maxJump[3]), ++fails;
+        if (maxJump[0] < 1.0e-3 || maxJump[2] < 1.0e-3)
+            std::printf ("gate20: SQUARE/SAW jumps degenerate (%.4f/%.4f)\n",
+                         maxJump[0], maxJump[2]), ++fails;
+        std::printf ("gate20 jumps: square=%.4f smooth=%.4f saw=%.4f tri=%.4f\n",
+                     maxJump[0], maxJump[1], maxJump[2], maxJump[3]);
+
+        gProc.testPlayHead = nullptr;
         goa::License::deactivate();
         goa::License::setTestMachineId ("");
     }

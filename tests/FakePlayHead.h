@@ -5,6 +5,7 @@ struct FakePlayHead : juce::AudioPlayHead
 {
     juce::Optional<PositionInfo> getPosition() const override
     {
+        ++calls;
         PositionInfo pi;
         pi.setIsPlaying (true);
         pi.setBpm (120.0);
@@ -14,4 +15,5 @@ struct FakePlayHead : juce::AudioPlayHead
     }
 
     double ppq = 0.0;   // the test advances this per block
+    mutable int calls = 0;   // how many times the processor consulted us
 };

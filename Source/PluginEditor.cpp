@@ -1514,16 +1514,18 @@ StepStrip::StepStrip (GoaSynthAudioProcessor& p, Kind k, ColRole r)
 {
     setTooltip (kind == gateStrip
         ? "Trancegate: click/drag steps to gate the sound; right-click a step for"
-          " gate settings; SYNC/OCT cycle their params; COPY mirrors the arp pattern; "
-          "vel to 100% on an arp step ACCENTS it (louder + longer gate)"
+          " gate settings; SYNC/OCT/SHAPE cycle their params; COPY mirrors the arp"
+          " pattern; SHAPE picks the edge: hard square, smooth, trance saw or"
+          " triangle"
         : "Arp sequencer: click/drag steps for semitones, lower band sets velocity,"
           " the band above it sets gate length (5..100% of the step); right-click"
           " accents; SYNC/OCT/DIR/SCALE/FILL cycle their params; STRUM direction"
           " plays the held chord as a staggered strum each step");
     if (kind == gateStrip)
     {
-        syncPar = proc.apvts.getParameter (param::gateSync);
-        octPar  = proc.apvts.getParameter (param::gateDepth);
+        syncPar  = proc.apvts.getParameter (param::gateSync);
+        octPar   = proc.apvts.getParameter (param::gateDepth);
+        shapePar = proc.apvts.getParameter (param::gateShape);
     }
     else
     {
@@ -1588,6 +1590,12 @@ juce::Rectangle<float> StepStrip::patCell() const
 {
     return getLocalBounds().toFloat()
         .withTrimmedLeft (130).removeFromLeft (52).reduced (2.0f);
+}
+
+juce::Rectangle<float> StepStrip::shapeCell() const
+{
+    return getLocalBounds().toFloat()
+        .withTrimmedLeft (182).removeFromLeft (48).reduced (2.0f);
 }
 
 juce::Rectangle<float> StepStrip::dirCell() const
@@ -1760,7 +1768,7 @@ juce::Rectangle<float> StepStrip::cellRect (int i) const
 {
     // Gate strip has COPY + PATTERN cells before the steps; arp has DIR + SCALE
     // + FILL.
-    auto b = getLocalBounds().toFloat().withTrimmedLeft (kind == gateStrip ? 182.0f : 226.0f);
+    auto b = getLocalBounds().toFloat().withTrimmedLeft (kind == gateStrip ? 230.0f : 226.0f);
     const float w = b.getWidth() / 16.0f;
     return b.removeFromLeft (w * (float) (i + 1)).removeFromRight (w).reduced (1.5f);
 }
@@ -1818,6 +1826,14 @@ void StepStrip::paint (juce::Graphics& g)
     if (kind == gateStrip)
         labelled (patCell(), patternNames()[(size_t) patternIdx],
                   patternIdx == 0 ? goaui::textDim : goaui::accentA);
+    if (kind == gateStrip && shapePar != nullptr)
+    {
+        const int sh = juce::jlimit (0, 3,
+            (int) shapePar->getNormalisableRange().convertFrom0to1 (shapePar->getValue()));
+        labelled (shapeCell(),
+                  juce::StringArray { "SQR", "SMTH", "SAW", "TRI" }[(size_t) sh],
+                  sh == 0 ? goaui::textDim : goaui::accent);
+    }
     if (kind == arpStrip && dirPar != nullptr)
         labelled (dirCell(), dirPar->getCurrentValueAsText().toUpperCase(), goaui::accent);
 
@@ -2050,6 +2066,10 @@ void StepStrip::cycleAt (juce::Point<float> pos, bool fine)
     {
         applyPattern ((patternIdx + (fine ? -1 : 1) + 7) % 7);
     }
+    else if (kind == gateStrip && shapeCell().contains (pos) && shapePar != nullptr)
+    {
+        cycle (shapePar, fine ? -1 : 1, 4);
+    }
     else if (octCell().contains (pos) && octPar != nullptr)
     {
         if (kind == gateStrip)
@@ -2117,7 +2137,8 @@ void StepStrip::mouseDown (const juce::MouseEvent& e)
 
     if (right || syncCell().contains (e.position) || octCell().contains (e.position)
         || (kind == gateStrip && (copyCell().contains (e.position)
-                                  || patCell().contains (e.position)))
+                                  || patCell().contains (e.position)
+                                  || shapeCell().contains (e.position)))
         || (kind == arpStrip && (dirCell().contains (e.position)
                                  || scaleCell().contains (e.position)
                                  || fillCell().contains (e.position))))

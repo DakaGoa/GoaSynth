@@ -119,6 +119,29 @@ public:
     std::atomic<float> uiPeakL    { 0.0f };
     std::atomic<float> uiPeakR    { 0.0f };
 
+#ifdef GOA_TEST_BUILD
+    // Test-only transport injection (see tests/FakePlayHead.h): lets the suite
+    // drive the host-synced clocks deterministically. nullptr in production
+    // builds (the member does not even exist there).
+    juce::AudioPlayHead* testPlayHead = nullptr;
+#endif
+
+    // Arp events scheduled beyond the current block. Gate lengths and the
+    // strum stagger routinely outlive (or overflow) one 512-sample block, so
+    // every arp note-on/note-off is parked with its ABSOLUTE sample time and
+    // delivered by the block that contains it. (The old code clamped both
+    // into the note's own block, which capped every arp note at one block of
+    // audio and flattened the strum stagger at small buffer sizes.)
+    struct PendingArpEvent
+    {
+        int note;
+        float vel;
+        juce::int64 when;
+        bool isOff;
+    };
+    std::vector<PendingArpEvent> pendingArpEvents;
+    juce::int64 totalSamplesRendered = 0;
+
     // Smoothed output level 0..1 (audio thread writes, editor backdrop reads).
     std::atomic<float> uiLevel { 0.0f };
 

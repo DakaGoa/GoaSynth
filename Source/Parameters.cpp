@@ -171,6 +171,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     // Tempo-synced trancegate: step length + chop depth + 16 on/off steps.
     addC (param::gateSync,  "Gate Step",  gateSyncs, 1);
     addF (param::gateDepth, "Gate Depth", unitRange, 0.85f);
+    // Edge shape of each gate step: hard square, smoothed, or the classic
+    // trance saw/triangle envelopes.
+    addC (param::gateShape, "Gate Shape", { "SQUARE", "SMOOTH", "SAW", "TRIANGLE" }, 0);
     for (int i = 0; i < 16; ++i)
         addB (param::gateStep (i).toRawUTF8(),
               ("Gate " + String (i + 1)).toRawUTF8(),

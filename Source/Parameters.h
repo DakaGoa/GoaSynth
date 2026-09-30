@@ -152,6 +152,9 @@ inline constexpr const char* bendRange  = "bendRange";
 
 inline constexpr const char* gateSync  = "gateSync";   // step length (tempo sync)
 inline constexpr const char* gateDepth = "gateDepth";  // silence depth on "off" steps
+// Edge shape of the gate envelope: 0 SQUARE (hard), 1 SMOOTH (sine ramp),
+// 2 SAW (instant in, linear fall), 3 TRIANGLE (sine rise and fall).
+inline constexpr const char* gateShape = "gateShape";
 inline constexpr const char* arpSync   = "arpSync";    // arp step length
 inline constexpr const char* arpOct    = "arpOct";     // base octave shift
 // gate1..gate16 (bool), arp1..arp16 (choice 0=Rest, 1..12=semitones) and

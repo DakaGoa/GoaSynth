@@ -726,6 +726,7 @@ private:
     juce::Rectangle<float> octCell() const;
     juce::Rectangle<float> copyCell() const;   // gate strip: ARP → GATE copy
     juce::Rectangle<float> patCell() const;
+    juce::Rectangle<float> shapeCell() const;  // gate strip: edge shape picker
     juce::Rectangle<float> dirCell() const;    // arp strip: playback direction
     juce::Rectangle<float> scaleCell() const;  // arp strip: scale quantizer
     juce::Rectangle<float> fillCell() const;   // arp strip: in-key generative fill
@@ -746,6 +747,7 @@ private:
     juce::RangedAudioParameter* syncPar = nullptr;
     juce::RangedAudioParameter* octPar = nullptr;
     juce::RangedAudioParameter* dirPar = nullptr;   // arp strip: playback direction
+    juce::RangedAudioParameter* shapePar = nullptr; // gate strip: edge shape
     juce::RangedAudioParameter* scalePar = nullptr; // arp strip: scale quantizer
     juce::RangedAudioParameter* rootPar  = nullptr; // arp strip: scale root
     int lastScaleIdx = -1;                          // repaint when the scale changes

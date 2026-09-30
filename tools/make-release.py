@@ -47,6 +47,7 @@ BUILD = ROOT / "build"
 VST3_BUNDLE = BUILD / "GoaSynth_artefacts" / "Release" / "VST3" / "GoaSynth.vst3"
 VST3_BINARY = VST3_BUNDLE / "Contents" / "x86_64-win" / "GoaSynth.vst3"
 SETUP_EXE = BUILD / "GoaSynthSetup_artefacts" / "Release" / "GoaSynth-Setup.exe"
+STANDALONE_EXE = BUILD / "GoaSynth_artefacts" / "Release" / "Standalone" / "GoaSynth.exe"
 LICENSE_HELPER = BUILD / "GoaSynthLicense_artefacts" / "Release" / "GoaSynthLicense.exe"
 DIST = ROOT / "dist"
 INDEX_HTML = ROOT / "docs" / "index.html"
@@ -125,7 +126,7 @@ def source_commit() -> str:
 
 def guard_build_is_current(version: str) -> None:
     """A stale binary is the failure this script exists to prevent."""
-    for needed in (VST3_BINARY, SETUP_EXE, LICENSE_HELPER):
+    for needed in (VST3_BINARY, STANDALONE_EXE, SETUP_EXE, LICENSE_HELPER):
         if not needed.exists():
             die(f"missing {needed.relative_to(ROOT)} - build it first:\n"
                 "    cmake --build build --config Release --target "
@@ -161,7 +162,8 @@ def guard_build_is_current(version: str) -> None:
 # Text the package carries
 # ---------------------------------------------------------------------------
 def readme_text(version: str, commit: str, built: str, zip_name: str,
-                setup_hash: str, setup_size: int) -> str:
+                setup_hash: str, setup_size: int,
+                standalone_hash: str, standalone_size: int) -> str:
     return f"""GoaSynth {version} — Goa trance synthesizer (Windows, VST3)
 ================================================================
 
@@ -222,6 +224,17 @@ damaged or replaced in transit. In the folder you downloaded to:
     Windows   (PowerShell)  Get-FileHash .\\{zip_name} -Algorithm SHA256
     macOS                   shasum -a 256 -c SHA256SUMS.txt
     Linux                   sha256sum -c SHA256SUMS.txt
+
+Verify after installing
+-----------------------
+The standalone app the installer puts next to the plugin should hash to:
+
+    {standalone_hash}    GoaSynth.exe  ({thousands(standalone_size)} bytes)
+
+so you can check the copy on your disk against the published number. In the
+folder you installed to (by default C:\\Program Files\\Common Files\\VST3):
+
+    Windows   (PowerShell)  Get-FileHash .\\GoaSynth.exe -Algorithm SHA256
 
 Source code
 -----------
@@ -299,18 +312,22 @@ def add_text(archive: zipfile.ZipFile, text: str, name: str, stamp: tuple) -> No
     archive.writestr(info, payload, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
-def build_zip(zip_path: Path, version: str, commit: str, built: str) -> tuple[int, str, str, int]:
-    """Returns (zip bytes, zip sha, Setup sha, Setup size)."""
+def build_zip(zip_path: Path, version: str, commit: str,
+              built: str) -> tuple[int, str, str, int, str, int]:
+    """Returns (zip bytes, zip sha, Setup sha/size, standalone sha/size)."""
     stamp = datetime.fromtimestamp(SETUP_EXE.stat().st_mtime).timetuple()[:6]
     setup_sha = sha256_file(SETUP_EXE)
     setup_size = SETUP_EXE.stat().st_size
+    standalone_sha = sha256_file(STANDALONE_EXE)
+    standalone_size = STANDALONE_EXE.stat().st_size
 
     # The installer is the package. The bundle itself stays out of the
     # download - Setup embeds it and puts it on disk, so buyers no longer
     # unpack a folder by hand (the classic one-level-up mistake).
     members = [SETUP_EXE, LICENSE_HELPER]
 
-    readme = readme_text(version, commit, built, zip_path.name, setup_sha, setup_size)
+    readme = readme_text(version, commit, built, zip_path.name,
+                         setup_sha, setup_size, standalone_sha, standalone_size)
     eula = eula_text(version)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -321,11 +338,13 @@ def build_zip(zip_path: Path, version: str, commit: str, built: str) -> tuple[in
         add_text(archive, eula, "EULA.txt", stamp)
 
     data = zip_path.read_bytes()
-    return len(data), hashlib.sha256(data).hexdigest(), setup_sha, setup_size
+    return (len(data), hashlib.sha256(data).hexdigest(),
+            setup_sha, setup_size, standalone_sha, standalone_size)
 
 
 def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
                     setup_sha: str, setup_size: int,
+                    standalone_sha: str, standalone_size: int,
                     version: str, commit: str, built: str) -> None:
     published = f"""# GoaSynth {version} - checksums for the published download
 #
@@ -346,6 +365,11 @@ def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
 # And the GoaSynth-Setup.exe inside the ZIP should hash to:
 #
 #     {setup_sha}  GoaSynth-Setup.exe  ({thousands(setup_size)} bytes)
+#
+# Once it is installed, the standalone GoaSynth.exe on disk (next to the
+# plugin, by default in C:\\Program Files\\Common Files\\VST3) should hash to:
+#
+#     {standalone_sha}  GoaSynth.exe  ({thousands(standalone_size)} bytes)
 #
 # The ZIP is {pretty_size(zip_size)} and holds the Setup installer (which puts
 # the plugin and the standalone app in place), the licence helper that opens
@@ -390,6 +414,7 @@ def write_manifest(zip_name: str, zip_size: int, zip_sha: str,
 
 def refresh_site_block(zip_name: str, zip_size: int, zip_sha: str,
                        setup_sha: str, setup_size: int,
+                       standalone_sha: str, standalone_size: int,
                        version: str, commit: str, built: str) -> bool:
     """The site quotes the hashes, so the release writes them there itself.
 
@@ -411,6 +436,9 @@ def refresh_site_block(zip_name: str, zip_size: int, zip_sha: str,
         f'          <dt>Setup SHA-256</dt><dd><code>{setup_sha}</code> — the '
         f'<code>GoaSynth-Setup.exe</code> installer inside the ZIP, '
         f'{thousands(setup_size)} bytes</dd>',
+        f'          <dt>Standalone SHA-256</dt><dd><code>{standalone_sha}</code> — the '
+        f'<code>GoaSynth.exe</code> installed next to the plugin, '
+        f'{thousands(standalone_size)} bytes — verify it after installing</dd>',
         "        </dl>",
         "        " + end,
     ])
@@ -441,19 +469,24 @@ def main() -> int:
     zip_name = f"GoaSynth-{version}-win64.zip"
     DIST.mkdir(exist_ok=True)
 
-    zip_size, zip_sha, setup_sha, setup_size = build_zip(
+    zip_size, zip_sha, setup_sha, setup_size, standalone_sha, standalone_size = build_zip(
         DIST / zip_name, version, commit, built_text)
 
     write_manifests(zip_name, zip_size, zip_sha, setup_sha, setup_size,
+                    standalone_sha, standalone_size,
                     version, commit, built_text)
     write_manifest(zip_name, zip_size, zip_sha, version, commit, built_text)
     rewritten = refresh_site_block(zip_name, zip_size, zip_sha, setup_sha, setup_size,
+                                  standalone_sha, standalone_size,
                                   version, commit, built_text)
 
     print(f"  dist/{zip_name}            {pretty_size(zip_size)}")
     print(f"      sha256 {zip_sha}")
     print(f"  GoaSynth-Setup.exe         {thousands(setup_size)} bytes")
     print(f"      sha256 {setup_sha}")
+    print(f"  GoaSynth.exe (standalone)  {thousands(standalone_size)} bytes, published "
+          f"for post-install checks")
+    print(f"      sha256 {standalone_sha}")
     print(f"  docs/downloads/SHA256SUMS.txt   published")
     print(f"  dist/MANIFEST.txt               {zip_name} + every member")
     print(f"  docs/index.html                 verify block "

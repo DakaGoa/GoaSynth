@@ -276,6 +276,13 @@ def add_file(archive: zipfile.ZipFile, path: Path, name: str, stamp: tuple) -> N
                      compresslevel=9)
 
 
+def add_directory(archive: zipfile.ZipFile, name: str, stamp: tuple) -> None:
+    info = zipfile.ZipInfo(name if name.endswith("/") else name + "/", date_time=stamp)
+    info.compress_type = zipfile.ZIP_STORED
+    info.external_attr = (0o40755 << 16) | 0x10   # directory
+    archive.writestr(info, b"")
+
+
 def add_text(archive: zipfile.ZipFile, text: str, name: str, stamp: tuple) -> None:
     info = zipfile.ZipInfo(name, date_time=stamp)
     info.compress_type = zipfile.ZIP_DEFLATED
@@ -298,7 +305,21 @@ def build_zip(zip_path: Path, version: str, commit: str, built: str) -> tuple[in
     readme = readme_text(version, commit, built, zip_path.name, plugin_sha, plugin_size)
     eula = eula_text(version)
 
+    # Explicit directory entries, because the bundle *is* a folder and some
+    # extractors (and every double-click) are happier when the archive says so.
+    directories = []
+    for member in members:
+        parent = member.relative_to(VST3_BUNDLE.parent).parent.as_posix()
+        while parent not in ("", "."):
+            if parent not in directories:
+                directories.append(parent)
+            parent = parent.rsplit("/", 1)[0] if "/" in parent else ""
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        add_directory(archive, VST3_BUNDLE.name, stamp)
+        for directory in sorted(directories):
+            add_directory(archive, directory, stamp)
+
         add_file(archive, LICENSE_HELPER, LICENSE_HELPER.name, stamp)
 
         for member in members:
@@ -342,8 +363,8 @@ def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
 # next to it on the download page.
 """
     PUBLISHED_SUMS.parent.mkdir(parents=True, exist_ok=True)
-    PUBLISHED_SUMS.write_text(published, encoding="utf-8")
-    (DIST / "SHA256SUMS.txt").write_text(published, encoding="utf-8")
+    PUBLISHED_SUMS.write_text(published, encoding="utf-8", newline="\n")
+    (DIST / "SHA256SUMS.txt").write_text(published, encoding="utf-8", newline="\n")
 
 
 def write_manifest(zip_name: str, zip_size: int, zip_sha: str,
@@ -374,6 +395,7 @@ def write_manifest(zip_name: str, zip_size: int, zip_sha: str,
         f"    cmake --build build --config Release --target GoaSynth_VST3 --clean-first --parallel\n"
         f"    python tools/make-release.py\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
@@ -408,7 +430,7 @@ def refresh_site_block(zip_name: str, zip_size: int, zip_sha: str,
 
     updated = pattern.sub(lambda _: block, page, count=1)
     changed = updated != page
-    INDEX_HTML.write_text(updated, encoding="utf-8")
+    INDEX_HTML.write_text(updated, encoding="utf-8", newline="\n")
     return changed
 
 

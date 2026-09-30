@@ -15,6 +15,9 @@
 //   3. the AI engines     - the default model of each cloud table vs the page
 //   4. local storage      - every path the plugin writes vs the privacy policy
 //   5. the trial length   - License.h's trialHours vs the copy
+//   6. the address        - the canonical link in every page, sitemap.xml and
+//                           robots.txt all naming one origin, with the sitemap
+//                           listing every published page (and nothing else)
 //
 // Each check reads the number from the code that implements it, so it keeps
 // working when the value changes - what it refuses to allow is the page and
@@ -411,6 +414,115 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         }
     }
 
+    // ---- 6. one address, and a page list that is actually complete ---------
+    // Search engines read the address out of each page's canonical link, out of
+    // sitemap.xml and out of robots.txt, and they treat a page that names one
+    // host in one place and another host in another as two weak pages instead of
+    // one strong one. The same pass catches the quieter failure: a published
+    // page that the sitemap never lists, which is a page nobody crawls. Both are
+    // what a hand-edited set of static files grows the moment the site moves to
+    // a custom domain.
+    ++r.checks;
+    {
+        static const std::regex canonicalRe (R"re(<link\s+rel="canonical"\s+href="([^"]+)")re");
+        static const std::regex locRe       (R"re(<loc>([^<]+)</loc>)re");
+        static const std::regex sitemapRe   (R"re(Sitemap:\s*(\S+))re");
+
+        // "https://host/path" -> "https://host"; anything without a scheme is
+        // returned whole so the comparison below still catches a relative link.
+        auto originOf = [] (const std::string& url)
+        {
+            const auto scheme = url.find ("://");
+            if (scheme == std::string::npos)
+                return url;
+
+            const auto slash = url.find ('/', scheme + 3);
+            return slash == std::string::npos ? url : url.substr (0, slash);
+        };
+
+        std::set<std::string> pages;    // the canonical URL of every published page
+        std::string origin;
+
+        for (const auto& rel : htmlFilesUnder (docsRoot))
+        {
+            std::smatch m;
+            const std::string page = readFile (docsRoot / rel);
+
+            if (! std::regex_search (page, m, canonicalRe))
+            {
+                r.problems.push_back ("docs/" + rel + ": no <link rel=\"canonical\"> - a page "
+                    "without one is indexed under every address it is reachable at, sitemap "
+                    "and all");
+                continue;
+            }
+
+            const std::string url  = m[1].str();
+            const std::string here = originOf (url);
+
+            if (origin.empty())
+                origin = here;
+            else if (here != origin)
+                r.problems.push_back ("docs/" + rel + ": declares its canonical address as " + url
+                    + ", but another page declares " + origin + " - the site is split across "
+                      "two hosts, and a crawler will index whichever half it trusts");
+
+            pages.insert (url);
+        }
+
+        const fs::path sitemap = docsRoot / "sitemap.xml";
+        const fs::path robots  = docsRoot / "robots.txt";
+
+        if (! fs::exists (sitemap))
+        {
+            r.problems.push_back ("docs/sitemap.xml: missing - without it a crawler has to "
+                                  "discover the legal pages by following links");
+        }
+        else
+        {
+            const std::string xml = readFile (sitemap);
+            std::set<std::string> listed;
+
+            for (auto it = std::sregex_iterator (xml.begin(), xml.end(), locRe);
+                 it != std::sregex_iterator(); ++it)
+            {
+                const std::string url = (*it)[1].str();
+                listed.insert (url);
+
+                if (pages.count (url) == 0)
+                    r.problems.push_back ("docs/sitemap.xml: lists " + url + ", which is not the "
+                        "canonical address of any page under docs/ - a sitemap that advertises "
+                        "a URL nothing serves sends a crawler to a 404");
+            }
+
+            if (listed.empty())
+                r.problems.push_back ("docs/sitemap.xml: no <loc> entries at all - the page "
+                                      "list check would silently pass");
+
+            for (const auto& url : pages)
+                if (listed.count (url) == 0)
+                    r.problems.push_back ("docs/sitemap.xml: never lists " + url + " - that page "
+                        "is published but nothing points a crawler at it");
+        }
+
+        if (! fs::exists (robots))
+        {
+            r.problems.push_back ("docs/robots.txt: missing - a crawler has no Sitemap: line "
+                                  "and no explicit permission to index anything");
+        }
+        else
+        {
+            std::smatch m;
+            const std::string txt = readFile (robots);
+
+            if (! std::regex_search (txt, m, sitemapRe))
+                r.problems.push_back ("docs/robots.txt: no \"Sitemap:\" line, so nothing connects "
+                                      "the crawl rules to the page list");
+            else if (originOf (m[1].str()) != origin)
+                r.problems.push_back ("docs/robots.txt: points a crawler at the sitemap on "
+                    + originOf (m[1].str()) + ", but the pages declare " + origin);
+        }
+    }
+
     return r;
 }
 } // namespace
@@ -434,7 +546,7 @@ int main (int argc, char* argv[])
     if (r.problems.empty())
     {
         std::cout << "docs check: " << r.checks << " claim(s) across the site still match the plugin "
-                     "(price, preset bank, AI defaults, local storage, trial)\n";
+                     "(price, preset bank, AI defaults, local storage, trial, address)\n";
         return 0;
     }
 

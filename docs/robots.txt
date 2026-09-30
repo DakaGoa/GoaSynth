@@ -1,0 +1,12 @@
+# GoaSynth — https://y4m4.github.io/GoaSynth/
+#
+# Everything under this folder is meant to be found: the landing page, the four
+# legal pages, the screenshots and the published checksums. There is no private
+# area, no admin route and no duplicate host to keep out, so the whole tree is
+# crawlable. If a /private/ or /orders/ folder is ever served from here, add a
+# Disallow for it *and* a note here saying why.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://y4m4.github.io/GoaSynth/sitemap.xml

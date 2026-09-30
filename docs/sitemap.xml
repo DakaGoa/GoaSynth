@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every page the site publishes, under the one origin it is canonical on.
+  The URLs here, the <link rel="canonical"> in each page and the Sitemap: line
+  in robots.txt all have to name the same host — a sitemap that advertises a
+  different origin than the pages declare is the classic way to split a site in
+  two and lose the ranking of both halves.
+
+  No <lastmod> and no <priority>/<changefreq>: the dates would be guesses that
+  rot the moment a page is edited, and search engines ignore the other two.
+  Add a <lastmod> date here when a release actually changes a page.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <url>
+    <loc>https://y4m4.github.io/GoaSynth/</loc>
+  </url>
+
+  <url>
+    <loc>https://y4m4.github.io/GoaSynth/legal/terms.html</loc>
+  </url>
+
+  <url>
+    <loc>https://y4m4.github.io/GoaSynth/legal/privacy.html</loc>
+  </url>
+
+  <url>
+    <loc>https://y4m4.github.io/GoaSynth/legal/refunds.html</loc>
+  </url>
+
+  <url>
+    <loc>https://y4m4.github.io/GoaSynth/legal/eula.html</loc>
+  </url>
+
+</urlset>

@@ -57,6 +57,8 @@ const std::set<std::string> allowlist =
     "assets/mod-pick-flash.png",
     "favicon.ico",                // the site favicon (docs/favicon.ico)
     "assets/icon_256.png",        // apple-touch-icon referenced by index.html
+    "robots.txt",                 // crawl rules, served at the site root
+    "sitemap.xml",                // the page list search engines read
     "downloads/SHA256SUMS.txt",   // the checksums buyers verify their download with
     "legal/eula.html",
     "legal/privacy.html",

@@ -412,6 +412,34 @@ and the pre-launch test pass — is documented in [`Fulfil/CHECKOUT.md`](Fulfil/
 sits outside `docs/` on purpose: **everything under `docs/` is served by GitHub Pages**, and the
 playbook is seller-side notes (fees, key handling, the refund procedure), not a page for visitors.
 
+### Being found: robots, sitemap and one canonical address
+
+The site ships the files a search engine looks for, so a page becomes crawlable without anyone
+remembering to submit it:
+
+- `docs/robots.txt` allows the whole tree and names the sitemap — there is no private area, no admin
+  route and nothing to exclude.
+- `docs/sitemap.xml` lists **every** published page.
+- Every page declares a `<link rel="canonical">` (the landing page and the four legal pages), and the
+  landing page carries Open Graph / Twitter cards plus a `SoftwareApplication` JSON-LD block, so a
+  link preview and a rich result read the price, the platforms and the preset count from data rather
+  than guessing them from prose.
+
+They all name `https://y4m4.github.io/GoaSynth/` — the GitHub Pages address of this repository. Moving
+to a custom domain means changing that one base in four kinds of place: the canonical link in
+`docs/index.html`, the same link in each legal page, every `<loc>` in `docs/sitemap.xml`, the
+`Sitemap:` line in `docs/robots.txt`, and the absolute `og:image` / `twitter:image` URLs in the
+landing page's head. `DocsCheck` fails if they disagree: it compares every page's canonical address
+against the sitemap and `robots.txt`, fails when a published page is missing from the sitemap, and
+fails when the sitemap lists a URL that nothing serves.
+
+Once deployed, submit the site once in [Google Search Console](https://search.google.com/search-console)
+and Bing Webmaster Tools. A sitemap can only be discovered from `robots.txt` after a crawler has been
+to the site at least once, and the first crawl of a new site can take days — so submit it rather than
+waiting. There is also nothing to hide: if a `/private/` or `/orders/` folder is ever served from
+`docs/`, add a `Disallow` to `robots.txt` *and* a note there saying why, because access control is not
+what a robots file does.
+
 ### Before you publish: the preflight check
 
 Because `docs/` *is* the website, a file dropped in there is public the moment you deploy — which is

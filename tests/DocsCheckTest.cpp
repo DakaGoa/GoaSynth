@@ -147,7 +147,7 @@ int main()
         const auto r = scan (docs, root);
 
         expect (! r.fatal, "clean tree: the guard could not run at all");
-        expect (r.checks == 5, "clean tree: expected 5 checks to run, got " + std::to_string (r.checks));
+        expect (r.checks == 6, "clean tree: expected 6 checks to run, got " + std::to_string (r.checks));
         report ("clean docs/ + Source/", r.problems, false);
     }
 
@@ -243,6 +243,47 @@ int main()
         expect (anyProblemContains (r.problems, "48 hours"),
                 "trial drift: a page still promising the old trial length was not reported");
         report ("trial drift", r.problems, true);
+    }
+
+    // ---- 6. the canonical address splits across two hosts ------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        // Only the canonical link, not the matching og:url beside it: the point
+        // is a page that *declares* a different origin, and hitting both would
+        // test the same branch twice.
+        const int n = replaceAll (docs / "legal" / "terms.html",
+                                  "<link rel=\"canonical\" href=\"https://y4m4.github.io/GoaSynth/legal/terms.html\">",
+                                  "<link rel=\"canonical\" href=\"https://goasynth.example.com/legal/terms.html\">");
+        expect (n == 1, "address drift: expected exactly one canonical link to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "split across two hosts"),
+                "address drift: a page declaring a different origin was not reported");
+        expect (anyProblemContains (r.problems, "sitemap.xml"),
+                "address drift: the sitemap was not compared against the pages");
+        report ("address drift", r.problems, true);
+    }
+
+    // ---- 6b. a published page the sitemap forgets --------------------------
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "sitemap.xml",
+                                  "<loc>https://y4m4.github.io/GoaSynth/legal/refunds.html</loc>",
+                                  "<loc>https://y4m4.github.io/GoaSynth/legal/refunds-2.html</loc>");
+        expect (n == 1, "sitemap drift: expected exactly one <loc> entry to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "nothing points a crawler at it"),
+                "sitemap drift: a page missing from the sitemap was not reported");
+        expect (anyProblemContains (r.problems, "not the canonical address of any page"),
+                "sitemap drift: a sitemap URL that serves nothing was not reported");
+        report ("sitemap drift", r.problems, true);
     }
 
     // ---- and clean again, so a sticky failure cannot pass for a fresh one --

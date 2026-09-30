@@ -38,9 +38,12 @@
 
 <!-- Structured data, so a crawler reads the product instead of guessing it from
      prose. Facts here are the ones the visible page states: the price, the
-     platforms, the price currency. There is deliberately no aggregateRating and
-     no review — inventing stars a plugin has not earned is a rich-result
-     penalty, not a shortcut. Check it with the Rich Results Test after
+     platforms, the price currency. There is no aggregateRating here and there
+     is not meant to be one until real buyer reviews back it — inventing stars a
+     plugin has not earned is a rich-result penalty, not a shortcut.
+     tools/make-reviews.py adds the rating, and the reviews section it belongs
+     to, once there is a store of consented reviews behind it; see
+     Fulfil/REVIEWS.md. Check the block with the Rich Results Test after
      deploying; a typo here costs a rich result and nothing else. -->
 <script type="application/ld+json">
 {

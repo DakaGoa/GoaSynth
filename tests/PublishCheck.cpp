@@ -55,6 +55,7 @@ const std::set<std::string> allowlist =
     "assets/preset-browser.png",
     "assets/mod-dots.png",
     "assets/mod-pick-flash.png",
+    "downloads/SHA256SUMS.txt",   // the checksums buyers verify their download with
     "legal/eula.html",
     "legal/privacy.html",
     "legal/refunds.html",

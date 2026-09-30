@@ -32,6 +32,7 @@
       </span>
     </a>
     <nav class="nav" id="nav" aria-label="Sections">
+      <a href="#whats-new">New in 1.1</a>
       <a href="#sound">Sound</a>
       <a href="#filters">Filters</a>
       <a href="#modulation">Modulation</a>
@@ -92,6 +93,120 @@
         </div>
         <figcaption>The full interface — UV GOA skin, three panel rows and the gate, arp and keyboard strips.</figcaption>
       </figure>
+    </div>
+  </section>
+
+  <!-- ================= RELEASE NOTES ================= -->
+  <section class="section alt" id="whats-new">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">Release notes</p>
+        <h2>What's new in 1.1.0</h2>
+        <p class="section-lede">
+          The first release-notes page for GoaSynth, and the largest update the instrument has had:
+          the trancegate gained the classic step contours, the arp was moved onto absolute sample
+          time, the meter went stereo, and the factory bank grew from 135 to <b>175 patches</b>.
+          Everything below is in the build you download today.
+        </p>
+      </header>
+
+      <div class="card-grid">
+        <article class="card">
+          <div class="card-icon ic-pink">⣿</div>
+          <h3>Four trancegate step shapes</h3>
+          <p>The gate strip gained a <b>SHAPE</b> cell beside its steps: the hard <b>SQUARE</b> chop it
+             always had, plus <b>SMOOTH</b> (half-cosine), <b>SAW</b> (instant in, linear fall) and
+             <b>TRIANGLE</b> (sine rise, sine fall) — the contours the genre is built on. Step edges
+             are ramp-smoothed, so the boundary between two steps stops clicking.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">⇅</div>
+          <h3>Arp timing, rebuilt</h3>
+          <p>Note-offs are parked with <b>absolute sample times</b> and delivered by the block that
+             contains them, instead of being clamped into the block that fired the note-on. A gate
+             longer than one buffer is no longer truncated, and the <b>STRUM</b> fan keeps its 18 ms
+             stagger at small buffer sizes. Every step has its own <b>gate length</b> (5–100 %, 75 %
+             by default), and accents hold their gate longer as well as hitting harder.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-uv">▤</div>
+          <h3>True stereo metering</h3>
+          <p>The header meter now shows real <b>per-channel peaks</b> with <b>peak-hold ticks</b> —
+             held for about 1.2 s, then falling at roughly 12 dB/s, the way a DAW meter behaves —
+             instead of one gain-reduction strip, so you can see both sides of the image.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">◍</div>
+          <h3>Pink noise, and a tidier voice</h3>
+          <p><b>NOISE</b> gained a <b>White / Pink</b> choice: white for brightness, hats and
+             transients; pink for the −3 dB/oct tilt that reads as cymbal wash, air, wind and sea.
+             Pink is a decorrelated Paul Kellet 7-pole pair — one filter per channel — so it stays
+             stereo.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-pink">◇</div>
+          <h3>More synth, straight into the matrix</h3>
+          <p>Inter-oscillator <b>hard sync</b> and <b>ring mod</b>, manual <b>pulse width</b>, and a
+             three-band <b>master EQ</b> (low shelf, peaking mid, high shelf) with true bypass — and
+             <b>filter B cutoff and resonance</b>, vowel morph, analog character, OTT depth and pump
+             depth are all modulation destinations, so the deeper parts of the engine move like the
+             rest of it.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-uv">⇄</div>
+          <h3>Undo, A/B, randomise, lock</h3>
+          <p>A 32-step snapshot stack behind <b>UNDO / REDO</b>, two slots behind <b>A/B</b>,
+             one-button <b>RAND</b> with musically bounded draws, and <b>LOCK</b> to keep the knobs
+             you already like through all three. Drop a <b>WAV</b> on an oscillator and it is sliced
+             into wavetable frames. Editor size, zoom and skin are remembered for next time.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-teal">◈</div>
+          <h3>175 patches, and a browser to find them</h3>
+          <p>The bank grew from 135 to <b>175 patches</b> across nine families, and the browser was
+             rebuilt around it: <b>favourites</b> that persist, AND search over names and tags, sort by
+             A-Z / Z-A / newest / bank order, click to audition, double-click to load, and a
+             right-click menu to rename, duplicate, delete or reveal.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-pink">✦</div>
+          <h3>Three new themes, and zoom</h3>
+          <p><b>NEON</b> (cyan and hot magenta on black), <b>PAPER</b> (a real light mode) and
+             <b>OLED</b> (pure black, one red accent) join UV Goa, steel and warm analog, and the
+             whole interface zooms from 100 % to 200 % from the header or with Ctrl + scroll. The
+             active step glows as it plays.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon ic-uv">⌗</div>
+          <h3>Into the host, and a licence that travels</h3>
+          <p>The factory bank is exposed to your DAW's <b>program list</b>, the arp can <b>send its
+             notes out</b> as MIDI to record or drive another instrument, and this release adds
+             <b>AU / AUv3</b> on macOS and <b>LV2</b> on Linux next to VST3. A pasted serial tolerates
+             cosmetic dashes, <code>.goalicense</code> files carry the buyer's name, and an instance
+             whose 24-hour trial runs out mid-session locks itself instead of waiting for a repaint.</p>
+        </article>
+      </div>
+
+      <div class="panel panel-accent">
+        <h4>Verify your download</h4>
+        <p>Every build is fingerprinted as it is packaged, and the same numbers are published in
+          <a href="downloads/SHA256SUMS.txt">downloads/SHA256SUMS.txt</a>. Check them before you
+          install: if a hash does not match the file you were sent, that file was damaged or replaced
+          in transit, and support would rather hear about it than not.</p>
+        <!-- release:begin — generated by tools/make-release.py; edit that, not this -->
+        <dl class="kv">
+          <dt>Version</dt><dd>1.1.0</dd>
+          <dt>Built</dt><dd><span data-release-date>30 September 2026</span> from <code>75f2984</code></dd>
+          <dt>Download</dt><dd><code>GoaSynth-1.1.0-win64.zip</code> — <span data-release-zip-size>0</span></dd>
+          <dt>ZIP SHA-256</dt><dd><code data-release-zip-sha>—</code></dd>
+          <dt>Plugin SHA-256</dt><dd><code data-release-vst3-sha>—</code> (<span data-release-vst3-size>0</span>)</dd>
+        </dl>
+        <!-- release:end -->
+        <p class="fine">Windows: <code>Get-FileHash .\GoaSynth-1.1.0-win64.zip -Algorithm SHA256</code>.
+          macOS and Linux: <code>sha256sum -c SHA256SUMS.txt</code> in the folder you downloaded to.
+          The plugin's own hash is over the unpacked <code>GoaSynth.vst3</code> binary, so you can
+          verify it after installing as well as before.</p>
+      </div>
     </div>
   </section>
 

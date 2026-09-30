@@ -12,3 +12,8 @@ Source/LicenseKeys.h
 
 # MCP server config holds a live GitHub token — never commit
 .mcp.json
+
+# Built release packages: the artefact you sell lives on the store or customer
+# library, never in a public repository. The checksums it is verified with are
+# published from docs/downloads/ instead — see tools/make-release.py
+dist/

@@ -59,6 +59,7 @@ const std::set<std::string> allowlist =
     "assets/icon_256.png",        // apple-touch-icon referenced by index.html
     "robots.txt",                 // crawl rules, served at the site root
     "sitemap.xml",                // the page list search engines read
+    "googlebe8101dec58dcb76.html", // Google Search Console's token - a token, not a page
     "downloads/SHA256SUMS.txt",   // the checksums buyers verify their download with
     "legal/eula.html",
     "legal/privacy.html",

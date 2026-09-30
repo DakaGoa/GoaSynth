@@ -286,6 +286,23 @@ int main()
         report ("sitemap drift", r.problems, true);
     }
 
+    // ---- 6c. a verification token is not a page ----------------------------
+    // Google's (and Bing's) site-verification file has to sit at the site root,
+    // has no canonical and belongs in no sitemap - so demanding either would
+    // make the guard fight the one file that proves the site is yours.
+    if (! buildTree())
+        return 2;
+
+    {
+        writeWhole (docs / "googleTESTtoken.html",
+                    "google-site-verification: googleTESTtoken.html");
+
+        const auto r = scan (docs, root);
+        expect (! anyProblemContains (r.problems, "googleTESTtoken"),
+                "verification token: a search-engine verification file was treated as a page");
+        report ("verification token", r.problems, false);
+    }
+
     // ---- and clean again, so a sticky failure cannot pass for a fresh one --
     if (! buildTree())
         return 2;

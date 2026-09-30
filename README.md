@@ -433,10 +433,17 @@ landing page's head. `DocsCheck` fails if they disagree: it compares every page'
 against the sitemap and `robots.txt`, fails when a published page is missing from the sitemap, and
 fails when the sitemap lists a URL that nothing serves.
 
+One file under `docs/` is deliberately *not* a page: `docs/googlebe8101dec58dcb76.html` is Google
+Search Console's proof that the site is ours. It has to be served from the site root, carries no
+canonical and belongs in no sitemap, so `DocsCheck` recognises `google*.html` as a token and exempts
+it from the rules above — and from nothing else, so any other new page still needs a canonical link
+and a sitemap entry. If the property is ever re-created, replace that file with the new token (and
+update the name on `PublishCheck`'s allowlist, which every served file must be on).
+
 Once deployed, submit the site once in [Google Search Console](https://search.google.com/search-console)
-and Bing Webmaster Tools. A sitemap can only be discovered from `robots.txt` after a crawler has been
-to the site at least once, and the first crawl of a new site can take days — so submit it rather than
-waiting. There is also nothing to hide: if a `/private/` or `/orders/` folder is ever served from
+and Bing Webmaster Tools — the Google token above is already live, so verification is a click. A
+sitemap can only be discovered from `robots.txt` after a crawler has been to the site at least once,
+and the first crawl of a new site can take days — so submit it rather than waiting. There is also nothing to hide: if a `/private/` or `/orders/` folder is ever served from
 `docs/`, add a `Disallow` to `robots.txt` *and* a note there saying why, because access control is not
 what a robots file does.
 

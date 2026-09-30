@@ -17,7 +17,9 @@
 //   5. the trial length   - License.h's trialHours vs the copy
 //   6. the address        - the canonical link in every page, sitemap.xml and
 //                           robots.txt all naming one origin, with the sitemap
-//                           listing every published page (and nothing else)
+//                           listing every published page (and nothing else).
+//                           Search-engine verification files are tokens, not
+//                           pages, so they are exempt and stay out of the list
 //
 // Each check reads the number from the code that implements it, so it keeps
 // working when the value changes - what it refuses to allow is the page and
@@ -440,11 +442,23 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
             return slash == std::string::npos ? url : url.substr (0, slash);
         };
 
+        // A search-engine verification file is a token, not a page: no navigation,
+        // no canonical, no place in the sitemap - and it has to sit at the site
+        // root, because that is where the console fetches it from. It is the one
+        // .html file under docs/ allowed to skip the rules below.
+        // Case-insensitive: the tokens are handed out in lowercase today, but a
+        // guard that only recognises today's spelling is a guard that breaks on
+        // the day a console changes it.
+        static const std::regex verificationFile (R"(^google[a-z0-9]+\.html$)", std::regex::icase);
+
         std::set<std::string> pages;    // the canonical URL of every published page
         std::string origin;
 
         for (const auto& rel : htmlFilesUnder (docsRoot))
         {
+            if (std::regex_match (rel, verificationFile))
+                continue;
+
             std::smatch m;
             const std::string page = readFile (docsRoot / rel);
 

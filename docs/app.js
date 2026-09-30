@@ -23,11 +23,16 @@
      ordersEmail  Fallback while the store isn't live yet: every Buy
                   button becomes a pre-filled order email.
      support      Support/contact address; falls back to ordersEmail.
-     download     Customer download page (usually your store's own
-                  customer/library page, so buyers can re-download);
-                  falls back to the GitHub releases page, then #install.
-     repo         Public source repository.
-     releases     Defaults to <repo>/releases/latest.
+     download     Your store's own customer/library page, so buyers
+                  can re-download. Left empty until the store has one:
+                  the Install buttons then go to the steps on this page,
+                  which say the link arrives with the receipt. It is
+                  deliberately NOT <repo>/releases - the repository is
+                  public, so the paid build never goes there, and an
+                  empty releases page is worse than instructions.
+     repo         Public source repository. Derived from a *.github.io
+                  hostname when it is left empty, so a fork points at
+                  itself without editing anything.
      machineIdField
                   true when the store's checkout collects the buyer's
                   MACHINE ID in a custom field, which is what the serial is
@@ -39,15 +44,18 @@
   var CONFIG = {
     price: '€15',        // shown wherever the markup has <span data-price>
                          // keep this in step with the price on the legal pages
-    store: '',           // e.g. 'Lemon Squeezy'
+    store: 'Lemon Squeezy', // the merchant of record, as the legal pages name it
     vatIncluded: true,   // set false if your store adds VAT on top
-    checkout: '',        // hosted checkout URL — see Fulfil/CHECKOUT.md
-    ordersEmail: '',     // e.g. 'orders@goasynth.example'
-    support: '',         // e.g. 'support@goasynth.example'
-    download: '',        // e.g. your Lemon Squeezy customer library URL
-    repo: '',            // e.g. 'https://github.com/yourname/goasynth'
-    releases: '',        // defaults to <repo>/releases/latest
-    machineIdField: true // checkout collects the buyer's machine id
+    checkout: '',        // TODO: paste the Lemon Squeezy buy link when the product
+                         // is live — https://<store>.lemonsqueezy.com/buy/<uuid>
+                         // (Fulfil/CHECKOUT.md §2–3)
+    ordersEmail: 'goasynth.orders@gmail.com',
+    support: 'goasynth.support@gmail.com',
+    download: '',        // TODO: the store's customer-library URL, once it exists
+    repo: 'https://github.com/Y4m4/GoaSynth',
+    machineIdField: false // no checkout yet: the machine ID arrives by email
+                          // (the order template asks for it). Flip to true when
+                          // the Lemon Squeezy custom field is in place
   };
 
   var ORDER_SUBJECT = 'GoaSynth licence';
@@ -64,7 +72,13 @@
 
   function deriveFromHost() {
     var host = location.hostname;
-    if (host.slice(-10) !== 'github.io') return;
+
+    // The last ten characters of "y4m4.github.io" are ".github.io", dot
+    // included — comparing them to "github.io" is never true, so this used to
+    // return before deriving anything and every *.github.io deployment kept an
+    // empty repo URL. (It hid the Source links rather than breaking a page,
+    // which is why it went unnoticed.)
+    if (host.slice(-10) !== '.github.io') return;
     var parts = location.pathname.split('/').filter(Boolean);
     var user = host.replace('.github.io', '');
     if (!user || !parts.length) return;
@@ -82,8 +96,14 @@
 
   function resolveLinks() {
     deriveFromHost();
-    CONFIG.releases = CONFIG.releases || (CONFIG.repo ? CONFIG.repo + '/releases/latest' : '');
-    CONFIG.download = CONFIG.download || CONFIG.releases;
+
+    // CONFIG.download is never derived, and never filled in with a fragment.
+    // Deriving it from the repository's releases page is how this used to work,
+    // and it is wrong twice over: the repository is public, so the paid build
+    // must never be published there, and a link to an empty releases page is a
+    // worse answer than the install steps below. The copy-link button reads
+    // CONFIG.download directly too, so putting '#install' in here would have it
+    // copy the string "#install" and call that a download link.
 
     // price is written once and stamped everywhere
     [].forEach.call(document.querySelectorAll('[data-price]'), function (el) {
@@ -137,6 +157,17 @@
       // no customer link yet → send people to the install steps, which explain
       // that the download page arrives with the purchase email.
       external(a, CONFIG.download || '#install');
+    });
+
+    // The install steps carry a "Copy link" button for the download URL. With no
+    // download configured there is no link to copy, so the button is hidden
+    // rather than copying this page's URL and calling that a download link;
+    // [data-until-download] blocks explain where the build comes from instead.
+    [].forEach.call(document.querySelectorAll('[data-copy-target]'), function (btn) {
+      btn.hidden = !CONFIG.download;
+    });
+    [].forEach.call(document.querySelectorAll('[data-until-download]'), function (el) {
+      el.hidden = !!CONFIG.download;
     });
 
     // Buy buttons: hosted checkout first, then a pre-filled order email,

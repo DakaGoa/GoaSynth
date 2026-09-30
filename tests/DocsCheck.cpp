@@ -18,8 +18,9 @@
 //   6. the address        - the canonical link in every page, sitemap.xml and
 //                           robots.txt all naming one origin, with the sitemap
 //                           listing every published page (and nothing else),
-//                           and og:url / the social images derived from the
-//                           canonicals rather than written down again.
+//                           and og:url / the social images / the JSON-LD URLs
+//                           derived from the canonicals rather than written
+//                           down again.
 //                           Search-engine verification files are tokens, not
 //                           pages, so they are exempt and stay out of the list
 //
@@ -559,6 +560,44 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
 
             checkImage ("property", "og:image");
             checkImage ("name", "twitter:image");
+
+            // The JSON-LD repeats the address as well, and it is the copy nobody
+            // reads: the block is invisible on the page, so a stale host there
+            // survives every visual review and then turns up in search results.
+            // Every absolute URL in it is either the site's own - and so must be
+            // under the site root - or part of the schema.org vocabulary it is
+            // written in, which is not an address at all.
+            static const std::regex ldBlock (R"re(<script\s+type="application/ld\+json">([\s\S]*?)</script>)re");
+            static const std::regex absoluteUrl (R"re(https://[^"\s]*)re");
+            std::smatch ld;
+
+            if (std::regex_search (page, ld, ldBlock))
+            {
+                const std::string block = ld[1].str();
+                int ownUrls = 0;
+
+                for (auto it = std::sregex_iterator (block.begin(), block.end(), absoluteUrl);
+                     it != std::sregex_iterator(); ++it)
+                {
+                    const std::string url = (*it)[0].str();
+
+                    if (originOf (url) == "https://schema.org")
+                        continue;
+
+                    ++ownUrls;
+
+                    if (! base.empty() && url.compare (0, base.size(), base) != 0)
+                        r.problems.push_back ("docs/" + entry.first + ": the JSON-LD names " + url
+                            + ", which is not under the site root " + base + " - structured data "
+                              "that outlives a move is invisible on the page and only shows up "
+                              "in search results");
+                }
+
+                if (ownUrls == 0)
+                    r.problems.push_back ("docs/" + entry.first + ": its JSON-LD block names no "
+                        "URL of its own, only vocabulary terms - the check above would pass "
+                        "without looking at anything");
+            }
         }
 
         const fs::path sitemap = docsRoot / "sitemap.xml";

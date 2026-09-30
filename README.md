@@ -459,10 +459,12 @@ Everything still names `https://y4m4.github.io/GoaSynth/` — the GitHub Pages a
 repository — and the pages are the only place that address is written down. So moving to a custom
 domain is: edit the canonical links, run the tool, commit. `DocsCheck` fails if a page is left behind.
 
-The one host still written by hand is the `SoftwareApplication` JSON-LD block in the landing page's
-head, which names absolute URLs for the site and for its three screenshots. Re-deriving those needs
-the screenshot paths declared somewhere the tool can see them, so they are a deliberate hand edit
-until then — change them in the same commit as the canonicals.
+The landing page's `SoftwareApplication` JSON-LD is re-rooted the same way, and it needs no list of
+paths: the block names its own site URL in the `WebSite` node's `url`, so the tool replaces that
+prefix wherever the block uses it — the `@id` fragments, the offer URL, the app URL, the image and
+the three screenshots. The block is parsed before and after the rewrite, so a rewrite can never leave
+invalid structured data behind. Screenshot paths stay in the page, where a person reads them, and
+adding a fourth screenshot is a page edit rather than a tool edit.
 
 One piece of structured data is **deliberately absent**: there is no `FAQPage` block for the FAQ
 section. Google retired FAQ rich results — its FAQPage documentation now redirects to the

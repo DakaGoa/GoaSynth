@@ -326,7 +326,27 @@ int main()
         report ("og:url drift", r.problems, true);
     }
 
-    // ---- 6e. a verification token is not a page ----------------------------
+    // ---- 6e. a stale URL hiding in the structured data ---------------------
+    // This is the copy with no visible symptom: the JSON-LD is not rendered, so
+    // nothing on the page looks wrong, and the mistake only surfaces in search
+    // results weeks later.
+    if (! buildTree())
+        return 2;
+
+    {
+        const int n = replaceAll (docs / "index.html",
+                                  R"("image": "https://y4m4.github.io/GoaSynth/assets/ui-overview.png")",
+                                  R"("image": "https://old-site.example/assets/ui-overview.png")");
+        expect (n == 1, "JSON-LD drift: expected exactly one image URL to rewrite, found "
+                        + std::to_string (n));
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "the JSON-LD names"),
+                "JSON-LD drift: a block naming an address the site left was not reported");
+        report ("JSON-LD drift", r.problems, true);
+    }
+
+    // ---- 6f. a verification token is not a page ----------------------------
     // Google's (and Bing's) site-verification file has to sit at the site root,
     // has no canonical and belongs in no sitemap - so demanding either would
     // make the guard fight the one file that proves the site is yours.

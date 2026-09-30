@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate the site's crawl files and its absolute URLs from the pages.
 
-Three places repeat the site's address, and all three are easy to leave behind
-when it moves: robots.txt, sitemap.xml, and the absolute URLs in each page's
-head (og:url, og:image, twitter:image). None of them is written by hand:
+Four places repeat the site's address, and every one of them is easy to leave
+behind when it moves: robots.txt, sitemap.xml, the absolute URLs in each page's
+head (og:url, og:image, twitter:image) and the URLs inside the landing page's
+JSON-LD. None of them is written by hand:
 
     python tools/make-site-index.py           # rewrite them if they drifted
     python tools/make-site-index.py --check   # fail if they would change
@@ -19,7 +20,9 @@ address in <link rel="canonical">, and those declarations are the only input:
   * og:url in a page's head is rewritten to that page's own canonical, so the
     head cannot disagree with the canonical link beside it;
   * og:image and twitter:image are re-rooted at the site base, keeping the
-    asset path they already have (see SITE_IMAGE below).
+    asset path they already have (see SITE_IMAGE below);
+  * every URL inside a page's JSON-LD block is re-rooted the same way, so the
+    structured data cannot advertise an address the site has left.
 
 So a new page is picked up by being a page, and moving the site to a custom
 domain is: edit the canonical links, run this, commit. Nothing else knows the
@@ -31,6 +34,14 @@ SITE_IMAGE is the shared social-preview image, named here rather than in five
 files. Change it here when the screenshot it points at changes; the pages are
 rewritten from this constant. It is a path under the site root, not a URL.
 
+JSON-LD needs no such list, which is why there is not one. The block names its
+own site URL - the "url" of its WebSite node - so this tool re-roots every URL
+in the block by replacing that prefix, wherever the block references it: the
+@id fragments, the offer URL, the app URL, the image and the screenshot list.
+Screenshot paths stay where a person reads them, in the page, and adding a
+fourth screenshot is a page edit rather than a tool edit. The block is parsed
+before and after the rewrite, so a malformed one cannot be written.
+
 What it refuses
 ---------------
   * a page with no canonical link, or with more than one;
@@ -38,6 +49,7 @@ What it refuses
   * pages claiming two different origins - the sitemap can only advertise one,
     so that is a page to fix, not a value to guess at;
   * a page with no og:url, or an og:image that is not absolute;
+  * a JSON-LD block that is not valid JSON, or that names no site URL to re-root;
   * a missing docs/index.html, or a docs/ with no pages in it.
 
 The output is deterministic - sorted, LF endings, no timestamps - so re-running
@@ -49,6 +61,7 @@ Plain Python 3, no third-party modules, nothing to install.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -63,6 +76,13 @@ SITE_IMAGE = "assets/ui-overview.png"
 
 CANONICAL = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"')
 TOKEN_FILE = re.compile(r"^google[a-z0-9]+\.html$", re.IGNORECASE)
+
+# The structured-data block, and the site URL it names about itself. The node's
+# own "url" is the prefix every other URL in the block hangs off, which is what
+# makes the re-root below a prefix replacement rather than a list of paths.
+LD_BLOCK = re.compile(r'(<script\s+type="application/ld\+json">)(.*?)(</script>)', re.DOTALL)
+LD_NODE_URL = re.compile(r'"@type"\s*:\s*"(WebSite|SoftwareApplication)".*?"url"\s*:\s*"([^"]+)"',
+                         re.DOTALL)
 
 ROBOTS_TEMPLATE = """\
 # GoaSynth — {base}
@@ -186,8 +206,63 @@ def rewrite_meta(text: str, key_is: str, key: str, value: str, rel: str) -> tupl
     return tag.sub(replace, text), changed
 
 
+def old_site_base(block: str, rel: str) -> str:
+    """The address the JSON-LD block currently thinks the site lives at."""
+    found = LD_NODE_URL.findall(block)
+
+    for wanted in ("WebSite", "SoftwareApplication"):
+        for node_type, url in found:
+            if node_type != wanted:
+                continue
+
+            if not url.startswith("https://"):
+                die(f"docs/{rel}: the JSON-LD {wanted} node names the site URL "
+                    f"{url!r}, which is not absolute - nothing can be re-rooted against it")
+
+            return url
+
+    die(f"docs/{rel}: the JSON-LD block names no site URL - expected a "
+        f"\"@type\": \"WebSite\" node with a \"url\" to re-root the other URLs against")
+
+
+def rehome_jsonld(text: str, rel: str, base: str) -> str:
+    """Re-root every URL inside the page's JSON-LD block.
+
+    The block is parsed before and after, so a rewrite can never leave invalid
+    structured data behind - a syntax error there costs the rich result and is
+    invisible on the page.
+    """
+    match = LD_BLOCK.search(text)
+
+    if not match:
+        return text                     # a page with no structured data has none
+
+    block = match.group(2)
+
+    try:
+        json.loads(block)
+    except json.JSONDecodeError as exc:
+        die(f"docs/{rel}: the JSON-LD block is not valid JSON ({exc}) - fix the block "
+            f"before its URLs can be re-rooted")
+
+    old = old_site_base(block, rel)
+
+    if old == base:
+        return text
+
+    updated = block.replace(old, base)
+
+    try:
+        json.loads(updated)
+    except json.JSONDecodeError as exc:      # pragma: no cover - a guard, not a path
+        die(f"docs/{rel}: re-rooting the JSON-LD from {old} to {base} produced invalid "
+            f"JSON ({exc}) - refusing to write it")
+
+    return text[:match.start(2)] + updated + text[match.end(2):]
+
+
 def rehome_head(rel: str, canonical: str, base: str) -> str:
-    """The page, with the absolute URLs in its head re-derived."""
+    """The page, with the absolute URLs in its head and JSON-LD re-derived."""
     text = (DOCS / rel).read_text(encoding="utf-8")
     image = base + SITE_IMAGE
 
@@ -204,7 +279,7 @@ def rehome_head(rel: str, canonical: str, base: str) -> str:
     text, _ = rewrite_meta(text, "property", "og:image", image, rel)
     text, _ = rewrite_meta(text, "name", "twitter:image", image, rel)
 
-    return text
+    return rehome_jsonld(text, rel, base)
 
 
 def build(pages: list[tuple[str, str]]) -> tuple[str, str, str]:

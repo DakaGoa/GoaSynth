@@ -3,23 +3,20 @@
 # Built 30 September 2026 at 03:25, from commit 75f2984.
 # Site and install notes: https://y4m4.github.io/GoaSynth/
 #
-# Check the ZIP before you install it. Windows (PowerShell):
+# Check the ZIP before you install it, in the folder you downloaded it to:
 #
-#     Get-FileHash .\GoaSynth-1.1.0-win64.zip -Algorithm SHA256
-#
-# macOS or Linux, in the folder you downloaded to:
-#
-#     shasum -a 256 GoaSynth-1.1.0-win64.zip
-#     sha256sum -c SHA256SUMS.txt
+#     Windows (PowerShell)  Get-FileHash .\GoaSynth-1.1.0-win64.zip -Algorithm SHA256
+#     macOS                 shasum -a 256 -c SHA256SUMS.txt
+#     Linux                 sha256sum -c SHA256SUMS.txt
 #
 # The hash below must match the file you have. If it does not, the download was
 # damaged or replaced on the way to you - do not install it, and tell support.
 #
-bd47c1be56f290cd3c3ffc291553e513832c71e8c59e70236311ae1a7c367820  GoaSynth-1.1.0-win64.zip
+3183034d33ecdf33581f1acc60878a06ff3e1de7d2222080b632d8e0b0829869  GoaSynth-1.1.0-win64.zip
 #
 # And the plugin inside the ZIP, once it is unpacked, should hash to:
 #
 #     16ce3b5f5452751e3697aa833b3d217b9de511df70ffadf04ad04d4338ab4fc0  GoaSynth.vst3  (8,511,488 bytes)
 #
-# The ZIP is 5.8 MB. Its contents are listed in the manifest
-# next to it on the download page.
+# The ZIP is 5.8 MB and holds the GoaSynth.vst3 bundle, the
+# licence helper that opens .goalicense files, a README.txt and the EULA.

@@ -5,7 +5,8 @@
 header's **MENU** dropdown carries an About card (version, license state,
 machine ID), **Check for updates** — which compares the running build against
 `docs/version.json` on the product site and always answers with a dialog, even
-when the feed is unreachable — and **Change Log**, which opens the release
+when the feed is unreachable — the download link in the dialog is clickable and
+opens the site in your browser — and **Change Log**, which opens the release
 notes on the product site.
 
 ![The GoaSynth mark: the sine swoosh in the UV GOA palette](Assets/icon_256.png)

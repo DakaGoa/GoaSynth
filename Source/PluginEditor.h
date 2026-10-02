@@ -495,6 +495,45 @@ private:
     std::function<void (const juce::MouseEvent&)> mouseDownCallback;
 };
 
+// Result dialog for MENU → CHECK FOR UPDATES — an overlay on purpose: an OS
+// message box cannot host a clickable link, and the two outcomes that name
+// the download URL are exactly the ones where clicking it is the point. Same
+// furniture as every other overlay (tinted backdrop, centred card, × on the
+// card, backdrop-click dismissal), and as the editor's own child the host has
+// no window to bury it behind.
+struct UpdateResultOverlay : juce::Component
+{
+    UpdateResultOverlay();
+
+    // Title + message + optional link row; an empty linkUrl hides the row
+    // (the "up to date" case has nothing to open). The editor positions and
+    // shows the overlay afterwards, like every other overlay's open path.
+    void configure (const juce::String& title, const juce::String& message,
+                    const juce::String& linkUrl);
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void retint();
+
+    // Clicking the darkened backdrop outside the card also dismisses it
+    // (the handler is assigned in the ctor).
+    void mouseDown (const juce::MouseEvent&) override;
+
+    // The centred 440x210 card that paint() and resized() both position
+    // against; every row is tested to sit inside it.
+    juce::Rectangle<int> cardBounds() const noexcept;
+
+    juce::Label titleLabel, messageLabel;
+    // juce's own control: underlined, hand cursor, click → default browser.
+    juce::HyperlinkButton link;
+    juce::TextButton okBtn { "OK", "Dismiss the result dialog" };
+    juce::TextButton closeBtn { "×", "Back to the synth" };
+
+private:
+    // Assigned (not constructed) in the ctor body so it can capture `this`.
+    std::function<void (const juce::MouseEvent&)> mouseDownCallback;
+};
+
 struct SavePresetOverlay : juce::Component
 {
     std::function<void (const juce::String&, const juce::StringArray&, bool)> onSave;
@@ -926,6 +965,10 @@ public:
     // the fetch thread's SafePointer callback calls updateCheckDone().
     void runUpdateCheck();
     void updateCheckDone();
+    // The one place every update outcome appears. Public so the tests can
+    // drive all three branches without a fetch, a feed, or a DAW.
+    void showUpdateResult (const juce::String& title, const juce::String& message,
+                           const juce::String& linkUrl);   // empty = no link row
     std::unique_ptr<juce::Thread> updateThread;   // owned; joined in the destructor
     juce::String updateThreadVersion;             // latest version the thread read
     std::atomic<bool> updateOlder { false };      // released < current
@@ -1072,6 +1115,7 @@ private:
     std::unique_ptr<goaui::PresetBrowserOverlay> presetBrowser;
     std::unique_ptr<goaui::ModOverlay> modOverlay;
     std::unique_ptr<goaui::AboutOverlay> aboutOverlay;
+    std::unique_ptr<goaui::UpdateResultOverlay> updateResultOverlay;
     juce::TextButton modBtn { "MOD", "Open the modulation matrix (8 routable slots)" };
     std::unique_ptr<goaui::LicenseOverlay> licenseOverlay;
     std::shared_ptr<juce::FileChooser> packChooser;   // one dialog at a time

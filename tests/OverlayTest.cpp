@@ -2116,6 +2116,7 @@ int main()
                     || dynamic_cast<goaui::SavePresetOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::PresetBrowserOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::AboutOverlay*> (ch) != nullptr
+                    || dynamic_cast<goaui::UpdateResultOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::LicenseOverlay*> (ch) != nullptr)
                     continue;
 
@@ -2237,6 +2238,90 @@ int main()
                                      .contains (about->closeBtn.getBounds());
             EXPECT (xOnCard, "About close button sits inside the card");
             about->setVisible (false);
+        }
+
+        // The update result dialog is an overlay, not a native box: the two
+        // outcomes that name the download carry a clickable link (an OS box
+        // cannot host one), and as this editor's child the host cannot bury
+        // it. Drive all three branches exactly the way updateCheckDone does.
+        goaui::UpdateResultOverlay* res = nullptr;
+        std::function<void (juce::Component*)> findResult = [&] (juce::Component* c)
+        {
+            if (res != nullptr)
+                return;
+            if (auto* r = dynamic_cast<goaui::UpdateResultOverlay*> (c))
+            {
+                res = r;
+                return;
+            }
+            for (auto* ch : c->getChildren())
+                findResult (ch);
+        };
+        findResult (edr);
+        EXPECT (res != nullptr, "editor owns an update-result overlay");
+
+        if (res != nullptr)
+        {
+            // Branch 1 — feed unreachable: the one that used to return
+            // silently, so the dialog itself is the assertion that matters.
+            edr->updateReachable.store (false);
+            edr->updateCheckDone();
+            EXPECT (res->isVisible(),
+                    "an unreachable feed shows the result dialog (it used to return silently)");
+            EXPECT (res->titleLabel.getText() == "GOASYNTH",
+                    "the unreachable dialog is titled GOASYNTH, got "
+                        + res->titleLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("Could not reach"),
+                    "the unreachable dialog says the feed could not be reached");
+            EXPECT (res->link.isVisible(),
+                    "the unreachable dialog carries the clickable download link");
+            EXPECT (res->link.getButtonText() == "https://y4m4.github.io/GoaSynth/",
+                    "the link points at the product site, got " + res->link.getButtonText());
+            EXPECT (res->link.getMouseCursor() == juce::MouseCursor::PointingHandCursor,
+                    "the link shows a hand cursor over its whole row");
+            // Every row on the card — an off-card row is a row nobody sees.
+            EXPECT (res->cardBounds().contains (res->titleLabel.getBounds()),
+                    "the title sits on the card");
+            EXPECT (res->cardBounds().contains (res->messageLabel.getBounds()),
+                    "the message sits on the card");
+            EXPECT (res->cardBounds().contains (res->link.getBounds()),
+                    "the link sits on the card");
+            EXPECT (res->cardBounds().contains (res->okBtn.getBounds()),
+                    "the OK button sits on the card");
+
+            // Branch 2 — a newer release: the dialog proved live with the
+            // temporary 1.5.0 feed, and it must name both versions.
+            edr->updateReachable.store (true);
+            edr->updateOlder.store (true);
+            edr->updateThreadVersion = "1.5.0";
+            edr->updateCheckDone();
+            EXPECT (res->titleLabel.getText() == "UPDATE AVAILABLE",
+                    "a newer feed shows UPDATE AVAILABLE, got "
+                        + res->titleLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("1.5.0")
+                        && res->messageLabel.getText().contains ("running " + ver + ")"),
+                    "the dialog names the available and the running version, got "
+                        + res->messageLabel.getText());
+            EXPECT (res->link.isVisible(),
+                    "the update-available dialog carries the download link");
+
+            // Branch 3 — up to date: nothing to open, so no link row rather
+            // than dead furniture.
+            edr->updateOlder.store (false);
+            edr->updateCheckDone();
+            EXPECT (res->titleLabel.getText() == "GOASYNTH",
+                    "an up-to-date build shows GOASYNTH, got "
+                        + res->titleLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("latest version (" + ver + ")"),
+                    "the up-to-date dialog names the running version, got "
+                        + res->messageLabel.getText());
+            EXPECT (! res->link.isVisible(),
+                    "the up-to-date dialog carries no link (there is nothing to open)");
+
+            // The house dismissal: a click on the backdrop, outside the card,
+            // closes it — same rule as every other overlay.
+            res->mouseDown (makeRowClick (*res, 2, 2, false));
+            EXPECT (! res->isVisible(), "clicking the backdrop dismisses the dialog");
         }
 
         // docs/version.json is the update-check feed: its "latest" must match

@@ -4856,6 +4856,9 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
     aboutOverlay = std::make_unique<goaui::AboutOverlay>();
     addChildComponent (*aboutOverlay);
 
+    updateResultOverlay = std::make_unique<goaui::UpdateResultOverlay>();
+    addChildComponent (*updateResultOverlay);
+
     zoomBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
     zoomBtn.setColour (juce::TextButton::textColourOffId, goaui::accentA);
     zoomBtn.setTooltip ("Interface zoom: 100 / 125 / 150 / 175 / 200 %");
@@ -5329,6 +5332,8 @@ void GoaSynthAudioProcessorEditor::applyTheme()
     menuBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
     if (aboutOverlay != nullptr)
         aboutOverlay->retint();
+    if (updateResultOverlay != nullptr)
+        updateResultOverlay->retint();
     juce::String themeLabel;
     switch (goaui::activeTheme)
     {
@@ -6809,6 +6814,8 @@ void GoaSynthAudioProcessorEditor::resized()
         saveOverlay->setBounds (getLocalBounds());
     if (aboutOverlay != nullptr && aboutOverlay->isVisible())
         aboutOverlay->setBounds (getLocalBounds());
+    if (updateResultOverlay != nullptr && updateResultOverlay->isVisible())
+        updateResultOverlay->setBounds (getLocalBounds());
     if (presetBrowser != nullptr && presetBrowser->isVisible())
         presetBrowser->setBounds (getLocalBounds());
 
@@ -7341,6 +7348,134 @@ void goaui::AboutOverlay::retint()
 }
 
 //==============================================================================
+//  Update result dialog (MENU → CHECK FOR UPDATES → outcome). An overlay on
+//  purpose: an OS message box cannot host a clickable link, and the two
+//  outcomes that name the download URL are exactly the ones where clicking it
+//  is the point. As the editor's child it also inherits the guarantee the
+//  dialog always needed — the host has no window to bury it behind.
+goaui::UpdateResultOverlay::UpdateResultOverlay()
+{
+    setInterceptsMouseClicks (true, true);
+    setAlwaysOnTop (true);
+
+    titleLabel.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+    titleLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (titleLabel);
+
+    messageLabel.setFont (juce::Font (juce::FontOptions (12.5f)));
+    messageLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (messageLabel);
+
+    // juce's own hyperlink control: underlined, hand cursor over it, hover
+    // feedback, and a click hands the URL to the system's default browser —
+    // the same launchInDefaultBrowser() the Change Log menu item uses. The
+    // fixed font (resizeToMatchComponentHeight = false) keeps the underline
+    // the same size whatever row height layout picks.
+    link.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::underlined)), false,
+                  juce::Justification::centred);
+    addAndMakeVisible (link);
+
+    okBtn.onClick = [this] { setVisible (false); };
+    addAndMakeVisible (okBtn);
+
+    closeBtn.onClick = [this] { setVisible (false); };
+    addAndMakeVisible (closeBtn);
+
+    // The backdrop is the click target (see mouseDown); the card and its
+    // children still receive their own clicks — the link sits ON the card, so
+    // opening the browser can never be mistaken for a dismissal.
+    mouseDownCallback = [this] (const juce::MouseEvent& e)
+    {
+        if (! cardBounds().contains (e.position.toInt()))
+            setVisible (false);
+    };
+
+    retint();
+}
+
+void goaui::UpdateResultOverlay::configure (const juce::String& title,
+                                            const juce::String& message,
+                                            const juce::String& linkUrl)
+{
+    titleLabel.setText (title, juce::dontSendNotification);
+    messageLabel.setText (message, juce::dontSendNotification);
+
+    // "Up to date" has nothing to open, so the link row is hidden rather than
+    // shown as dead furniture — the message then takes the whole body.
+    if (linkUrl.isNotEmpty())
+    {
+        link.setButtonText (linkUrl);
+        link.setURL (juce::URL (linkUrl));   // also refreshes the tooltip
+        link.setVisible (true);
+    }
+    else
+    {
+        link.setVisible (false);
+    }
+}
+
+void goaui::UpdateResultOverlay::mouseDown (const juce::MouseEvent& e)
+{
+    if (mouseDownCallback != nullptr)
+        mouseDownCallback (e);
+}
+
+juce::Rectangle<int> goaui::UpdateResultOverlay::cardBounds() const noexcept
+{
+    return getLocalBounds().withSizeKeepingCentre (440, 210);
+}
+
+void goaui::UpdateResultOverlay::paint (juce::Graphics& g)
+{
+    g.setColour (bgDark.withAlpha (0.96f));
+    g.fillAll();
+
+    const auto card = cardBounds().toFloat();
+    g.setColour (bgPanel);
+    g.fillRoundedRectangle (card, 6.0f);
+    g.setColour (border);
+    g.drawRoundedRectangle (card.reduced (0.5f), 6.0f, 1.0f);
+    g.setGradientFill (uvGradient ({ card.getX() + 10.0f, card.getY(),
+                                     card.getWidth() - 20.0f, 2.0f }));
+    g.fillRect (card.getX() + 10.0f, card.getY(), card.getWidth() - 20.0f, 2.0f);
+}
+
+void goaui::UpdateResultOverlay::resized()
+{
+    // The X sits ON the card's top-right corner, as everywhere else.
+    closeBtn.setBounds (cardBounds().removeFromTop (26)
+                                    .removeFromRight (28).reduced (5));
+
+    auto card = cardBounds();
+    card.reduce (18, 14);
+    titleLabel.setBounds (card.removeFromTop (24));
+    card.removeFromTop (4);
+    okBtn.setBounds (card.removeFromBottom (26).withSizeKeepingCentre (86, 24));
+    card.removeFromBottom (6);
+
+    if (link.isVisible())
+    {
+        // The link is the row right above OK: the message reads down into it
+        // — "download from:" → the address → the button.
+        link.setBounds (card.removeFromBottom (24));
+        card.removeFromBottom (4);
+    }
+
+    messageLabel.setBounds (card);
+}
+
+void goaui::UpdateResultOverlay::retint()
+{
+    titleLabel.setColour (juce::Label::textColourId, accent);
+    messageLabel.setColour (juce::Label::textColourId, textBright);
+    link.setColour (juce::HyperlinkButton::textColourId, accent);
+    okBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
+    okBtn.setColour (juce::TextButton::textColourOffId, textDim);
+    closeBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
+    closeBtn.setColour (juce::TextButton::textColourOffId, textDim);
+}
+
+//==============================================================================
 //  Update check (MENU → CHECK FOR UPDATES): fetches docs/version.json from the
 //  product site on a background thread, compares it to the running version and
 //  always reports back in the message thread — success, newer feed, or the
@@ -7349,6 +7484,9 @@ void goaui::AboutOverlay::retint()
 //==============================================================================
 namespace
 {
+    // The product site, and the feed it publishes: same origin, one path
+    // apart. The result dialogs link here; the fetch reads the feed below.
+    constexpr const char* siteUrl = "https://y4m4.github.io/GoaSynth/";
     constexpr const char* updateFeedUrl =
         "https://y4m4.github.io/GoaSynth/version.json";
 
@@ -7441,32 +7579,49 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
     // No thread teardown here: the worker may still be finishing its last
     // lines; the destructor (or the next check replacing the unique_ptr)
     // joins it safely.
-    // Every box is parented to this editor: with associatedComponent the host
-    // keeps the dialog on top of the plugin window; unparented, DAWs were free
-    // to bury it behind the arrange view (another "nothing happens" symptom).
+    //
+    // Every outcome shows in the result overlay — never a native box, never
+    // silence. The overlay is this editor's own child, so the host has no
+    // window to bury it behind (an unparented native box was free to land
+    // behind the arrange view — another "nothing happens" symptom), and the
+    // two outcomes that name the download carry the address as a link that
+    // opens the browser when clicked. Native boxes cannot host a link at all:
+    // that is the reason this dialog is an overlay.
     if (! updateReachable.load())
     {
-        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
-            "GOASYNTH",
-            "Could not reach the update feed.\n\n"
-            "Latest version and downloads:\nhttps://y4m4.github.io/GoaSynth/",
-            this);
+        showUpdateResult ("GOASYNTH",
+                          "Could not reach the update feed.\n\n"
+                          "Latest version and downloads:",
+                          siteUrl);
         return;
     }
 
     if (updateOlder.load())
     {
-        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-            "UPDATE AVAILABLE",
-            "GoaSynth " + updateThreadVersion + " is available (you are running "
-                + goaVersionString() + ").\n\n"
-            "Download the new installer from:\nhttps://y4m4.github.io/GoaSynth/",
-            this);
+        showUpdateResult ("UPDATE AVAILABLE",
+                          "GoaSynth " + updateThreadVersion + " is available (you are running "
+                              + goaVersionString() + ").\n\n"
+                          "Download the new installer from:",
+                          siteUrl);
         return;
     }
 
-    juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
-        "GOASYNTH",
-        "You are running the latest version (" + goaVersionString() + ").",
-        this);
+    showUpdateResult ("GOASYNTH",
+                      "You are running the latest version (" + goaVersionString() + ").",
+                      {});
+}
+
+void GoaSynthAudioProcessorEditor::showUpdateResult (const juce::String& title,
+                                                     const juce::String& message,
+                                                     const juce::String& linkUrl)
+{
+    // One open path for all three outcomes, mirroring the About card's:
+    // configure, fit to the current window, front, show.
+    if (updateResultOverlay == nullptr)
+        return;
+
+    updateResultOverlay->configure (title, message, linkUrl);
+    updateResultOverlay->setBounds (getLocalBounds());
+    updateResultOverlay->toFront (true);
+    updateResultOverlay->setVisible (true);
 }

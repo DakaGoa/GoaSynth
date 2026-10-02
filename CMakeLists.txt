@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(GoaSynth VERSION 1.1.0 LANGUAGES C CXX)
+# Release numbering: every functional change bumps the minor (1.2, 1.3, ...);
+# the major stays 1 until the owner explicitly says otherwise. The major is
+# re-checked at build time (static_assert in PluginEditor.h) and by tests.
+project(GoaSynth VERSION 1.4.0 LANGUAGES C CXX)
 
 enable_testing()   # so `ctest` picks up the RoundTripTest / FulfilTest targets
 
@@ -67,6 +70,7 @@ target_compile_definitions(GoaSynth PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_MODAL_LOOPS_PERMITTED=0
+    GOASYNTH_VERSION="${PROJECT_VERSION}"
 )
 
 target_link_libraries(GoaSynth
@@ -139,6 +143,8 @@ target_compile_definitions(OverlayTest PRIVATE
     JUCE_MODAL_LOOPS_PERMITTED=0
     GOA_TEST_BUILD=1   # use tests/TestMasterKey.h - never the seller's real key
     GOASYNTH_DOCS_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/docs/assets"
+    GOASYNTH_VERSION="${PROJECT_VERSION}"
+    GOASYNTH_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
 )
 target_sources(OverlayTest PRIVATE
     Source/License.cpp
@@ -221,6 +227,10 @@ target_compile_definitions(FulfilTest PRIVATE
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=0
 )
+# The CLI and interactive-menu checks drive the real seller binaries, so build
+# them with the test: run-checks only builds the test targets, and without this
+# the tools were missing and every CLI check silently skipped.
+add_dependencies(FulfilTest GoaSynthKeygen GoaSynthFulfil)
 add_test(NAME FulfilTest COMMAND FulfilTest)
 
 # Publish preflight: docs/ IS the website, so nothing seller-side or secret may

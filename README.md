@@ -1,5 +1,13 @@
 # GoaSynth — Goa Trance VST3 Synthesizer
 
+**Version 1.4.0.** Numbering: every functional change bumps the minor (1.2 →
+1.3 → …); the major stays 1 until the owner explicitly says otherwise. The
+header's **MENU** dropdown carries an About card (version, license state,
+machine ID), **Check for updates** — which compares the running build against
+`docs/version.json` on the product site and always answers with a dialog, even
+when the feed is unreachable — and **Change Log**, which opens the release
+notes on the product site.
+
 ![The GoaSynth mark: the sine swoosh in the UV GOA palette](Assets/icon_256.png)
 
 A polyphonic virtual-analog synthesizer plugin (VST3) designed for Goa trance
@@ -478,8 +486,15 @@ One file under `docs/` is deliberately *not* a page: `docs/googlebe8101dec58dcb7
 Search Console's proof that the site is ours. It has to be served from the site root, carries no
 canonical and belongs in no sitemap, so `DocsCheck` recognises `google*.html` as a token and exempts
 it from the rules above — and from nothing else, so any other new page still needs a canonical link
-and a sitemap entry. If the property is ever re-created, replace that file with the new token (and
-update the name on `PublishCheck`'s allowlist, which every served file must be on).
+and a sitemap entry. Its *contents*, though, are pinned rather than derived: it is the one fact under
+`docs/` that no file in this repository decides, so `DocsCheck` holds it to the exact bytes it was
+issued with. The failure it guards is invisible — Google fetches the file and looks for its own name
+inside it, so a re-save that adds a trailing newline, writes a UTF-8 byte order mark or "corrects" a
+quote still answers 200 while the console quietly stops recognising the site.
+`DocsCheck` therefore fails on a byte that differs (showing the bytes, escaped, and both lengths), on
+a token that does not name its own file, and on the file being deleted at all. If the property is ever
+re-created, land the new token file and update the pin beside it (and the name on `PublishCheck`'s
+allowlist, which every served file must be on).
 
 Once deployed, submit the site once in [Google Search Console](https://search.google.com/search-console)
 and Bing Webmaster Tools — the Google token above is already live, so verification is a click. A
@@ -568,6 +583,45 @@ The policy documents stores ask for at signup live in [`docs/legal/`](docs/legal
 drafts: every value you must supply is marked with a highlighted `class="ph"` placeholder, and each
 file opens with a comment describing what to replace.
 
+### After you push: is the live site this commit?
+
+Every check above looks at the repository. None of them can see the deploy, because there is no
+deploy until GitHub Pages picks the push up — so "the commit is pushed, therefore the site is that
+commit" is an assumption, and it is the one that has actually been wrong here: a page still being
+served from the previous deploy looks correct to every local check there is.
+
+`tools/check-deployed.py` checks it rather than assuming it. It reads the address out of the pages'
+canonical links — the same source the generators use, so moving to a custom domain needs no edit
+here — walks everything under `docs/`, and fetches each file at the URL it is published at:
+
+```bash
+python tools/check-deployed.py              # is the live site this repository's docs/ tree?
+python tools/check-deployed.py --wait 60    # ...right after a push, let Pages catch up
+python tools/check-deployed.py -v           # list every file and page compared
+```
+
+It compares every file byte for byte, printing both digests on a mismatch so it is clear which side
+is stale; each page's canonical link and `og:url` against the address the page was actually served
+at; the verification token's bytes *and* its exact form; `robots.txt`'s `Sitemap:` line and every
+`<loc>` in the sitemap, each of which has to be served, byte-identical to the file it names, and
+name something the repository publishes; and the one-address property — the address without its
+trailing slash has to redirect to the canonical one, and the `index.html` spelling has to serve the
+same bytes rather than a second copy of the landing page.
+
+Every request carries a throwaway query parameter, because Pages serves with `max-age=600` and a
+plain check would report the *previous* deploy as drift for ten minutes after a push. It refuses to
+run while `docs/` has uncommitted changes, since a difference would then have two possible causes
+and the tool cannot tell you which. Pointing `--base` at a host that is not the address the pages
+declare (a staging copy, say) skips the address comparisons and keeps the file ones, rather than
+reporting a page's production canonical as a failure.
+
+```bash
+python tools/check-deployed.py --base https://staging.example/GoaSynth/   # any host
+```
+
+It exits 0 when the deployed site is this tree, 1 when it is not, and 2 when it could not be
+checked at all.
+
 ## Building
 
 Requires CMake 3.22+ and MSVC 2022 (Windows), Xcode (macOS) or a g++/clang
@@ -601,11 +655,11 @@ The plugin is produced at:
 build/GoaSynth_artefacts/Release/VST3/GoaSynth.vst3
 ```
 
-Run the tests with `ctest --test-dir build -C Release`: `RoundTripTest` (preset
-and state round-trip, the licensing paths, cloud-reply sanitising, scale
-quantiser, Scala microtuning, vowel filter, pump and filter drive, and
-note-off symmetry — that Scale Lock and chord memory never strand or silence a
-voice),
+Run the tests with `ctest --test-dir build -C Release` — or, so a stale binary cannot pass for a
+fresh one, with [the checks runner](#running-the-checks-in-one-command) below. Either way there
+are seven: `RoundTripTest` (preset and state round-trip, the licensing paths, cloud-reply
+sanitising, scale quantiser, Scala microtuning, vowel filter, pump and filter drive, and
+note-off symmetry — that Scale Lock and chord memory never strand or silence a voice),
 `OverlayTest` (builds the real editor offscreen: every overlay must open on
 screen with laid-out children, the MOD pick/flash/dot workflow, and a unit-map
 sweep over every knob's value formatting),
@@ -617,6 +671,41 @@ see [the drift guard](#before-you-publish-the-drift-guard)).
 
 `RoundTripTest` prints a `[phase] ...` line before each block and runs unbuffered, so if it ever dies
 mid-run the log names the block it was in rather than being empty.
+
+### Running the checks in one command
+
+`ctest` runs whatever executable is already on disk, and the one thing a test suite cannot
+be asked to notice about itself is that the binary is not the code: a build that failed
+leaves the previous executable in place, and an executable older than the source it tests
+reports on the old code. Both look exactly like a pass, and one of them has already cost
+time here — a `DOCS CHECK OK` printed by a binary from a build that had failed.
+
+So the suite is normally run through one script, which builds the test targets first,
+refuses to continue if the build failed, and then refuses to run any binary that is behind
+the files it was compiled from:
+
+```bash
+python tools/run-checks.py                 # build, verify, run all seven
+python tools/run-checks.py -R DocsCheck    # one test, still built and still verified
+python tools/run-checks.py --list -v       # what would run, and what each was built from
+python tools/run-checks.py --no-build      # verify and run what is already there
+```
+
+The target list comes from CMake (`ctest --show-only=json-v1`), so a test is included by
+being a test; each binary's inputs come from MSBuild's own dependency logs, so
+`RoundTripTest` is compared against every file it compiles — JUCE and all — and `DocsCheck`
+against the handful it does. Neither list is written down here, because a list is what
+drifts. Entries outside the tree (the MSVC headers, the Windows DLLs the compiler reads)
+are ignored: those are the toolchain's business, and MSBuild tracks them itself. On a
+generator that writes no dependency logs the comparison falls back to `tests/` plus
+CMakeLists.txt, and says so rather than pretending to be exact.
+
+Its exit codes are separate on purpose — 1 the build failed, 2 a setup problem, 3 a binary
+is behind its sources, 4 the tests failed — because each one sends you somewhere different.
+
+One check is deliberately not in here, and not in `ctest` either: the site itself is only
+checkable over the network, and everything above stays offline and deterministic. It has its own
+section, [after you push](#after-you-push-is-the-live-site-this-commit).
 
 ## Installing
 

@@ -2115,6 +2115,7 @@ int main()
                     || dynamic_cast<goaui::AiOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::SavePresetOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::PresetBrowserOverlay*> (ch) != nullptr
+                    || dynamic_cast<goaui::AboutOverlay*> (ch) != nullptr
                     || dynamic_cast<goaui::LicenseOverlay*> (ch) != nullptr)
                     continue;
 
@@ -2169,6 +2170,102 @@ int main()
         EXPECT (zero == 0, "no visible control ships with zero bounds"
                            + (firstZero.isNotEmpty() ? juce::String (": ") + firstZero
                                                      : juce::String()));
+    }
+
+    // ---- version policy: 1.x line until the owner says otherwise ----------
+    // Bump rules from the owner: every functional change goes to the next
+    // minor (1.2, 1.3, ...); the major stays 1. Both halves are enforced: the
+    // compile-time static_asserts in PluginEditor.h catch the version macro
+    // itself, and this catches the plugin binary, the About card and the web
+    // feed drifting apart.
+    {
+        const juce::String ver = GOASYNTH_VERSION;
+        const auto parts = juce::StringArray::fromTokens (ver, ".", {});
+        EXPECT (parts.size() == 3 && parts[0].getIntValue() == 1,
+                "GOASYNTH_VERSION must be major.minor.patch on the 1.x line, got " + ver);
+        EXPECT (parts.size() == 3 && parts[1].getIntValue() >= 2,
+                "GOASYNTH_VERSION minor must never regress below 1.2, got " + ver);
+
+        // The About card must show the same version string the plugin was
+        // built with (it re-reads the define at construction).
+        std::function<bool (juce::Component*, const juce::String&)> anyLabelReads =
+            [&] (juce::Component* c, const juce::String& text) -> bool
+        {
+            if (c == nullptr)
+                return false;
+            if (auto* l = dynamic_cast<juce::Label*> (c))
+                if (l->getText() == text)
+                    return true;
+            for (auto* ch : c->getChildren())
+                if (anyLabelReads (ch, text))
+                    return true;
+            return false;
+        };
+        const bool aboutOk = anyLabelReads (ed.get(), "VERSION " + ver)
+                             && anyButtonReads (ed.get(), "COPY");
+        EXPECT (aboutOk, "About overlay shows the build version (VERSION " + ver + ")");
+
+        // And the card must lay out on open, like every other overlay.
+        auto* edr = static_cast<GoaSynthAudioProcessorEditor*> (ed.get());
+        goaui::AboutOverlay* about = nullptr;
+        std::function<void (juce::Component*)> findAbout = [&] (juce::Component* c)
+        {
+            if (about != nullptr)
+                return;
+            if (auto* a = dynamic_cast<goaui::AboutOverlay*> (c))
+            {
+                about = a;
+                return;
+            }
+            for (auto* ch : c->getChildren())
+                findAbout (ch);
+        };
+        findAbout (edr);
+        EXPECT (about != nullptr, "editor owns an About overlay");
+        if (about != nullptr)
+        {
+            about->setBounds (edr->getLocalBounds());
+            about->setVisible (true);
+            about->resized();
+            const bool aboutLaid = about->copyBtn.getWidth() > 20
+                                   && about->verLine.getWidth() > 100
+                                   && about->idValue.getHeight() > 10;
+            EXPECT (aboutLaid, "About card lays out on open");
+            // The X must sit ON the card where the eye looks for it: the old
+            // window-corner placement read as "no close button at all".
+            const bool xOnCard = about->cardBounds()
+                                     .contains (about->closeBtn.getBounds());
+            EXPECT (xOnCard, "About close button sits inside the card");
+            about->setVisible (false);
+        }
+
+        // docs/version.json is the update-check feed: its "latest" must match
+        // the running build so a released plugin reports 'up to date' until a
+        // newer version is actually published.
+        const juce::File docsDir = juce::File (GOASYNTH_DOCS_ASSETS)
+                                       .getParentDirectory();
+        const juce::var feed = juce::JSON::parse (
+            docsDir.getChildFile ("version.json").loadFileAsString());
+        const juce::String latest = feed.getProperty ("latest", {}).toString();
+        EXPECT (latest == ver,
+                "docs/version.json latest (" + latest + ") must match the "
+                "plugin version (" + ver + ")");
+        EXPECT (feed.getProperty ("url", {}).toString().startsWith ("https://"),
+                "docs/version.json must carry the product download url");
+
+        // Semantics of the update comparison (goaui::compareVersions, shared
+        // with the plugin code): major.minor only, patch ignored, malformed
+        // tokens rank as 0 — a broken feed can never outrank the running build.
+        EXPECT (goaui::compareVersions ("1.4.0", "1.3.9") > 0, "1.4.0 outranks 1.3.9");
+        EXPECT (goaui::compareVersions ("1.4", "1.3.9") > 0, "two-token version form works");
+        EXPECT (goaui::compareVersions ("1.3.7", "1.3.10") == 0,
+                "the patch field must be ignored (1.3.7 == 1.3.10)");
+        EXPECT (goaui::compareVersions ("2.0", "1.9.9") > 0,
+                "an older major must never outrank a newer one");
+        EXPECT (goaui::compareVersions ("1.3.0", "1.3.0") == 0,
+                "equal versions compare equal");
+        EXPECT (goaui::compareVersions ("nonsense", "1.2.0") < 0,
+                "a malformed token must rank as 0, never above the build");
     }
 
     std::printf (fails == 0 ? "ALL PASSED\n" : "%d FAILURE(S)\n", fails);

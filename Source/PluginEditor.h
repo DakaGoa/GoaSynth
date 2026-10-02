@@ -9,6 +9,51 @@
 #include "Tuning.h"
 #include "UserPresets.h"   // BrowserState (favourites + last filter)
 
+// GoaSynth release version, as "major.minor.patch". GOASYNTH_VERSION comes
+// from CMakeLists.txt (project()); tests that compile PluginEditor.cpp without
+// it fall back to the same string CMake currently bakes in — keep the two in
+// sync when bumping.
+#ifndef GOASYNTH_VERSION
+ #define GOASYNTH_VERSION "1.4.0"
+#endif
+
+// Version policy: the product line is 1.x until the owner says otherwise, so
+// the major must stay 1. OverlayTest enforces both halves at build time.
+// (CMake may pass its own GOASYNTH_VERSION_MAJOR; that one wins.)
+#ifndef GOASYNTH_VERSION_MAJOR
+ #define GOASYNTH_VERSION_MAJOR 1
+#endif
+static_assert (GOASYNTH_VERSION_MAJOR == 1,
+               "v2 needs the owner's explicit go-ahead (see docs/version.json)");
+static_assert (GOASYNTH_VERSION[0] == '1',
+               "GOASYNTH_VERSION must stay on the 1.x line (see docs/version.json)");
+
+// The running release version as a JUCE string (MENU header, About card,
+// update comparison).
+inline juce::String goaVersionString() { return juce::String (GOASYNTH_VERSION); }
+
+// Compares GoaSynth versions as "major.minor" (the patch field is ignored):
+// <0 when a is older than b, 0 when equal, >0 when newer. Non-numeric tokens
+// count as 0, so a malformed feed can never outrank this build. In goaui so
+// OverlayTest can drive it the same way the update check does.
+namespace goaui
+{
+    inline int compareVersions (const juce::String& a, const juce::String& b)
+    {
+        auto majorMinor = [] (const juce::String& s)
+        {
+            const auto t = juce::StringArray::fromTokens (s, ".", {});
+            return std::pair<int, int> { t.size() > 0 ? t[0].getIntValue() : 0,
+                                         t.size() > 1 ? t[1].getIntValue() : 0 };
+        };
+        const auto A = majorMinor (a);
+        const auto B = majorMinor (b);
+        if (A.first  != B.first)  return A.first  < B.first  ? -1 : 1;
+        if (A.second != B.second) return A.second < B.second ? -1 : 1;
+        return 0;
+    }
+}
+
 namespace goaui
 {
 
@@ -423,6 +468,33 @@ struct LicenseOverlay : juce::Component
 // rename and duplicate prompt (see beginRename / beginSaveAs) so those actions
 // need no second dialog: it already has the name and tag fields they need, and
 // JUCE modal loops are disabled in this plugin, so a new modal is not an option.
+// Full-screen tinted card shown from the header's MENU → ABOUT: version,
+// license state, machine ID and the product page.
+struct AboutOverlay : juce::Component
+{
+    AboutOverlay();
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void retint();
+
+    // Clicking the darkened backdrop outside the card also dismisses the
+    // overlay (the handler is assigned in the ctor).
+    void mouseDown (const juce::MouseEvent&) override;
+
+    // The centred 440x268 card that paint() and resized() both position
+    // against; the close button is tested to sit inside it.
+    juce::Rectangle<int> cardBounds() const noexcept;
+
+    juce::TextButton closeBtn { "×", "Back to the synth" };
+
+    juce::Label head, verLine, stateLine, idLabel, idValue, siteLine;
+    juce::TextButton copyBtn { "COPY", "Copy the machine id to the clipboard" };
+
+private:
+    // Assigned (not constructed) in the ctor body so it can capture `this`.
+    std::function<void (const juce::MouseEvent&)> mouseDownCallback;
+};
+
 struct SavePresetOverlay : juce::Component
 {
     std::function<void (const juce::String&, const juce::StringArray&, bool)> onSave;
@@ -849,6 +921,16 @@ public:
     explicit GoaSynthAudioProcessorEditor (GoaSynthAudioProcessor& processor);
     ~GoaSynthAudioProcessorEditor() override;
 
+    // MENU → CHECK FOR UPDATES: one shot at a time; the fetch thread hands
+    // its result to the message thread via updateCheckDone(). Public because
+    // the fetch thread's SafePointer callback calls updateCheckDone().
+    void runUpdateCheck();
+    void updateCheckDone();
+    std::unique_ptr<juce::Thread> updateThread;   // owned; joined in the destructor
+    juce::String updateThreadVersion;             // latest version the thread read
+    std::atomic<bool> updateOlder { false };      // released < current
+    std::atomic<bool> updateReachable { false };  // feed fetched and parsed
+
     void paint (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
@@ -978,6 +1060,7 @@ private:
     juce::TextButton panicBtn { "PANIC", "All notes off" };
     juce::TextButton aiBtn { "AI", "AI patch designer" };
     juce::TextButton themeBtn { "THEME", "Pick a theme: UV Goa / steel / warm analog / neon / paper / OLED" };
+    juce::TextButton menuBtn { "MENU", "About GoaSynth, check the web for updates" };
     juce::TextButton saveBtn { "SAVE", "Save user preset" };
     // Output level + limiter gain reduction, in the header gap between the
     // preset zone and the button block. Declared after `proc` (above) so the
@@ -988,6 +1071,7 @@ private:
     std::unique_ptr<goaui::SavePresetOverlay> saveOverlay;
     std::unique_ptr<goaui::PresetBrowserOverlay> presetBrowser;
     std::unique_ptr<goaui::ModOverlay> modOverlay;
+    std::unique_ptr<goaui::AboutOverlay> aboutOverlay;
     juce::TextButton modBtn { "MOD", "Open the modulation matrix (8 routable slots)" };
     std::unique_ptr<goaui::LicenseOverlay> licenseOverlay;
     std::shared_ptr<juce::FileChooser> packChooser;   // one dialog at a time

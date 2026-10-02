@@ -4797,6 +4797,65 @@ GoaSynthAudioProcessorEditor::GoaSynthAudioProcessorEditor (GoaSynthAudioProcess
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (themeBtn));
     };
 
+    menuBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
+    menuBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
+    addAndMakeVisible (menuBtn);
+    menuBtn.onClick = [this]
+    {
+        juce::PopupMenu m;
+
+        m.addSectionHeader (juce::String ("GOASYNTH ") + goaVersionString());
+        m.addSeparator();
+        {
+            juce::PopupMenu::Item about;
+            about.itemID   = 1;
+            about.text     = "ABOUT";
+            about.isEnabled = true;
+            about.action   = [this]
+            {
+                if (aboutOverlay == nullptr)
+                    return;
+                // Rebuilt on every open so a mid-session activation is reflected.
+            // (AboutOverlay is rebuilt-with-state here rather than cached.)
+                aboutOverlay->stateLine.setText (
+                    proc.licensedFlag.load() ? juce::String ("LICENSE  ACTIVATED")
+                        : (proc.trial ? juce::String ("LICENSE  TRIAL \u2014 ")
+                                          + goa::License::trialTimeLeft()
+                                      : juce::String ("LICENSE  ACTIVATION REQUIRED")),
+                    juce::dontSendNotification);
+                aboutOverlay->setBounds (getLocalBounds());
+                aboutOverlay->toFront (true);
+                aboutOverlay->setVisible (true);
+            };
+            m.addItem (about);
+
+            juce::PopupMenu::Item upd;
+            upd.itemID   = 2;
+            upd.text     = "CHECK FOR UPDATES";
+            upd.isEnabled = true;
+            upd.action   = [this] { runUpdateCheck(); };
+            m.addItem (upd);
+
+            juce::PopupMenu::Item log;
+            log.itemID   = 3;
+            log.text     = "CHANGE LOG";
+            log.isEnabled = true;
+            log.action   = [this]
+            {
+                // The site's release-notes section. No embedded browser in the
+                // plugin: hand the URL to the system's default browser.
+                juce::URL ("https://y4m4.github.io/GoaSynth/#whats-new")
+                    .launchInDefaultBrowser();
+            };
+            m.addItem (log);
+        }
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (menuBtn));
+    };
+
+    aboutOverlay = std::make_unique<goaui::AboutOverlay>();
+    addChildComponent (*aboutOverlay);
+
     zoomBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanelLo);
     zoomBtn.setColour (juce::TextButton::textColourOffId, goaui::accentA);
     zoomBtn.setTooltip ("Interface zoom: 100 / 125 / 150 / 175 / 200 %");
@@ -5266,6 +5325,10 @@ void GoaSynthAudioProcessorEditor::applyTheme()
     trialBadge.setColour (juce::TextButton::textColourOffId, goaui::accentB);
     themeBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
     themeBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
+    menuBtn.setColour (juce::TextButton::buttonColourId, goaui::bgPanel);
+    menuBtn.setColour (juce::TextButton::textColourOffId, goaui::accentB);
+    if (aboutOverlay != nullptr)
+        aboutOverlay->retint();
     juce::String themeLabel;
     switch (goaui::activeTheme)
     {
@@ -5288,6 +5351,12 @@ void GoaSynthAudioProcessorEditor::applyTheme()
 
 GoaSynthAudioProcessorEditor::~GoaSynthAudioProcessorEditor()
 {
+    // An in-flight update-check thread must be shut down before its callbacks
+    // can touch dead members; stopThread joins it (safe to call when it never
+    // ran).
+    if (updateThread != nullptr)
+        updateThread->stopThread (4000);
+
     saveSizePref();   // remember the window size for the next session
     stopTimer();
 
@@ -6738,14 +6807,16 @@ void GoaSynthAudioProcessorEditor::resized()
         modOverlay->setBounds (getLocalBounds());
     if (saveOverlay != nullptr && saveOverlay->isVisible())
         saveOverlay->setBounds (getLocalBounds());
+    if (aboutOverlay != nullptr && aboutOverlay->isVisible())
+        aboutOverlay->setBounds (getLocalBounds());
     if (presetBrowser != nullptr && presetBrowser->isVisible())
         presetBrowser->setBounds (getLocalBounds());
 
-    // Reserve must fit all buttons (panic 56 + theme 62 + ai 46 + mod 42 +
-    // save 46 + 4x2 spacers = 264) plus the trial badge (100), MASTER (72) and
-    // the level meter (84 + 8 gap). MASTER is the rightmost control; the meter
-    // sits directly beside it where a level readout belongs.
-    auto right = header.removeFromRight (528);
+    // Reserve must fit all buttons (panic 56 + theme 62 + menu 62 + ai 46 +
+    // mod 42 + save 46 + 5x2 spacers = 324) plus the trial badge (100), MASTER
+    // (72) and the level meter (84 + 8 gap). MASTER is the rightmost control;
+    // the meter sits directly beside it where a level readout belongs.
+    auto right = header.removeFromRight (588);
     // MASTER at the absolute right edge.
     masterCtl->setBounds (right.removeFromRight (72).reduced (6, 2));
     // Level meter beside MASTER (anchored from the right so it never slides
@@ -6760,6 +6831,8 @@ void GoaSynthAudioProcessorEditor::resized()
     panicBtn.setBounds (right.removeFromRight (56).reduced (4, 16));
     right.removeFromRight (2);
     themeBtn.setBounds (right.removeFromRight (62).reduced (2, 16));
+    right.removeFromRight (2);
+    menuBtn.setBounds (right.removeFromRight (62).reduced (2, 16));
     right.removeFromRight (2);
     aiBtn.setBounds (right.removeFromRight (46).reduced (2, 16));
     right.removeFromRight (2);
@@ -6843,31 +6916,39 @@ void GoaSynthAudioProcessorEditor::resized()
         chordCtl->setBounds  (band.reduced (1));
     }
 
-    filtFrame.setBounds (row1.removeFromRight (300).withTrimmedRight (gap));
+    // Row-1 seams are all the same explicit gap, removed between panels:
+    // OSC A | gap | OSC B | gap | FILTER B | gap | FILTER | gap | SUB.
+    row1.removeFromRight (gap);
+    filtFrame.setBounds (row1.removeFromRight (294));
     {
         auto inner = filtFrame.getBounds().reduced (9, 24);
         ftypeCtl->setBounds (inner.removeFromTop (20));
         inner.removeFromTop (3);
         filtCurve.setBounds (inner.removeFromTop (94));
         inner.removeFromTop (3);
+        // Six knobs as a 3x2 grid: two rows of three, exactly like the OSC
+        // panels' two-rows-of-cells rhythm — same cell size, so the same big
+        // knob diameter instead of the old 3-row squeeze (18px rotaries).
+        // Row order = signal/character order: CUTOFF RESO KEY on top, DRIVE
+        // F-DRIVE F-FB below. F-DRIVE / F-FB: documented filter-character
+        // knobs, but they were never given bounds here, so they rendered at
+        // width zero (invisible) — found by the OverlayTest extremes sweep.
         auto knobs = inner;
-        const int kw = knobs.getWidth() / 2;
-        const int kh = knobs.getHeight() / 3;   // three knob rows
+        constexpr int kn = 3;
+        const int kw = knobs.getWidth() / kn;
+        const int kh = knobs.getHeight() / 2;   // two knob rows
         auto kr1 = knobs.removeFromTop (kh);
-        auto kr2 = knobs.removeFromTop (kh);
-        auto kr3 = knobs;
+        auto kr2 = knobs;
         cutoffCtl->setBounds (kr1.removeFromLeft (kw).reduced (1));
-        resoCtl->setBounds   (kr1.removeFromRight (kw).reduced (1));
+        resoCtl->setBounds   (kr1.removeFromLeft (kw).reduced (1));
+        keyCtl->setBounds    (kr1.reduced (1));
         driveCtl->setBounds  (kr2.removeFromLeft (kw).reduced (1));
-        keyCtl->setBounds    (kr2.removeFromRight (kw).reduced (1));
-        // F-DRIVE / F-FB: documented filter-character knobs, but they were
-        // never given bounds here, so they rendered at width zero (invisible)
-        // — found by the OverlayTest extremes sweep.
-        fdCtl->setBounds (kr3.removeFromLeft (kw).reduced (1));
-        fbCtl->setBounds (kr3.reduced (1));
+        fdCtl->setBounds     (kr2.removeFromLeft (kw).reduced (1));
+        fbCtl->setBounds     (kr2.reduced (1));
     }
 
-    filt2Frame.setBounds (row1.removeFromRight (148).withTrimmedRight (gap));
+    row1.removeFromRight (gap);
+    filt2Frame.setBounds (row1.removeFromRight (148));
     {
         auto inner = filt2Frame.getBounds().reduced (9, 24);
         ftype2Ctl->setBounds (inner.removeFromTop (20));
@@ -6890,6 +6971,10 @@ void GoaSynthAudioProcessorEditor::resized()
         vMixCtl->setBounds   (inner.reduced (1));
     }
 
+    // Same explicit gap as everywhere else in the row, reserved from the right
+    // BEFORE the OSC pair is sized, so OSC B ends one gap short of FILTER B
+    // (it used to run flush against it — an invisible 0px seam).
+    row1.removeFromRight (gap);
     const int oscW = (row1.getWidth() - gap) / 2;
     oscAFrame.setBounds (row1.removeFromLeft (oscW));
     row1.removeFromLeft (gap);
@@ -7128,3 +7213,260 @@ void GoaSynthAudioProcessorEditor::resized()
 }
 
 
+
+//==============================================================================
+//  About card (MENU → ABOUT): version, license state, machine ID and product
+//  page. Pure display — no interaction beyond COPY and the close button.
+//==============================================================================
+goaui::AboutOverlay::AboutOverlay()
+{
+    // The tinted backdrop is the click target (see mouseDown); the card and its
+    // children still receive their own clicks.
+    setInterceptsMouseClicks (true, true);
+    setAlwaysOnTop (true);
+
+    head.setText ("GOASYNTH", juce::dontSendNotification);
+    head.setFont (juce::Font (juce::FontOptions (17.0f, juce::Font::bold)));
+    head.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (head);
+
+    verLine.setText ("VERSION " + goaVersionString(), juce::dontSendNotification);
+    verLine.setFont (juce::Font (juce::FontOptions (13.0f)));
+    verLine.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (verLine);
+
+    stateLine.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::bold)));
+    stateLine.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (stateLine);
+
+    idLabel.setText ("MACHINE ID", juce::dontSendNotification);
+    idLabel.setFont (juce::Font (juce::FontOptions (11.0f)));
+    idLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (idLabel);
+
+    idValue.setText (goa::License::machineId(), juce::dontSendNotification);
+    idValue.setFont (juce::Font (juce::FontOptions (13.5f, juce::Font::bold)));
+    idValue.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (idValue);
+
+    siteLine.setText ("goasynth \u2014 y4m4.github.io/GoaSynth", juce::dontSendNotification);
+    siteLine.setFont (juce::Font (juce::FontOptions (11.5f)));
+    siteLine.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (siteLine);
+
+    copyBtn.setButtonText ("COPY");
+    copyBtn.setTooltip ("Copy the machine id to the clipboard");
+    copyBtn.onClick = [this]
+    {
+        juce::SystemClipboard::copyTextToClipboard (goa::License::machineId());
+        copyBtn.setButtonText ("COPIED");
+        copyBtn.setButtonText ("COPY");
+    };
+    addAndMakeVisible (copyBtn);
+
+    closeBtn.onClick = [this] { setVisible (false); };
+    addAndMakeVisible (closeBtn);
+
+    // Clicking the darkened backdrop (anywhere outside the card) also closes:
+    // the standard overlay dismissal, and the X itself sits on the card so it
+    // is impossible to miss (a corner-of-window X once read as "no close
+    // button at all" because the eye searches the card, not the screen).
+    mouseDownCallback = [this] (const juce::MouseEvent& e)
+    {
+        if (! cardBounds().contains (e.position.toInt()))
+            setVisible (false);
+    };
+
+    retint();
+}
+
+void goaui::AboutOverlay::mouseDown (const juce::MouseEvent& e)
+{
+    if (mouseDownCallback != nullptr)
+        mouseDownCallback (e);
+}
+
+juce::Rectangle<int> goaui::AboutOverlay::cardBounds() const noexcept
+{
+    return getLocalBounds().withSizeKeepingCentre (440, 268);
+}
+
+void goaui::AboutOverlay::paint (juce::Graphics& g)
+{
+    g.setColour (bgDark.withAlpha (0.96f));
+    g.fillAll();
+
+    const auto card = cardBounds().toFloat();
+    g.setColour (bgPanel);
+    g.fillRoundedRectangle (card, 6.0f);
+    g.setColour (border);
+    g.drawRoundedRectangle (card.reduced (0.5f), 6.0f, 1.0f);
+    g.setGradientFill (uvGradient ({ card.getX() + 10.0f, card.getY(),
+                                     card.getWidth() - 20.0f, 2.0f }));
+    g.fillRect (card.getX() + 10.0f, card.getY(), card.getWidth() - 20.0f, 2.0f);
+}
+
+void goaui::AboutOverlay::resized()
+{
+    // The X sits ON the card's top-right corner where the eye actually looks
+    // for it, mirroring every other overlay's card furniture.
+    closeBtn.setBounds (cardBounds().removeFromTop (26)
+                                  .removeFromRight (28).reduced (5));
+
+    auto card = cardBounds();
+    card.reduce (18, 12);
+    head.setBounds (card.removeFromTop (26));
+    verLine.setBounds (card.removeFromTop (20));
+    stateLine.setBounds (card.removeFromTop (22));
+    card.removeFromTop (8);
+    idLabel.setBounds (card.removeFromTop (15));
+    idValue.setBounds (card.removeFromTop (22));
+    copyBtn.setBounds (card.removeFromTop (26).withSizeKeepingCentre (86, 24));
+    card.removeFromTop (6);
+    siteLine.setBounds (card);
+}
+
+void goaui::AboutOverlay::retint()
+{
+    head.setColour (juce::Label::textColourId, accent);
+    verLine.setColour (juce::Label::textColourId, textBright);
+    stateLine.setColour (juce::Label::textColourId, accentB);
+    idLabel.setColour (juce::Label::textColourId, textDim);
+    idValue.setColour (juce::Label::textColourId, textBright);
+    siteLine.setColour (juce::Label::textColourId, textDim);
+    copyBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
+    copyBtn.setColour (juce::TextButton::textColourOffId, textDim);
+    closeBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
+    closeBtn.setColour (juce::TextButton::textColourOffId, textDim);
+}
+
+//==============================================================================
+//  Update check (MENU → CHECK FOR UPDATES): fetches docs/version.json from the
+//  product site on a background thread, compares it to the running version and
+//  always reports back in the message thread — success, newer feed, or the
+//  reason nothing could be checked. The plugin never phones home beyond this
+//  one anonymous GET.
+//==============================================================================
+namespace
+{
+    constexpr const char* updateFeedUrl =
+        "https://y4m4.github.io/GoaSynth/version.json";
+
+    class UpdateCheckThread : public juce::Thread
+    {
+    public:
+        explicit UpdateCheckThread (GoaSynthAudioProcessorEditor& owner_)
+            : juce::Thread ("goasynth update check"), owner (owner_) {}
+
+        void run() override
+        {
+            // Every path through here — success or failure — must end in the
+            // message-thread callback below: the original version returned
+            // silently on any fetch failure, which is exactly the "Check for
+            // updates does nothing" report. A quiet failure is
+            // indistinguishable from a dead menu item.
+            // A SafePointer keeps the callback harmless if the editor died
+            // while the request ran.
+            juce::Component::SafePointer<GoaSynthAudioProcessorEditor> safeOwner (&owner);
+
+            int statusCode = 0;
+            // A plain GET: this is a read of a static file, and GitHub Pages
+            // answers a bodyless POST with 405. (The original inPostData form
+            // turned every request into a POST, so even a live feed failed.)
+            // inAddress keeps the (empty) parameter list in the URL, i.e. a
+            // bodyless GET — the only other choice, inPostData, sends a body.
+            const auto stream = juce::URL (updateFeedUrl)
+                                    .createInputStream (juce::URL::InputStreamOptions (
+                                                            juce::URL::ParameterHandling::inAddress)
+                                                            .withConnectionTimeoutMs (8000)
+                                                            .withStatusCode (&statusCode));
+
+            if (stream != nullptr && statusCode >= 200 && statusCode < 300)
+            {
+                latest = juce::JSON::parse (stream->readEntireStreamAsString());
+
+                // Only a purely numeric "latest" counts as a real feed; anything
+                // else (error page, CDN challenge, truncated file) is treated as
+                // "cannot check" rather than "up to date".
+                const juce::String latestVer = latest.getProperty ("latest", {}).toString();
+                owner.updateReachable.store (latestVer.isNotEmpty()
+                                                 && latestVer.containsOnly ("0123456789."));
+
+                // Set every result flag BEFORE waking the message thread, so
+                // updateCheckDone() can never read half-published state.
+                owner.updateThreadVersion = latestVer;
+                owner.updateOlder.store (owner.updateReachable.load()
+                                             && goaui::compareVersions (goaVersionString(),
+                                                                        latestVer) < 0);
+            }
+            else
+            {
+                owner.updateReachable.store (false);
+            }
+
+            // Report — always, success or failure.
+            juce::MessageManager::callAsync ([safeOwner]
+            {
+                if (safeOwner != nullptr)
+                    safeOwner->updateCheckDone();
+            });
+        }
+
+        GoaSynthAudioProcessorEditor& owner;
+        juce::var latest;
+    };
+}
+
+void GoaSynthAudioProcessorEditor::runUpdateCheck()
+{
+    if (updateThread != nullptr && updateThread->isThreadRunning())
+        return;
+
+    // A result dialog must not try to own the keyboard while the overlay is up
+    // (the activation screen grabs it for the serial field).
+    if (licenseOverlay != nullptr && licenseOverlay->isVisible())
+    {
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+            "GOASYNTH",
+            "Close the activation screen first, then check for updates.", this);
+        return;
+    }
+
+    updateThread = std::make_unique<UpdateCheckThread> (*this);
+    updateThread->startThread();
+}
+
+void GoaSynthAudioProcessorEditor::updateCheckDone()
+{
+    // No thread teardown here: the worker may still be finishing its last
+    // lines; the destructor (or the next check replacing the unique_ptr)
+    // joins it safely.
+    // Every box is parented to this editor: with associatedComponent the host
+    // keeps the dialog on top of the plugin window; unparented, DAWs were free
+    // to bury it behind the arrange view (another "nothing happens" symptom).
+    if (! updateReachable.load())
+    {
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+            "GOASYNTH",
+            "Could not reach the update feed.\n\n"
+            "Latest version and downloads:\nhttps://y4m4.github.io/GoaSynth/",
+            this);
+        return;
+    }
+
+    if (updateOlder.load())
+    {
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "UPDATE AVAILABLE",
+            "GoaSynth " + updateThreadVersion + " is available (you are running "
+                + goaVersionString() + ").\n\n"
+            "Download the new installer from:\nhttps://y4m4.github.io/GoaSynth/",
+            this);
+        return;
+    }
+
+    juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+        "GOASYNTH",
+        "You are running the latest version (" + goaVersionString() + ").",
+        this);
+}

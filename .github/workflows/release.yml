@@ -8,10 +8,11 @@ name: Release
 #   → run the ctest suite (a red build never ships)
 #   → package with tools/make-release.py (the same deterministic ZIP buyers
 #     verify against the site's published checksums), plus the Setup installer
-#     itself as a direct download with its own one-line .sha256
+#     itself as a direct download named for its version —
+#     GoaSynth-Setup-<version>.exe — with its own one-line .sha256
 #   → generate the release notes from CHANGELOG.md
-#   → create the Release with the ZIP, the installer, and both checksum files
-#     attached.
+#   → create the Release with the ZIP, the versioned installer, and both
+#     checksum files attached.
 #
 # If the tag's version has no CHANGELOG.md section, the release is still
 # published, but with a placeholder body and a warning annotation, so a tag
@@ -48,6 +49,15 @@ jobs:
             exit 1
           fi
 
+      - name: Read the project version
+        run: |
+          VERSION=$(sed -n 's/^project(GoaSynth VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read the version from project() in CMakeLists.txt"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_ENV"
+
       - name: Restore the licence key header
         env:
           GOA_LICENSE_KEYS: ${{ secrets.LICENSE_KEYS_H }}
@@ -78,10 +88,11 @@ jobs:
           python tools/make-release.py
           # The Setup installer ships twice: inside the ZIP (the documented
           # buyer flow, verified against the site's checksums) and as a
-          # direct release asset for people who want to skip the ZIP. Same
-          # bytes, so the hash SHA256SUMS.txt already quotes covers both.
-          cp "build/GoaSynthSetup_artefacts/Release/GoaSynth-Setup.exe" dist/
-          (cd dist && sha256sum GoaSynth-Setup.exe > GoaSynth-Setup.exe.sha256)
+          # direct release asset named for its version, for people who want
+          # to skip the ZIP. Same bytes, so the hash SHA256SUMS.txt already
+          # quotes covers both.
+          cp "build/GoaSynthSetup_artefacts/Release/GoaSynth-Setup.exe" "dist/GoaSynth-Setup-${version}.exe"
+          (cd dist && sha256sum "GoaSynth-Setup-${version}.exe" > "GoaSynth-Setup-${version}.exe.sha256")
           echo '--- dist/ ---'
           ls -la dist/
 
@@ -105,19 +116,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" \
-            "dist/GoaSynth-${VERSION}-win64.zip" \
-            "dist/GoaSynth-Setup.exe" \
-            "dist/GoaSynth-Setup.exe.sha256" \
+            "dist/GoaSynth-${version}-win64.zip" \
+            "dist/GoaSynth-Setup-${version}.exe" \
+            "dist/GoaSynth-Setup-${version}.exe.sha256" \
             "dist/SHA256SUMS.txt" \
             --verify-tag \
-            --title "GoaSynth ${VERSION}" \
+            --title "GoaSynth ${version}" \
             --notes-file release-body.md
           URL=$(gh release view "$GITHUB_REF_NAME" --json url -q .url)
           {
             echo "Published: $URL"
             echo
-            echo "Assets: GoaSynth-${VERSION}-win64.zip (installer + licence helper + EULA),"
-            echo "GoaSynth-Setup.exe (direct download) + its .sha256, SHA256SUMS.txt (hashes for all of it)"
+            echo "Assets: GoaSynth-${version}-win64.zip (installer + licence helper + EULA),"
+            echo "GoaSynth-Setup-${version}.exe (direct download) + its .sha256, SHA256SUMS.txt (hashes for all of it)"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -172,14 +172,14 @@ Website and manual: {SITE_URL}
 
 What is in this package
 -----------------------
-  GoaSynth-Setup.exe      the installer - run this
+  GoaSynth-Setup-{version}.exe  the installer - run this
   GoaSynthLicense.exe     optional: opens .goalicense files on double-click
   README.txt              this file
   EULA.txt                the licence agreement for the software
 
 Install (Windows)
 -----------------
-1. Double-click GoaSynth-Setup.exe. Choose:
+1. Double-click GoaSynth-Setup-{version}.exe. Choose:
 
        Standard VST3 folder  ->  C:\\Program Files\\Common Files\\VST3
                                  (every DAW; Windows asks once for admin)
@@ -214,7 +214,7 @@ Verify your download
 --------------------
 The installer inside this package should hash to:
 
-    {setup_hash}    GoaSynth-Setup.exe  ({thousands(setup_size)} bytes)
+    {setup_hash}    GoaSynth-Setup-{version}.exe  ({thousands(setup_size)} bytes)
 
 The hash of the ZIP itself cannot live inside the ZIP, so it is published
 next to the download at {SITE_URL}downloads/SHA256SUMS.txt along with the
@@ -331,8 +331,13 @@ def build_zip(zip_path: Path, version: str, commit: str,
     eula = eula_text(version)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        # The installer travels under a name that carries its version, so a
+        # file named GoaSynth-Setup-1.5.0.exe can never be mistaken for some
+        # other build's installer; everything else keeps its plain name.
+        setup_name = f"GoaSynth-Setup-{version}.exe"
         for member in sorted(members, key=lambda p: p.name):
-            add_file(archive, member, member.name, stamp)
+            add_file(archive, member, setup_name if member == SETUP_EXE else member.name,
+                     stamp)
 
         add_text(archive, readme, "README.txt", stamp)
         add_text(archive, eula, "EULA.txt", stamp)
@@ -362,9 +367,9 @@ def write_manifests(zip_name: str, zip_size: int, zip_sha: str,
 #
 {zip_sha}  {zip_name}
 #
-# And the GoaSynth-Setup.exe inside the ZIP should hash to:
+# And the GoaSynth-Setup-{version}.exe inside the ZIP should hash to:
 #
-#     {setup_sha}  GoaSynth-Setup.exe  ({thousands(setup_size)} bytes)
+#     {setup_sha}  GoaSynth-Setup-{version}.exe  ({thousands(setup_size)} bytes)
 #
 # Once it is installed, the standalone GoaSynth.exe on disk (next to the
 # plugin, by default in C:\\Program Files\\Common Files\\VST3) should hash to:
@@ -434,7 +439,7 @@ def refresh_site_block(zip_name: str, zip_size: int, zip_sha: str,
         f'          <dt>Download</dt><dd><code>{zip_name}</code> — {pretty_size(zip_size)}</dd>',
         f'          <dt>ZIP SHA-256</dt><dd><code>{zip_sha}</code></dd>',
         f'          <dt>Setup SHA-256</dt><dd><code>{setup_sha}</code> — the '
-        f'<code>GoaSynth-Setup.exe</code> installer inside the ZIP, '
+        f'<code>GoaSynth-Setup-{version}.exe</code> installer inside the ZIP, '
         f'{thousands(setup_size)} bytes</dd>',
         f'          <dt>Standalone SHA-256</dt><dd><code>{standalone_sha}</code> — the '
         f'<code>GoaSynth.exe</code> installed next to the plugin, '
@@ -482,7 +487,7 @@ def main() -> int:
 
     print(f"  dist/{zip_name}            {pretty_size(zip_size)}")
     print(f"      sha256 {zip_sha}")
-    print(f"  GoaSynth-Setup.exe         {thousands(setup_size)} bytes")
+    print(f"  GoaSynth-Setup-{version}.exe {thousands(setup_size)} bytes")
     print(f"      sha256 {setup_sha}")
     print(f"  GoaSynth.exe (standalone)  {thousands(standalone_size)} bytes, published "
           f"for post-install checks")

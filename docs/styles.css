@@ -821,4 +821,29 @@ html[data-theme="warm"] .glare {
   letter-spacing: .06em;
   margin-right: 8px;
 }
+.release-downloads {
+  margin: 16px 0 4px;
+  color: var(--text);
+}
+.release-downloads .dl-label {
+  color: var(--accent);
+  font-size: .78em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-right: 10px;
+}
+.release-downloads a {
+  color: var(--accent-2);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.release-downloads a:hover,
+.release-downloads a:focus {
+  border-bottom-color: var(--accent-2);
+}
+.release-downloads .sep {
+  opacity: .45;
+  margin: 0 7px;
+}
 .showcase-h { margin-top: 46px; }

@@ -153,6 +153,19 @@
       el.hidden = !CONFIG.repo;
     });
 
+    // The topbar Download button goes straight to the newest GitHub release,
+    // whose assets are the real package (the same ZIP the release notes'
+    // download row links). Like the Source links it exists only while a
+    // repository is known — a fork points at its own releases.
+    [].forEach.call(document.querySelectorAll('[data-link="releases"]'), function (a) {
+      if (CONFIG.repo) {
+        a.hidden = false;
+        external(a, CONFIG.repo.replace(/\/+$/, '') + '/releases/latest');
+      } else {
+        a.hidden = true;
+      }
+    });
+
     [].forEach.call(document.querySelectorAll('[data-link="download"]'), function (a) {
       // no customer link yet → send people to the install steps, which explain
       // that the download page arrives with the purchase email.

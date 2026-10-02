@@ -66,6 +66,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Nothing here may die because a console cannot print a byte. When stdout is a
+# pipe on Windows it decodes in cp1252, whose undefined C1 slots leave some
+# characters unencodable - print() then raises in the middle of streaming the
+# build or test output, and the runner exits having said nothing, which is the
+# exact silent failure this tool exists to prevent. Replace what cannot be
+# printed instead; the report survives, garbled in one glyph at most.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass  # a stream that cannot be reconfigured is one that already copes
+
 EXIT_OK, EXIT_BUILD, EXIT_SETUP, EXIT_STALE, EXIT_TESTS = 0, 1, 2, 3, 4
 
 # A compiler or linker diagnostic, as MSBuild spells it. Not a bare "error",

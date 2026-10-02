@@ -1,27 +1,27 @@
-# GoaSynth 1.1.0 - checksums for the published download
+# GoaSynth 1.5.0 - checksums for the published download
 #
-# Built 30 September 2026 at 11:14, from commit 20a3a25.
+# Built 02 October 2026 at 10:55, from commit 5471874.
 # Site and install notes: https://y4m4.github.io/GoaSynth/
 #
 # Check the ZIP before you install it, in the folder you downloaded it to:
 #
-#     Windows (PowerShell)  Get-FileHash .\GoaSynth-1.1.0-win64.zip -Algorithm SHA256
+#     Windows (PowerShell)  Get-FileHash .\GoaSynth-1.5.0-win64.zip -Algorithm SHA256
 #     macOS                 shasum -a 256 -c SHA256SUMS.txt
 #     Linux                 sha256sum -c SHA256SUMS.txt
 #
 # The hash below must match the file you have. If it does not, the download was
 # damaged or replaced on the way to you - do not install it, and tell support.
 #
-6bbbca8b6934e7cd6279b26e5c4cf8a95c97bc668f037832ca2512c2a9cb4d14  GoaSynth-1.1.0-win64.zip
+7a9291796ee08713ba18b4b3d28131865cb5cdd4140354aab1d8fb0a8e837fec  GoaSynth-1.5.0-win64.zip
 #
 # And the GoaSynth-Setup.exe inside the ZIP should hash to:
 #
-#     98dcb01bb7e5e2a7395125aaf409a9538ac7d35ced2176bc9d823b29985ad02c  GoaSynth-Setup.exe  (22,882,816 bytes)
+#     8dba4f86e395b68e0c37d1dc8fd10777df2e990dbb694736fabc15215200880e  GoaSynth-Setup.exe  (22,939,648 bytes)
 #
 # Once it is installed, the standalone GoaSynth.exe on disk (next to the
 # plugin, by default in C:\Program Files\Common Files\VST3) should hash to:
 #
-#     3430103372c7bb3f48640fc0122affe773e07ead15e2d11bd298af4ce9fe7b4e  GoaSynth.exe  (8,802,816 bytes)
+#     d0407863ea5492c87aaafcda151b58c5320bfd148e4cc95dfcbcb98e6393a491  GoaSynth.exe  (8,831,488 bytes)
 #
 # The ZIP is 12.1 MB and holds the Setup installer (which puts
 # the plugin and the standalone app in place), the licence helper that opens

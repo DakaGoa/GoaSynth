@@ -2279,6 +2279,8 @@ int main()
                     "the link points at the product site, got " + res->link.getButtonText());
             EXPECT (res->link.getMouseCursor() == juce::MouseCursor::PointingHandCursor,
                     "the link shows a hand cursor over its whole row");
+            EXPECT (! res->changelogLink.isVisible(),
+                    "the unreachable branch offers no change-log link into the site it just failed to reach");
             // Every row on the card — an off-card row is a row nobody sees.
             EXPECT (res->cardBounds().contains (res->titleLabel.getBounds()),
                     "the title sits on the card");
@@ -2290,10 +2292,13 @@ int main()
                     "the OK button sits on the card");
 
             // Branch 2 — a newer release: the dialog proved live with the
-            // temporary 1.5.0 feed, and it must name both versions.
+            // temporary 1.5.0 feed, and it must name both versions — and now
+            // also show what changed (the feed's release notes).
             edr->updateReachable.store (true);
             edr->updateOlder.store (true);
             edr->updateThreadVersion = "1.5.0";
+            edr->updateNotes = juce::StringArray { "Faster preset browser",
+                                                   "New trancegate shapes" };
             edr->updateCheckDone();
             EXPECT (res->titleLabel.getText() == "UPDATE AVAILABLE",
                     "a newer feed shows UPDATE AVAILABLE, got "
@@ -2302,11 +2307,25 @@ int main()
                         && res->messageLabel.getText().contains ("running " + ver + ")"),
                     "the dialog names the available and the running version, got "
                         + res->messageLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("What's new")
+                        && res->messageLabel.getText().contains ("Faster preset browser")
+                        && res->messageLabel.getText().contains ("New trancegate shapes"),
+                    "the update dialog shows the feed's release notes, got "
+                        + res->messageLabel.getText());
             EXPECT (res->link.isVisible(),
                     "the update-available dialog carries the download link");
+            EXPECT (res->changelogLink.isVisible(),
+                    "the update-available dialog carries the change-log link");
+            EXPECT (res->changelogLink.getURL().toString (true)
+                        == "https://y4m4.github.io/GoaSynth/#v1.5.0",
+                    "the change-log link deep-links to the new version's notes, got "
+                        + res->changelogLink.getURL().toString (true));
+            EXPECT (res->cardBounds().contains (res->changelogLink.getBounds()),
+                    "the change-log link sits on the card");
 
-            // Branch 3 — up to date: nothing to open, so no link row rather
-            // than dead furniture.
+            // Branch 3 — up to date: nothing to download, so the download row
+            // is hidden rather than dead furniture — but the release notes are
+            // one click away.
             edr->updateOlder.store (false);
             edr->updateCheckDone();
             EXPECT (res->titleLabel.getText() == "GOASYNTH",
@@ -2316,7 +2335,15 @@ int main()
                     "the up-to-date dialog names the running version, got "
                         + res->messageLabel.getText());
             EXPECT (! res->link.isVisible(),
-                    "the up-to-date dialog carries no link (there is nothing to open)");
+                    "the up-to-date dialog carries no download link (nothing to download)");
+            EXPECT (res->changelogLink.isVisible(),
+                    "the up-to-date dialog still offers the change log");
+            EXPECT (res->changelogLink.getURL().toString (true)
+                        == "https://y4m4.github.io/GoaSynth/#whats-new",
+                    "up to date, the change-log link opens the whats-new section, got "
+                        + res->changelogLink.getURL().toString (true));
+            EXPECT (res->cardBounds().contains (res->changelogLink.getBounds()),
+                    "the change-log link sits on the card");
 
             // The house dismissal: a click on the backdrop, outside the card,
             // closes it — same rule as every other overlay.
@@ -2324,19 +2351,35 @@ int main()
             EXPECT (! res->isVisible(), "clicking the backdrop dismisses the dialog");
         }
 
-        // docs/version.json is the update-check feed: its "latest" must match
-        // the running build so a released plugin reports 'up to date' until a
-        // newer version is actually published.
+        // docs/version.json is the update-check feed. It follows the newest
+        // RELEASED version (tools/make-changelog.py writes it from
+        // CHANGELOG.md), which can legitimately lag the running build while
+        // the next release is in development — but it may never advertise a
+        // release newer than this build, and it must stay a sane version.
         const juce::File docsDir = juce::File (GOASYNTH_DOCS_ASSETS)
                                        .getParentDirectory();
         const juce::var feed = juce::JSON::parse (
             docsDir.getChildFile ("version.json").loadFileAsString());
         const juce::String latest = feed.getProperty ("latest", {}).toString();
-        EXPECT (latest == ver,
-                "docs/version.json latest (" + latest + ") must match the "
+        EXPECT (latest.isNotEmpty() && latest.containsOnly ("0123456789."),
+                "docs/version.json latest (" + latest + ") must be a version");
+        EXPECT (goaui::compareVersions (latest, ver) <= 0,
+                "docs/version.json latest (" + latest + ") may not outrun the "
                 "plugin version (" + ver + ")");
         EXPECT (feed.getProperty ("url", {}).toString().startsWith ("https://"),
                 "docs/version.json must carry the product download url");
+
+        // The same feed carries the release notes the update dialog shows:
+        EXPECT (goaui::latestReleaseNotes (feed).size() > 0,
+                "docs/version.json carries the released version's notes");
+        // ...and the helper is strict about what it lets through:
+        const auto junkFeed = juce::JSON::parse (
+            R"({"notes":["  kept ", "", "second"]})");
+        const auto notes = goaui::latestReleaseNotes (junkFeed, 2);
+        EXPECT (notes.size() == 2 && notes[0] == "kept" && notes[1] == "second",
+                "latestReleaseNotes trims, drops empties and caps");
+        EXPECT (goaui::latestReleaseNotes (juce::JSON::parse ("{}")).isEmpty(),
+                "a feed without notes yields no notes");
 
         // Semantics of the update comparison (goaui::compareVersions, shared
         // with the plugin code): major.minor only, patch ignored, malformed

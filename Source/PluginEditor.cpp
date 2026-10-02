@@ -7375,6 +7375,12 @@ goaui::UpdateResultOverlay::UpdateResultOverlay()
                   juce::Justification::centred);
     addAndMakeVisible (link);
 
+    // The change-log row: a short label instead of a bare address (the URL is
+    // for the tooltip), same hand-off to the default browser as the link row.
+    changelogLink.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::underlined)), false,
+                           juce::Justification::centred);
+    addAndMakeVisible (changelogLink);
+
     okBtn.onClick = [this] { setVisible (false); };
     addAndMakeVisible (okBtn);
 
@@ -7395,13 +7401,14 @@ goaui::UpdateResultOverlay::UpdateResultOverlay()
 
 void goaui::UpdateResultOverlay::configure (const juce::String& title,
                                             const juce::String& message,
-                                            const juce::String& linkUrl)
+                                            const juce::String& linkUrl,
+                                            const juce::String& changelogUrl)
 {
     titleLabel.setText (title, juce::dontSendNotification);
     messageLabel.setText (message, juce::dontSendNotification);
 
-    // "Up to date" has nothing to open, so the link row is hidden rather than
-    // shown as dead furniture — the message then takes the whole body.
+    // "Up to date" has nothing to download, so the link row is hidden rather
+    // than shown as dead furniture — the message then takes the whole body.
     if (linkUrl.isNotEmpty())
     {
         link.setButtonText (linkUrl);
@@ -7412,6 +7419,25 @@ void goaui::UpdateResultOverlay::configure (const juce::String& title,
     {
         link.setVisible (false);
     }
+
+    // The change-log row reads as an action, not an address: fixed label, the
+    // URL (with its #anchor into the right section) lives in the tooltip.
+    if (changelogUrl.isNotEmpty())
+    {
+        changelogLink.setButtonText ("View full change log");
+        changelogLink.setURL (juce::URL (changelogUrl));
+        changelogLink.setVisible (true);
+    }
+    else
+    {
+        changelogLink.setVisible (false);
+    }
+
+    // Which rows exist changed above, and visibility changes alone do not
+    // re-run layout: the open path's setBounds() is a no-op when the window
+    // size is unchanged, so a second dialog at the same size would otherwise
+    // show this card with the previous dialog's rows. Re-flow here.
+    resized();
 }
 
 void goaui::UpdateResultOverlay::mouseDown (const juce::MouseEvent& e)
@@ -7422,7 +7448,10 @@ void goaui::UpdateResultOverlay::mouseDown (const juce::MouseEvent& e)
 
 juce::Rectangle<int> goaui::UpdateResultOverlay::cardBounds() const noexcept
 {
-    return getLocalBounds().withSizeKeepingCentre (440, 210);
+    // Tall enough for the update-available message with its "What's new"
+    // notes and both link rows (tools/make-changelog.py fills the notes);
+    // the shorter messages just sit more centred.
+    return getLocalBounds().withSizeKeepingCentre (440, 300);
 }
 
 void goaui::UpdateResultOverlay::paint (juce::Graphics& g)
@@ -7453,10 +7482,17 @@ void goaui::UpdateResultOverlay::resized()
     okBtn.setBounds (card.removeFromBottom (26).withSizeKeepingCentre (86, 24));
     card.removeFromBottom (6);
 
+    // removeFromBottom peels the lowest row first, so the order below reads
+    // top to bottom as: message → download address (directly under its
+    // lead-in) → change log → OK.
+    if (changelogLink.isVisible())
+    {
+        changelogLink.setBounds (card.removeFromBottom (24));
+        card.removeFromBottom (2);
+    }
+
     if (link.isVisible())
     {
-        // The link is the row right above OK: the message reads down into it
-        // — "download from:" → the address → the button.
         link.setBounds (card.removeFromBottom (24));
         card.removeFromBottom (4);
     }
@@ -7469,6 +7505,7 @@ void goaui::UpdateResultOverlay::retint()
     titleLabel.setColour (juce::Label::textColourId, accent);
     messageLabel.setColour (juce::Label::textColourId, textBright);
     link.setColour (juce::HyperlinkButton::textColourId, accent);
+    changelogLink.setColour (juce::HyperlinkButton::textColourId, accent);
     okBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
     okBtn.setColour (juce::TextButton::textColourOffId, textDim);
     closeBtn.setColour (juce::TextButton::buttonColourId, bgPanelLo);
@@ -7533,6 +7570,7 @@ namespace
                 // Set every result flag BEFORE waking the message thread, so
                 // updateCheckDone() can never read half-published state.
                 owner.updateThreadVersion = latestVer;
+                owner.updateNotes = goaui::latestReleaseNotes (latest);
                 owner.updateOlder.store (owner.updateReachable.load()
                                              && goaui::compareVersions (goaVersionString(),
                                                                         latestVer) < 0);
@@ -7540,6 +7578,7 @@ namespace
             else
             {
                 owner.updateReachable.store (false);
+                owner.updateNotes.clear();
             }
 
             // Report — always, success or failure.
@@ -7598,29 +7637,49 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
 
     if (updateOlder.load())
     {
+        juce::String message = "GoaSynth " + updateThreadVersion + " is available (you are running "
+                               + goaVersionString() + ").";
+
+        // The feed carries the released version's notes (written by
+        // tools/make-changelog.py from CHANGELOG.md): show what changed, not
+        // just that something did. Capped by latestReleaseNotes; the change
+        // log below has the full list.
+        if (updateNotes.size() > 0)
+        {
+            message += "\n\nWhat's new:";
+            for (const auto& note : updateNotes)
+                message += "\n\u2022 " + note;
+        }
+
+        // The change-log link lands on the new version's own section of the
+        // release notes (each generated heading carries id="vX.Y.Z").
         showUpdateResult ("UPDATE AVAILABLE",
-                          "GoaSynth " + updateThreadVersion + " is available (you are running "
-                              + goaVersionString() + ").\n\n"
+                          message + "\n\n"
                           "Download the new installer from:",
-                          siteUrl);
+                          siteUrl,
+                          juce::String (siteUrl) + "#v" + updateThreadVersion);
         return;
     }
 
+    // Up to date: nothing to download, but the release notes are one click
+    // away — the same whats-new section the MENU's Change Log item opens.
     showUpdateResult ("GOASYNTH",
                       "You are running the latest version (" + goaVersionString() + ").",
-                      {});
+                      {},
+                      juce::String (siteUrl) + "#whats-new");
 }
 
 void GoaSynthAudioProcessorEditor::showUpdateResult (const juce::String& title,
                                                      const juce::String& message,
-                                                     const juce::String& linkUrl)
+                                                     const juce::String& linkUrl,
+                                                     const juce::String& changelogUrl)
 {
     // One open path for all three outcomes, mirroring the About card's:
     // configure, fit to the current window, front, show.
     if (updateResultOverlay == nullptr)
         return;
 
-    updateResultOverlay->configure (title, message, linkUrl);
+    updateResultOverlay->configure (title, message, linkUrl, changelogUrl);
     updateResultOverlay->setBounds (getLocalBounds());
     updateResultOverlay->toFront (true);
     updateResultOverlay->setVisible (true);

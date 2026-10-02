@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # Release numbering: every functional change bumps the minor (1.2, 1.3, ...);
 # the major stays 1 until the owner explicitly says otherwise. The major is
 # re-checked at build time (static_assert in PluginEditor.h) and by tests.
-project(GoaSynth VERSION 1.4.0 LANGUAGES C CXX)
+project(GoaSynth VERSION 1.5.0 LANGUAGES C CXX)
 
 enable_testing()   # so `ctest` picks up the RoundTripTest / FulfilTest targets
 
@@ -157,6 +157,15 @@ target_sources(OverlayTest PRIVATE
     Source/LearnedPatches.h
 )
 add_test(NAME OverlayTest COMMAND OverlayTest)
+
+# The changelog is generated, not copied: CHANGELOG.md feeds the site's
+# release notes and the update feed's notes. This keeps every generated
+# artefact in lockstep with its source — editing docs/index.html's release
+# block or docs/version.json's notes by hand fails the suite instead of
+# quietly drifting (run tools/make-changelog.py to fix).
+add_test(NAME ChangelogCheck
+         COMMAND python tools/make-changelog.py --check
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Standalone key generator (seller-side console tool)
 juce_add_console_app(GoaSynthKeygen PRODUCT_NAME "GoaSynthKeygen")

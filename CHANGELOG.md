@@ -22,12 +22,13 @@ To cut a release: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, run
 the site (`git push` — Pages serves `docs/` within about a minute) and create
 the GitHub release with the `--release-body` output.
 
-## [Unreleased]
+## [1.5.0] - 2026-10-02
 
 The update dialog tells you what changed: release notes now travel in the
 version feed, and the changelog itself is generated from one file.
 
 ### Added
+- The update dialogs carry a **View full change log** link: update-available lands on the new version's own notes (`#vX.Y.Z` anchors on the site), up-to-date opens the release notes section.
 - The update-available dialog shows **What's new** — the release notes ride along in the version feed the plugin already fetches.
 - A single-source changelog: `CHANGELOG.md` generates the website's release notes, the feed's notes and the GitHub release body (`tools/make-changelog.py`), with a `--check` mode wired into the test suite.
 

@@ -1,9 +1,9 @@
 {
-  "latest": "1.4.0",
+  "latest": "1.5.0",
   "url": "https://y4m4.github.io/GoaSynth/",
   "notes": [
-    "MENU gained Change Log — opens the release notes on the website.",
-    "Check for updates no longer fails silently: every outcome — feed unreachable, update available, up to date — answers with a dialog over the plugin window, so no host can bury it.",
-    "The About card has a close button you can actually see (✕ on the card's own corner), and clicking the darkened backdrop dismisses it."
+    "The update dialogs carry a View full change log link: update-available lands on the new version's own notes (#vX.Y.Z anchors on the site), up-to-date opens the release notes section.",
+    "The update-available dialog shows What's new — the release notes ride along in the version feed the plugin already fetches.",
+    "A single-source changelog: CHANGELOG.md generates the website's release notes, the feed's notes and the GitHub release body (tools/make-changelog.py), with a --check mode wired into the test suite."
   ]
 }

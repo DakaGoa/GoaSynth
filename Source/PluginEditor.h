@@ -14,7 +14,7 @@
 // it fall back to the same string CMake currently bakes in — keep the two in
 // sync when bumping.
 #ifndef GOASYNTH_VERSION
- #define GOASYNTH_VERSION "1.4.0"
+ #define GOASYNTH_VERSION "1.5.0"
 #endif
 
 // Version policy: the product line is 1.x until the owner says otherwise, so
@@ -51,6 +51,26 @@ namespace goaui
         if (A.first  != B.first)  return A.first  < B.first  ? -1 : 1;
         if (A.second != B.second) return A.second < B.second ? -1 : 1;
         return 0;
+    }
+
+    // Pulls the "notes" array out of the parsed version.json feed — the
+    // release notes the update-available dialog shows under "What's new".
+    // Plain, non-empty strings only, capped: the wire is untrusted, and the
+    // card has room for a handful of lines (the site has the full list). In
+    // goaui so OverlayTest can drive it exactly as the update check does.
+    inline juce::StringArray latestReleaseNotes (const juce::var& feed, int maxNotes = 4)
+    {
+        juce::StringArray out;
+        if (const auto* arr = feed.getProperty ("notes", {}).getArray())
+            for (const auto& n : *arr)
+            {
+                const juce::String line = n.toString().trim();
+                if (line.isNotEmpty())
+                    out.add (line);
+                if (out.size() >= maxNotes)
+                    break;
+            }
+        return out;
     }
 }
 
@@ -505,11 +525,15 @@ struct UpdateResultOverlay : juce::Component
 {
     UpdateResultOverlay();
 
-    // Title + message + optional link row; an empty linkUrl hides the row
-    // (the "up to date" case has nothing to open). The editor positions and
-    // shows the overlay afterwards, like every other overlay's open path.
+    // Title + message + up to two link rows: linkUrl is the download/site
+    // address (empty hides the row — "up to date" has nothing to download),
+    // changelogUrl is the "View full change log" deep link (empty hides it —
+    // the unreachable branch offers no second door into a site the check
+    // just failed to reach). The editor positions and shows the overlay
+    // afterwards, like every other overlay's open path.
     void configure (const juce::String& title, const juce::String& message,
-                    const juce::String& linkUrl);
+                    const juce::String& linkUrl,
+                    const juce::String& changelogUrl = {});
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -519,13 +543,17 @@ struct UpdateResultOverlay : juce::Component
     // (the handler is assigned in the ctor).
     void mouseDown (const juce::MouseEvent&) override;
 
-    // The centred 440x210 card that paint() and resized() both position
+    // The centred 440x300 card that paint() and resized() both position
     // against; every row is tested to sit inside it.
     juce::Rectangle<int> cardBounds() const noexcept;
 
     juce::Label titleLabel, messageLabel;
     // juce's own control: underlined, hand cursor, click → default browser.
     juce::HyperlinkButton link;
+    // Second link row: opens the release notes on the site. Update-available
+    // deep-links to the new version's own heading (#vX.Y.Z, written by
+    // tools/make-changelog.py); up-to-date opens the whats-new section.
+    juce::HyperlinkButton changelogLink;
     juce::TextButton okBtn { "OK", "Dismiss the result dialog" };
     juce::TextButton closeBtn { "×", "Back to the synth" };
 
@@ -968,9 +996,11 @@ public:
     // The one place every update outcome appears. Public so the tests can
     // drive all three branches without a fetch, a feed, or a DAW.
     void showUpdateResult (const juce::String& title, const juce::String& message,
-                           const juce::String& linkUrl);   // empty = no link row
+                           const juce::String& linkUrl,    // empty = no download row
+                           const juce::String& changelogUrl = {});   // empty = no change-log row
     std::unique_ptr<juce::Thread> updateThread;   // owned; joined in the destructor
     juce::String updateThreadVersion;             // latest version the thread read
+    juce::StringArray updateNotes;                // "What's new" lines from the feed
     std::atomic<bool> updateOlder { false };      // released < current
     std::atomic<bool> updateReachable { false };  // feed fetched and parsed
 

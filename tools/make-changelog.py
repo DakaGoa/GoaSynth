@@ -134,7 +134,10 @@ def render_site_block(versions: list[dict], indent: str = "") -> str:
         if v["tag"] == "Unreleased":
             continue
         date_html = f' <span class="ver-date">{pretty_date(v["date"])}</span>' if v["date"] else ""
-        out.append(f"<h2>What's new in {v['tag']}{date_html}</h2>")
+        # Each heading carries id="vX.Y.Z" so a deep link (#vX.Y.Z) lands
+        # directly on that version's notes — the update-available dialog
+        # links there; #whats-new (the section wrapper) lists them all.
+        out.append(f"<h2 id=\"v{v['tag']}\">What's new in {v['tag']}{date_html}</h2>")
         if v["lede"]:
             out.append('<p class="section-lede">')
             out.append(f"          {inline_to_html(v['lede'])}")

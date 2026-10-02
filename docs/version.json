@@ -2,8 +2,7 @@
   "latest": "1.5.0",
   "url": "https://y4m4.github.io/GoaSynth/",
   "notes": [
-    "The update dialogs carry a View full change log link: update-available lands on the new version's own notes (#vX.Y.Z anchors on the site), up-to-date opens the release notes section.",
-    "The update-available dialog shows What's new — the release notes ride along in the version feed the plugin already fetches.",
-    "A single-source changelog: CHANGELOG.md generates the website's release notes, the feed's notes and the GitHub release body (tools/make-changelog.py), with a --check mode wired into the test suite."
+    "The update dialogs carry a View full change log link: update-available lands on the new version's own notes, up-to-date opens the release notes.",
+    "The update-available dialog shows What's new — the release notes ride along in the version feed the plugin already fetches."
   ]
 }

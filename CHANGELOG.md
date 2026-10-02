@@ -17,20 +17,26 @@ Format — a Keep a Changelog flavour the tool can parse:
     A plain paragraph right after a version heading becomes the lede the site
     shows under the version's heading.
 
+Scope — the plugin only. Everything this changelog publishes (the site's
+"Release notes", the feed's notes, the GitHub release body) describes changes
+to the VST itself. Website, repository and CI work never appears here: it
+earns no entry and never touches the feed. The plugin's version only moves
+when the VST does — a website-only update ships without a version change.
+
 To cut a release: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, run
-`tools/make-changelog.py`, package with `tools/make-release.py`, then publish
-the site (`git push` — Pages serves `docs/` within about a minute) and create
-the GitHub release with the `--release-body` output.
+`tools/make-changelog.py`, package with `tools/make-release.py`, commit,
+then push and tag `vX.Y.Z` — the Release workflow builds the VST, runs the
+tests and publishes the GitHub release with the notes from this file.
 
 ## [1.5.0] - 2026-10-02
 
 The update dialog tells you what changed: release notes now travel in the
-version feed, and the changelog itself is generated from one file.
+version feed the plugin already fetches, and a **View full change log** link
+opens them in the browser.
 
 ### Added
-- The update dialogs carry a **View full change log** link: update-available lands on the new version's own notes (`#vX.Y.Z` anchors on the site), up-to-date opens the release notes section.
+- The update dialogs carry a **View full change log** link: update-available lands on the new version's own notes, up-to-date opens the release notes.
 - The update-available dialog shows **What's new** — the release notes ride along in the version feed the plugin already fetches.
-- A single-source changelog: `CHANGELOG.md` generates the website's release notes, the feed's notes and the GitHub release body (`tools/make-changelog.py`), with a `--check` mode wired into the test suite.
 
 ## [1.4.0] - 2026-10-02
 
@@ -59,8 +65,7 @@ card and an update check.
 
 ## [1.1.0] - 2026-09-28
 
-The largest update the instrument has had — the full tour lives on the
-website's release-notes page.
+The largest update the instrument has had.
 
 ### Added
 - The trancegate gained the classic step contours: **SQUARE**, **SMOOTH**, **SAW** and **TRIANGLE** shapes with ramp-smoothed step edges.

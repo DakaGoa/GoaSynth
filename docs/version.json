@@ -1,4 +1,9 @@
 {
   "latest": "1.4.0",
-  "url": "https://y4m4.github.io/GoaSynth/"
+  "url": "https://y4m4.github.io/GoaSynth/",
+  "notes": [
+    "MENU gained Change Log — opens the release notes on the website.",
+    "Check for updates no longer fails silently: every outcome — feed unreachable, update available, up to date — answers with a dialog over the plugin window, so no host can bury it.",
+    "The About card has a close button you can actually see (✕ on the card's own corner), and clicking the darkened backdrop dismisses it."
+  ]
 }

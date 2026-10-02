@@ -787,3 +787,38 @@ html[data-theme="warm"] .glare {
   #demo-gate button, #demo-gate button[data-on="1"] { transition: none; }
   #demo-gate button[data-on="1"], #demo-gate button:active { transform: none; }
 }
+
+/* --- generated release notes (tools/make-changelog.py) -------------------- */
+.ver-date {
+  color: var(--dim);
+  font-size: .55em;
+  font-weight: 400;
+  margin-left: 12px;
+  letter-spacing: .02em;
+}
+.changelog {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+.changelog li {
+  margin: 7px 0;
+  padding-left: 18px;
+  position: relative;
+  color: var(--text);
+}
+.changelog li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+.changelog .cat {
+  color: var(--accent);
+  font-size: .78em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-right: 8px;
+}
+.showcase-h { margin-top: 46px; }

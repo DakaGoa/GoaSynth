@@ -18,6 +18,18 @@ What it writes
                        GitHub asset links under the newest one. [Unreleased]
                        stays local — the site never advertises a build that is
                        not packaged yet.
+
+    --download-row auto|always|never
+                       whether that newest-section download row is shown at
+                       all. "auto" (the default) shows it only when the
+                       release's ZIP asset is actually downloadable: while a
+                       version has no GitHub release yet the row is omitted,
+                       and once the Release workflow has created the assets
+                       it appears — the workflow regenerates and commits the
+                       page itself, so main lands the row the moment the
+                       files it links exist. "always" shows it unconditionally
+                       and "never" hides it; both need no network. Fail-open
+                       on probe errors keeps an offline run stable.
     docs/version.json  "notes": the released latest version's bullets as plain
                        strings, which the plugin's update-available dialog
                        shows under "What's new". "latest" is kept in sync with
@@ -40,6 +52,8 @@ import argparse
 import json
 import re
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -130,11 +144,45 @@ def pretty_date(iso: str) -> str:
     return f"{d} {MONTHS[m]} {y}"
 
 
+_row_probe_done = False
+_row_probe_result = True
+
+
+def row_is_published(tag: str) -> bool:
+    """True when the release's ZIP asset is already downloadable.
+
+    Used by --download-row auto so the site never points at assets that do
+    not exist yet: the Release workflow regenerates the page after it has
+    created the GitHub release, and that regeneration is the one that lands
+    on main with the row. One probe per run, cached.
+
+    A clean 404 is a real answer — before the Release workflow has created
+    the release this is exactly what comes back, and hiding the row is
+    correct and reproducible. Anything ambiguous (DNS failure, timeout,
+    rate limit, 5xx) fails open and shows the row: an offline --check on a
+    page that already carries the row must stay green, and a page that
+    hides a live download is worse than one that briefly links a forming
+    one.
+    """
+    global _row_probe_done, _row_probe_result
+    if not _row_probe_done:
+        url = f"{RELEASES_URL}/download/v{tag}/GoaSynth-{tag}-win64.zip"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                _row_probe_result = response.status == 200
+        except urllib.error.HTTPError as error:
+            _row_probe_result = error.code != 404
+        except Exception:
+            _row_probe_result = True
+        _row_probe_done = True
+    return _row_probe_result
+
+
 def download_row(tag: str) -> list[str]:
     """Direct links to the published GitHub assets, so the newest section of
-    the release notes doubles as the download page. The asset URLs exist as
-    soon as the Release workflow finishes for the tag; between the site
-    deploying (the push) and that moment they can briefly 404."""
+    the release notes doubles as the download page. Gated by --download-row:
+    the asset URLs exist only once the Release workflow has created the
+    release, and auto mode waits for exactly that."""
     base = f"{RELEASES_URL}/download/v{tag}"
     return [
         '<p class="release-downloads">'
@@ -150,7 +198,8 @@ def download_row(tag: str) -> list[str]:
     ]
 
 
-def render_site_block(versions: list[dict], indent: str = "") -> str:
+def render_site_block(versions: list[dict], indent: str = "",
+                      row_mode: str = "auto") -> str:
     """The HTML between the markers: released versions, newest first."""
     out = []
     downloads_shown = False
@@ -175,8 +224,10 @@ def render_site_block(versions: list[dict], indent: str = "") -> str:
         # The download row rides under the newest released version only —
         # that is the one people download; older sections stay pure history.
         if not downloads_shown:
-            out.extend(download_row(v["tag"]))
             downloads_shown = True
+            if row_mode == "always" or (row_mode == "auto"
+                                        and row_is_published(v["tag"])):
+                out.extend(download_row(v["tag"]))
     if indent:
         out = [(indent + line) if line else line for line in out]
     return "\n".join(out)
@@ -238,7 +289,7 @@ def release_body(versions: list[dict], tag: str) -> str:
     raise SystemExit(f"no version {tag} in CHANGELOG.md")
 
 
-def check(versions: list[dict]) -> int:
+def check(versions: list[dict], row_mode: str = "auto") -> int:
     """--check: every generated artefact must match its source. Exit 1 if not."""
     problems = []
 
@@ -247,7 +298,7 @@ def check(versions: list[dict]) -> int:
     if start < 0 or end < 0:
         problems.append("docs/index.html is missing the changelog:begin/end markers")
     else:
-        want = "\n" + render_site_block(versions, SITE_INDENT) + "\n      "
+        want = "\n" + render_site_block(versions, SITE_INDENT, row_mode) + "\n      "
         have = page[start + len(BEGIN):end]
         if have != want:
             problems.append("docs/index.html release notes are stale - "
@@ -284,6 +335,13 @@ def main() -> int:
                         help="verify generated outputs are current; exit 1 if not")
     parser.add_argument("--release-body", metavar="X.Y.Z",
                         help="print the markdown body for a GitHub release")
+    parser.add_argument("--download-row", choices=["auto", "always", "never"],
+                        default="auto",
+                        help="show the newest section's download row: auto "
+                             "(default) = only once the GitHub release's ZIP "
+                             "asset is downloadable, so a version with no "
+                             "release yet ships without dead links; always or "
+                             "never forces it without touching the network")
     args = parser.parse_args()
 
     versions = parse_changelog(CHANGELOG.read_text(encoding="utf-8"))
@@ -295,9 +353,10 @@ def main() -> int:
         return 0
 
     if args.check:
-        return check(versions)
+        return check(versions, args.download_row)
 
-    changed_index = splice_index(render_site_block(versions, SITE_INDENT))
+    changed_index = splice_index(render_site_block(versions, SITE_INDENT,
+                                                   args.download_row))
     changed_feed = update_feed(versions)
     newest = released(versions)[0]["tag"]
     if changed_index:

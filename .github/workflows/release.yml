@@ -12,7 +12,17 @@ name: Release
 #     GoaSynth-Setup-<version>.exe — with its own one-line .sha256
 #   → generate the release notes from CHANGELOG.md
 #   → create the Release with the ZIP, the versioned installer, and both
-#     checksum files attached.
+#     checksum files attached
+#   → land the site update on main: the download row in the release notes is
+#     regenerated with --download-row auto, which shows it only once the
+#     assets it links actually exist (they do from the previous step), and
+#     the site's verify block adopts this run's real hashes. That commit is
+#     what deploys the site.
+#
+#     Ordering is the point: a local commit before the release exists would
+#     either ship dead download links or need a network probe (which a
+#     reproducible --check cannot rely on), so the row is gated on the
+#     release being created and lands afterwards, from the tagged checkout.
 #
 # If the tag's version has no CHANGELOG.md section, the release is still
 # published, but with a placeholder body and a warning annotation, so a tag
@@ -131,3 +141,29 @@ jobs:
             echo "Assets: GoaSynth-${version}-win64.zip (installer + licence helper + EULA),"
             echo "GoaSynth-Setup-${version}.exe (direct download) + its .sha256, SHA256SUMS.txt (hashes for all of it)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Land the download row and the hashes on main
+        run: |
+          # The Release workflow just created the assets the site's download
+          # row links, so only now may that row appear. Regenerate the notes
+          # with --download-row auto (it sees a live ZIP and keeps the row) —
+          # the local pre-release run used the default, which ships no row
+          # for a version with no release yet. The verify block and the
+          # published checksums adopt this run's real numbers, so the site
+          # quotes exactly the bytes buyers download.
+          cp dist/SHA256SUMS.txt docs/downloads/SHA256SUMS.txt
+          python tools/make-changelog.py --download-row auto
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/version.json docs/downloads/SHA256SUMS.txt
+          if git diff --cached --quiet; then
+            echo "Site already current — nothing to commit."
+          else
+            git commit -m "Release ${version}: land the download row and the published hashes on the site"
+            if git push origin HEAD:main; then
+              echo "Site update pushed to main; Pages deploys it with the download row." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Could not push the site update to main (main moved past the tag?). The release itself is published; land the row by hand: run 'python tools/make-changelog.py --download-row auto' on main, commit, push."
+              exit 1
+            fi
+          fi

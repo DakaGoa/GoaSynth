@@ -13,6 +13,9 @@ using namespace keygen::core;
 //                                            keypair so every issued serial stays valid
 //   GoaSynthKeygen --machine-id              print this machine's id
 //   GoaSynthKeygen --gen <machineId> [note]  issue a serial for a buyer's machine
+//   GoaSynthKeygen --reissue <oldSerial> <newMachineId> [note]
+//                                            move a licence: retire the old serial
+//                                            and issue one for the new machine at once
 //   GoaSynthKeygen --list                    list every issued serial
 //   GoaSynthKeygen --verify <serial>         cryptographically check a serial
 //   GoaSynthKeygen --master-info             show stored master digest
@@ -341,10 +344,15 @@ int cmdList()
     }
 
     const int revoked = revokedCount();
+    const int moved   = movedCount();
 
     std::cout << "\n" << n << " active serial(s)";
     if (revoked > 0)
-        std::cout << ", " << revoked << " revoked (" << revokedFile().getFileName() << ")";
+        std::cout << ", " << revoked << " revoked";
+    if (moved > 0)
+        std::cout << ", " << moved << " moved";
+    if (revoked > 0 || moved > 0)
+        std::cout << " (" << revokedFile().getFileName() << ")";
     std::cout << ".\n";
     return 0;
 }
@@ -445,6 +453,89 @@ int cmdRevoke (const juce::String& serialIn, const juce::String& reason)
 }
 
 //==============================================================================
+// --reissue <oldSerial> <newMachineId> [note] [out.goalicense]: the one-command
+// machine move. It retires the serial bound to the buyer's old machine (removing
+// it from the active ledger and recording the move) and issues a fresh serial
+// for the new machine, writing a buyer-ready .goalicense in the same pass. This
+// is the two steps of --unregister + --file done together, so the ledger never
+// holds two live licences for one buyer and the old line cannot be forgotten.
+int cmdReissue (const std::vector<juce::String>& args)
+{
+    const auto keys = loadKeys();
+    if (! keys.ok)
+    {
+        std::cout << "No keypair found. Run:  GoaSynthKeygen --init\n";
+        return 1;
+    }
+
+    const juce::String oldSerial = args[1].trim();
+    const juce::String newId     = normaliseMachineId (args[2]);
+
+    if (! looksLikeMachineId (newId))
+    {
+        std::cout << "That is not a valid 20-char machine id.\n"
+                  << "Example: GoaSynthKeygen --reissue <oldSerial> 1A2B3C4D5E6F70819A2B \"moved to laptop\"\n";
+        return 1;
+    }
+
+    // args[3..] is the note; a final token ending in .goalicense names the
+    // output file instead (same convention as --file).
+    juce::String note;
+    for (int i = 3; i < (int) args.size(); ++i)
+    {
+        if (i > 3) note << " ";
+        note << args[(size_t) i];
+    }
+
+    juce::File outFile (juce::File::getCurrentWorkingDirectory()
+                            .getChildFile ("GoaSynth-" + newId + ".goalicense"));
+
+    if (note.trim().endsWithIgnoreCase (".goalicense"))
+    {
+        const int sp = note.lastIndexOfChar (' ');
+        outFile = juce::File::getCurrentWorkingDirectory()
+                      .getChildFile (note.substring (sp + 1).trim());
+        note = (sp > 0 ? note.substring (0, sp) : juce::String()).trim();
+    }
+
+    const auto r = reissueSerial (keys, oldSerial, newId, note);
+    if (! r.ok)
+    {
+        std::cout << r.error << "\n";
+        return 1;
+    }
+
+    if (r.sameMachine)
+    {
+        std::cout << "That serial is already issued for machine id " << r.newMachineId << " -\n"
+                  << "nothing to move. The serial is unchanged:\n  " << prettySerial (r.newSerial) << "\n";
+        return 0;
+    }
+
+    if (! writeLicenseFile (r.newSerial, r.newMachineId, note, outFile))
+    {
+        std::cout << "Could not write " << outFile.getFullPathName() << "\n";
+        return 1;
+    }
+
+    std::cout << "Machine move complete - one command, both halves done.\n\n"
+              << "  retired   : " << prettySerial (r.oldSerial) << "\n"
+              << "              machine " << (r.oldMachineId.isEmpty() ? juce::String ("?") : r.oldMachineId)
+              << (r.oldAlreadyGone ? "  (was already retired; the ledger was left alone)\n" : "\n")
+              << "  new file  : " << outFile.getFullPathName() << "\n"
+              << "  new serial (also logged in " << issuedFile().getFileName() << "):\n              "
+              << prettySerial (r.newSerial) << "\n"
+              << "              activates ONLY on machine id " << r.newMachineId << "\n\n"
+              << "The old serial is out of the active list and the move is on the record in "
+              << revokedFile().getFileName() << ",\n"
+              << "so a later question - moved or refunded? - has an answer.\n"
+              << "Send the new file to the buyer: their old machine keeps working until they\n"
+              << "import it, because activation is offline and nothing can switch a copy off\n"
+              << "remotely.\n";
+    return 0;
+}
+
+//==============================================================================
 int cmdVerify (const juce::String& serial)
 {
     const auto keys = loadKeys();
@@ -461,7 +552,13 @@ int cmdVerify (const juce::String& serial)
 
         juce::String revId, revReason, revWhen;
 
-        if (revokedEntry (serial, revId, revReason, revWhen))
+        if (movedEntry (serial, revId, revReason, revWhen))
+            std::cout << "  MOVED on " << revWhen
+                      << (revReason.isEmpty() ? juce::String() : " - " + revReason) << "\n"
+                      << "  (retired when the licence moved to a new machine - not a live\n"
+                         "   licence, and NOT a refund; the move and the machine it went to\n"
+                         "   are in " << revokedFile().getFileName() << ")\n";
+        else if (revokedEntry (serial, revId, revReason, revWhen))
             std::cout << "  REVOKED on " << revWhen
                       << (revReason.isEmpty() ? juce::String() : " - " + revReason) << "\n"
                       << "  (the signature is still valid and an activated copy keeps working;\n"
@@ -517,6 +614,10 @@ void printUsage()
         << "  GoaSynthKeygen --list                     list every issued serial\n"
         << "  GoaSynthKeygen --verify <serial>          check a serial's signature\n"
         << "  GoaSynthKeygen --master-info              show stored master digest\n"
+        << "  GoaSynthKeygen --reissue <oldSerial> <newMachineId> [note] [out.goalicense]\n"
+        << "                                            move a licence in one step: retire\n"
+        << "                                            the old serial and issue + write a\n"
+        << "                                            fresh .goalicense for the new machine\n"
         << "  GoaSynthKeygen --unregister <serial>      lift a machine binding (transfers)\n"
         << "  GoaSynthKeygen --revoke <serial> [reason] pull a serial out of the active\n"
         << "                                            ledger (refunds) and record why\n\n"
@@ -550,9 +651,10 @@ int cmdMenu()
                   << "  4) List every serial issued so far\n"
                   << "  5) Verify a serial\n"
                   << "  6) Unregister a serial (free it for a new machine)\n"
-                  << "  7) Revoke a serial (refund - keeps a revocation record)\n"
-                  << "  8) Show this machine's id\n"
-                  << "  9) Rotate the master key (keeps every issued serial valid)\n"
+                  << "  7) Move a licence to a new machine (re-issue, one step)\n"
+                  << "  8) Revoke a serial (refund - keeps a revocation record)\n"
+                  << "  9) Show this machine's id\n"
+                  << " 10) Rotate the master key (keeps every issued serial valid)\n"
                   << "  0) Exit\n\n";
 
         const juce::String choice = promptLine ("Choose an option");
@@ -609,15 +711,24 @@ int cmdMenu()
         }
         else if (choice == "7")
         {
+            const juce::String serial = promptLine ("Serial to retire (the old machine's)");
+            const juce::String id = promptLine ("New MACHINE ID (20 hex chars)", {},
+                                                looksLikeMachineId,
+                                                "That is not a valid 20-char machine id (hex, no dashes).");
+            const juce::String note = promptLine ("Note, e.g. order reference (optional)");
+            cmdReissue (std::vector<juce::String> { "--reissue", serial, id, note });
+        }
+        else if (choice == "8")
+        {
             const juce::String serial = promptLine ("Serial to revoke");
             const juce::String reason = promptLine ("Reason", "refund");
             cmdRevoke (serial, reason);
         }
-        else if (choice == "8")
+        else if (choice == "9")
         {
             std::cout << thisMachineId() << "\n";
         }
-        else if (choice == "9")
+        else if (choice == "10")
         {
             if (! haveKeys)
             {
@@ -682,6 +793,11 @@ int run (int argc, char* argv[])
     {
         if (args.size() < 2) { printUsage(); return 1; }
         return cmdFile (args);
+    }
+    if (cmd == "--reissue")
+    {
+        if (args.size() < 3) { printUsage(); return 1; }
+        return cmdReissue (args);
     }
     if (cmd == "--genfile")    return cmdGenFile();
     if (cmd == "--list")       return cmdList();

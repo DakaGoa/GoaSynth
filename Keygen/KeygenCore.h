@@ -544,23 +544,25 @@ inline juce::String recordIssued (const KeyPairText& keys, const juce::String& i
 // what you support, and what you can prove later.
 //
 // The log is an append-only event stream, so a serial's state is its NEWEST
-// line: revoke, restore, revoke again all just append. The last column names
-// the event ("revoked" or "restored"); lines written before restores existed
-// have four columns and read as revocations, so the format stayed compatible.
-// A refund therefore stays on the record even after the buyer buys again - that
-// is the point of keeping history instead of erasing a line.
+// line. The last column names the event: "revoked" (a refund pulled it),
+// "restored" (a re-purchase put it back) or "moved" (the licence went to a new
+// machine). Three states, not two: a moved serial is neither a live licence nor
+// a refund, and --verify / --list must not report it as one. Lines written
+// before the event column existed have four columns and read as revocations, so
+// the format stayed compatible.
 //==============================================================================
 inline juce::File revokedFile() { return keygenDir().getChildFile ("revoked_serials.txt"); }
 
 inline const char* revokedFileHeader()
 {
-    return "# GoaSynth serial revocation log - serial\tmachine id\treason\tat\tevent (revoked|restored)\n";
+    return "# GoaSynth serial revocation log - serial\tmachine id\treason\tat\tevent (revoked|restored|moved)\n";
 }
 
 struct RevocationEvent
 {
     bool found = false;     // the serial appears in the log at all
-    bool revoked = false;   // ...and its newest event is a revocation
+    bool revoked = false;   // ...and its newest event is a refund-style revocation
+    bool moved = false;     // ...or its newest event is a machine move
     juce::String serial, machineId, reason, at, event;
 };
 
@@ -590,7 +592,8 @@ inline RevocationEvent revocationState (const juce::String& serialIn)
         state.reason    = cells.size() > 2 ? cells[2] : juce::String();
         state.at        = cells.size() > 3 ? cells[3] : juce::String();
         state.event     = cells.size() > 4 ? cells[4].toLowerCase() : juce::String ("revoked");
-        state.revoked   = state.event != "restored";
+        state.revoked   = state.event == "revoked";
+        state.moved     = state.event == "moved";
     }
 
     return state;
@@ -598,8 +601,9 @@ inline RevocationEvent revocationState (const juce::String& serialIn)
 
 // Looks a serial up in the revocation log. Returns the machine id, reason and
 // timestamp so callers can report it rather than just say "revoked". True only
-// while the serial's newest event is a revocation: a restored serial is a live
-// licence again, even though the refund that pulled it stays on the record.
+// while the serial's newest event is a refund-style revocation: a restored
+// serial is a live licence again, and a moved one is retired but not refunded,
+// so both return false here (see movedEntry() and serialRetired()).
 inline bool revokedEntry (const juce::String& serialIn, juce::String& machineIdOut,
                           juce::String& reasonOut, juce::String& whenOut)
 {
@@ -618,9 +622,41 @@ inline bool isRevoked (const juce::String& serial)
     return revokedEntry (serial, id, reason, when);
 }
 
-// True when the serial was pulled at any point, restored or not, with the first
-// revocation's reason and date - what a support email needs ("yes, order 7001
-// was refunded in June").
+// The machine-move counterpart: true while the serial's newest event is a move,
+// so it left the active ledger because the licence went somewhere else - not
+// because money came back. --verify and --list report it as a move, never as a
+// revocation.
+inline bool movedEntry (const juce::String& serialIn, juce::String& machineIdOut,
+                        juce::String& reasonOut, juce::String& whenOut)
+{
+    const auto state = revocationState (serialIn);
+
+    machineIdOut = state.machineId;
+    reasonOut    = state.reason;
+    whenOut      = state.at;
+
+    return state.found && state.moved;
+}
+
+inline bool isMoved (const juce::String& serial)
+{
+    juce::String id, reason, when;
+    return movedEntry (serial, id, reason, when);
+}
+
+// True while the serial is out of the active ledger for any reason - refunded
+// or moved to another machine. This is the state a re-issue restores from, and
+// the line between "already retired" and "nothing to retire yet".
+inline bool serialRetired (const juce::String& serialIn)
+{
+    const auto state = revocationState (serialIn);
+    return state.found && state.event != "restored";
+}
+
+// True when the serial was refunded at any point, restored or not, with the
+// first revocation's reason and date - what a support email needs ("yes, order
+// 7001 was refunded in June"). A machine move is not a revocation, so it never
+// satisfies this.
 inline bool wasRevoked (const juce::String& serialIn, juce::String& reasonOut, juce::String& whenOut)
 {
     reasonOut.clear();
@@ -641,8 +677,9 @@ inline bool wasRevoked (const juce::String& serialIn, juce::String& reasonOut, j
         if (cells.isEmpty() || cells[0].toUpperCase() != serial)
             continue;
 
-        const bool restored = cells.size() > 4 && cells[4].equalsIgnoreCase ("restored");
-        if (! restored)
+        // Only a refund counts as a revocation; a restore or a move is skipped.
+        const juce::String event = cells.size() > 4 ? cells[4].toLowerCase() : juce::String ("revoked");
+        if (event == "revoked")
         {
             reasonOut = cells.size() > 2 ? cells[2] : juce::String();
             whenOut   = cells.size() > 3 ? cells[3] : juce::String();
@@ -653,14 +690,15 @@ inline bool wasRevoked (const juce::String& serialIn, juce::String& reasonOut, j
     return false;
 }
 
-// Serials whose newest event is a revocation - the count --list reports, so a
-// restored re-purchase is not counted as revoked for ever.
+// Serials whose newest event is a refund-style revocation - the count --list
+// reports, so a restored re-purchase (and a serial retired by a machine move)
+// is not counted as revoked for ever.
 inline int revokedCount()
 {
     if (! revokedFile().existsAsFile())
         return 0;
 
-    juce::StringArray revoked, restored;
+    juce::StringArray revoked;
 
     for (const auto& line : juce::StringArray::fromLines (revokedFile().loadFileAsString()))
     {
@@ -673,20 +711,46 @@ inline int revokedCount()
             continue;
 
         const juce::String s = cells[0].toUpperCase();
+        const juce::String event = cells.size() > 4 ? cells[4].toLowerCase() : juce::String ("revoked");
 
-        if (cells.size() > 4 && cells[4].equalsIgnoreCase ("restored"))
-        {
-            restored.addIfNotAlreadyThere (s);
-            revoked.removeString (s);
-        }
-        else
-        {
+        if (event == "revoked")
             revoked.addIfNotAlreadyThere (s);
-            restored.removeString (s);
-        }
+        else
+            revoked.removeString (s);   // restored or moved: no longer a refund
     }
 
     return revoked.size();
+}
+
+// Serials retired by a machine move (newest event "moved") - counted apart from
+// revokedCount() so --list and --status never present a move as a refund.
+inline int movedCount()
+{
+    if (! revokedFile().existsAsFile())
+        return 0;
+
+    juce::StringArray moved;
+
+    for (const auto& line : juce::StringArray::fromLines (revokedFile().loadFileAsString()))
+    {
+        const juce::String t = line.trim();
+        if (t.isEmpty() || t.startsWithChar ('#'))
+            continue;
+
+        const auto cells = juce::StringArray::fromTokens (t, "\t", "");
+        if (cells.isEmpty())
+            continue;
+
+        const juce::String s = cells[0].toUpperCase();
+        const juce::String event = cells.size() > 4 ? cells[4].toLowerCase() : juce::String ("revoked");
+
+        if (event == "moved")
+            moved.addIfNotAlreadyThere (s);
+        else
+            moved.removeString (s);   // revoked or restored: not a current move
+    }
+
+    return moved.size();
 }
 
 // The machine id a live serial was issued for, or {} when it is not in the
@@ -713,9 +777,15 @@ struct RevokeResult
     juce::String serial, machineId, reason, revokedAt, error;
 };
 
-// Removes a serial from the active ledger and records the revocation. Safe to
-// call twice: a serial already in the log is reported, not duplicated.
-inline RevokeResult revokeSerial (const juce::String& serialIn, const juce::String& reasonIn)
+// Removes a serial from the active ledger and appends an event line. The event
+// is "revoked" for a refund (the default) or "moved" for a machine move, so the
+// log can tell them apart. Safe to call twice for the same event: the state is
+// reported, not duplicated. A serial already out of the ledger under a
+// DIFFERENT event is still recorded - a refund after a move is real history -
+// as long as the log already knows the serial.
+inline RevokeResult revokeSerial (const juce::String& serialIn, const juce::String& reasonIn,
+                                  const juce::String& eventIn = "revoked",
+                                  const juce::String& defaultReason = "refund")
 {
     RevokeResult r;
     r.serial = serialIn.trim().toUpperCase();
@@ -726,57 +796,69 @@ inline RevokeResult revokeSerial (const juce::String& serialIn, const juce::Stri
         return r;
     }
 
-    if (revokedEntry (r.serial, r.machineId, r.reason, r.revokedAt))
+    const auto state = revocationState (r.serial);
+
+    juce::String event = eventIn.trim().toLowerCase();
+    if (event.isEmpty())
+        event = "revoked";
+
+    // Already retired under this same event: report it, do not duplicate.
+    if (state.found && state.event == event)
     {
         r.ok = true;
         r.alreadyRevoked = true;
+        r.machineId = state.machineId;
+        r.reason    = state.reason;
+        r.revokedAt = state.at;
         if (r.machineId.isEmpty())
             r.machineId = machineIdForSerial (r.serial);
         return r;
     }
 
-    const juce::File ledger = issuedFile();
-    if (! ledger.existsAsFile())
-    {
-        r.error = "No serials issued yet.";
-        return r;
-    }
-
     juce::StringArray kept;
-    for (const auto& line : juce::StringArray::fromLines (ledger.loadFileAsString()))
-    {
-        const juce::String t = line.trim();
-        if (t.isEmpty())
-            continue;
+    juce::String machineId = state.found ? state.machineId : juce::String();
 
-        const auto cells = juce::StringArray::fromTokens (t, "\t", "");
-        if (cells.size() > 0 && cells[0].toUpperCase() == r.serial)
+    const juce::File ledger = issuedFile();
+    if (ledger.existsAsFile())
+        for (const auto& line : juce::StringArray::fromLines (ledger.loadFileAsString()))
         {
-            ++r.ledgerLinesRemoved;
-            if (cells.size() > 1)
-                r.machineId = cells[1];
-            continue;
+            const juce::String t = line.trim();
+            if (t.isEmpty())
+                continue;
+
+            const auto cells = juce::StringArray::fromTokens (t, "\t", "");
+            if (cells.size() > 0 && cells[0].toUpperCase() == r.serial)
+            {
+                ++r.ledgerLinesRemoved;
+                if (cells.size() > 1)
+                    machineId = cells[1];
+                continue;
+            }
+
+            kept.add (t);
         }
 
-        kept.add (t);
-    }
-
-    if (r.ledgerLinesRemoved == 0)
+    // Nothing in the active ledger and never seen in the log: a typo, not
+    // history, so record nothing.
+    if (r.ledgerLinesRemoved == 0 && ! state.found)
     {
         r.error = "Serial not found in the issued list (never issued, or already unregistered).";
         return r;
     }
 
-    ledger.replaceWithText (kept.joinIntoString ("\n") + (kept.isEmpty() ? juce::String() : juce::String ("\n")));
+    if (r.ledgerLinesRemoved > 0)
+        ledger.replaceWithText (kept.joinIntoString ("\n") + (kept.isEmpty() ? juce::String() : juce::String ("\n")));
 
     if (! revokedFile().existsAsFile())
         revokedFile().replaceWithText (juce::String (revokedFileHeader()));
 
-    r.reason = reasonIn.trim().isEmpty() ? juce::String ("refund") : reasonIn.trim();
+    r.machineId = machineId;
+    r.reason = reasonIn.trim().isEmpty() ? defaultReason : reasonIn.trim();
     r.revokedAt = juce::Time::getCurrentTime().toISO8601 (true);
 
     revokedFile().appendText (r.serial + "\t" + r.machineId + "\t"
-                                + r.reason.replaceCharacters ("\t\r\n", "   ") + "\t" + r.revokedAt + "\n");
+                                + r.reason.replaceCharacters ("\t\r\n", "   ") + "\t" + r.revokedAt
+                                + "\t" + event + "\n");
 
     r.ok = true;
     return r;
@@ -817,7 +899,9 @@ inline RestoreResult restoreSerial (const juce::String& serialIn, const juce::St
     r.hadRevocation = true;
     r.machineId     = state.machineId;
 
-    if (! state.revoked)
+    // Already live again: a "restored" newest event means nothing to do. A
+    // refunded OR moved serial is put back, so both append a restore.
+    if (state.event == "restored")
     {
         r.ok = true;
         r.alreadyRestored = true;
@@ -830,6 +914,111 @@ inline RestoreResult restoreSerial (const juce::String& serialIn, const juce::St
     revokedFile().appendText (r.serial + "\t" + r.machineId + "\t"
                                 + r.reason.replaceCharacters ("\t\r\n", "   ") + "\t"
                                 + r.restoredAt + "\trestored\n");
+
+    r.ok = true;
+    return r;
+}
+
+//==============================================================================
+// Machine moves.
+//
+// A buyer changes machine (re-install, hardware swap, new studio PC) and the
+// serial they hold is signed for the OLD machine id, so it cannot activate the
+// new one. The fix used to be two commands - --unregister <oldSerial> then
+// --file <newMachineId> - and doing them apart is what leaves the ledger
+// briefly holding two live licences for one buyer, or the old line orphaned
+// when the second command is forgotten.
+//
+// reissueSerial() does both halves as one operation: the old serial leaves the
+// active ledger AND the move is recorded as a "moved" event (with a reason like
+// "machine move"), so the append-only history can answer the support question
+// that always follows - "was that serial moved or refunded?" - without --verify
+// mistaking a move for a refund. The new serial is issued for the new machine id
+// in the same call, and is - like every serial - deterministic for that machine.
+//
+// As with a refund this is bookkeeping only: activation is offline, so the old
+// machine keeps working until the buyer imports the new file, and for a short
+// while they may have two working copies. Nothing here can switch one off
+// remotely.
+struct ReissueResult
+{
+    bool ok = false;
+    bool sameMachine = false;       // the new id is the old serial's machine: nothing to move
+    bool oldAlreadyGone = false;    // the old serial was already retired; ledger untouched
+    bool newAlreadyIssued = false;  // the new machine already had a serial
+    int ledgerLinesRemoved = 0;
+    juce::String oldSerial, oldMachineId, newSerial, newMachineId, retiredAt, error;
+};
+
+inline ReissueResult reissueSerial (const KeyPairText& keys,
+                                    const juce::String& oldSerialIn,
+                                    const juce::String& newMachineIdIn,
+                                    const juce::String& note = {},
+                                    const juce::String& moveReason = {})
+{
+    ReissueResult r;
+    r.oldSerial    = oldSerialIn.trim().toUpperCase();
+    r.newMachineId = normaliseMachineId (newMachineIdIn);
+
+    if (r.oldSerial.isEmpty())
+    {
+        r.error = "no old serial given";
+        return r;
+    }
+
+    if (! looksLikeMachineId (r.newMachineId))
+    {
+        r.error = "That is not a valid 20-char machine id.";
+        return r;
+    }
+
+    // The old machine id: the active ledger first, then the log, so a serial
+    // that was already retired can still be recognised as "same machine".
+    const auto priorState = revocationState (r.oldSerial);
+    r.oldMachineId = machineIdForSerial (r.oldSerial);
+    if (r.oldMachineId.isEmpty())
+        r.oldMachineId = priorState.machineId;
+
+    // Same machine: there is nothing to move. Make sure the serial is still
+    // issued and leave the ledger otherwise alone - retiring it here would take
+    // away the serial the buyer is about to keep using.
+    if (r.oldMachineId.isNotEmpty() && r.oldMachineId == r.newMachineId)
+    {
+        r.sameMachine = true;
+    }
+    else if (priorState.found && priorState.event != "restored")
+    {
+        // The old serial is already out of the active ledger - refunded or
+        // retired by an earlier move. There is nothing to retire, and recording
+        // a second event would misrepresent why it left; note it and issue for
+        // the new machine.
+        r.oldAlreadyGone = true;
+        r.retiredAt      = priorState.at;
+        if (r.oldMachineId.isEmpty())
+            r.oldMachineId = priorState.machineId;
+    }
+    else
+    {
+        const auto retired = revokeSerial (r.oldSerial,
+                                           moveReason.trim().isEmpty() ? juce::String ("machine move")
+                                                                       : moveReason.trim(),
+                                           "moved");
+        if (! retired.ok)
+        {
+            r.error = retired.error;
+            return r;
+        }
+
+        r.ledgerLinesRemoved = retired.ledgerLinesRemoved;
+        r.oldAlreadyGone     = retired.alreadyRevoked;
+        r.retiredAt          = retired.revokedAt;
+        if (r.oldMachineId.isEmpty())
+            r.oldMachineId = retired.machineId;
+    }
+
+    bool alreadyIssued = false;
+    r.newSerial        = recordIssued (keys, r.newMachineId, note, alreadyIssued);
+    r.newAlreadyIssued = alreadyIssued;
 
     r.ok = true;
     return r;

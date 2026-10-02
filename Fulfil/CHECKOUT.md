@@ -18,6 +18,30 @@ the plugin itself activates **offline**, so there is no licence server to run ei
 
 ---
 
+## 0. The whole thing, in order
+
+Everything in this file, as a list to work through. Nothing here needs a server: the store hosts the
+checkout *and* the download, and the plugin activates offline.
+
+| # | Do this | Where |
+| --- | --- | --- |
+| 1 | Choose the merchant of record | §1, §2 |
+| 2 | Open the store account: business identity, payout details, receipt and support addresses | §3, §7 |
+| 3 | Create the product: €15 one-time, tax-inclusive, **licence keys off**, a **required Machine ID** custom field, 14-day refund | §3 |
+| 4 | Attach the packaged build as the product's file, and enable the customer library so buyers can re-download | §4 |
+| 5 | Copy the product's checkout URL into `CONFIG.checkout` | §5 |
+| 6 | Copy the customer-library URL into `CONFIG.download` | §5 |
+| 7 | Build the seller-side tools once — `GoaSynthKeygen --init`, then `GoaSynthFulfil` | §3b |
+| 8 | Test in the store's test mode: buy, receive, activate, refund | §6 |
+| 9 | Push, then prove the deploy is live | §6 |
+| 10 | Before the first real sale: policy pages, keypair backup, and a listing that matches the site | §7 |
+
+Steps 2–4 are account forms at the store, and are the only part that cannot be done from this
+repository. Everything else already exists here: **steps 5 and 6 are the two-line edit** that turns
+the site's "checkout is being wired up" into a working Buy button, and no other page has to change.
+
+---
+
 ## 1. Why a merchant of record, and not raw Stripe
 
 A merchant of record (MoR) becomes the **seller of record**. That means the store, not you, is
@@ -75,7 +99,7 @@ Paddle is the better long-term home if you already run a company and want formal
 | Custom field | **"Machine ID (20 characters, from the plugin's activation screen)"** — **required** — see §3b |
 | Delivery | Hosted file: the release ZIP from section 4, plus the serial you email per buyer |
 | Refund window | 14 days — matches the site |
-| Receipt + support email | A real support inbox, not a personal address |
+| Receipt + support email | `goasynth.orders@gmail.com` for receipts, `goasynth.support@gmail.com` for support — the addresses the legal pages already publish |
 | Tax category | Digital goods / software |
 | Checkout questions | Email + country from the store, plus the machine ID field. Do not ask for DAW or OS: the plugin works on all three and you do not need the data |
 
@@ -95,6 +119,10 @@ Every serial is signed for one buyer's machine ID, so a command has to run per o
 does that in bulk straight from the store's order export, so a morning's sales are one command rather
 than twenty minutes of copy-paste.
 
+The replies for the questions that actually arrive — a buyer with no machine ID, a machine move, a lost
+licence file, a refund, a serial that "won't activate" — are written out in
+[SUPPORT.md](SUPPORT.md), each one grounded in what these tools really do.
+
 Build it next to the plugin (it is seller-side only, never shipped to buyers):
 
 ```bash
@@ -107,7 +135,7 @@ a folder, then:
 
 ```bash
 GoaSynthFulfil --inbox C:\goasynth\orders --out C:\goasynth\fulfilled \
-               --from "GoaSynth <orders@yourdomain>" --repo https://github.com/you/goasynth
+               --from "GoaSynth <goasynth.orders@gmail.com>" --repo https://github.com/Y4m4/GoaSynth
 ```
 
 Or leave it running and let it pick up each new export:
@@ -122,9 +150,20 @@ One pass reads every `*.csv` and `*.json` in the inbox and writes:
 | --- | --- |
 | `licenses/GoaSynth-<machineId>.goalicense` | the buyer-ready licence file, signed through the keygen's own core |
 | `mail/<order>-<email>.eml` | a reply-ready message: buyer, subject, body and the licence attached — open it, check it, send it |
-| `manifest.tsv` | every serial issued, keyed by order id: what makes re-runs safe |
+| `manifest.tsv` | every order's state, keyed by order id: `issued`, `moved`, `refunded` or `revoked` — what makes re-runs safe |
 | `needs-attention.tsv` | orders it refused to sign, with the reason |
 | `activity.log` | append-only record of each pass and each revocation |
+
+**Store export shapes it understands.** A CSV is read by its header row, so column order does not matter
+and a real Lemon Squeezy export can carry both `Product Name` and `Product ID` — the id is ignored, never
+mistaken for the product. A JSON export is read whether it is a bare array of orders or a wrapper object
+(`{"orders":[…]}` / `{"data":[…]}`), and separators do not matter: `machine_id`, `Machine ID` and
+`machineid` all mean the same column, so both `snake_case` and spaced headers work.
+
+**Mind the product filter.** The pass fulfils an order only when its product value contains `--product`
+(default `goasynth`). That is a substring match, so a *different* product whose name also contains
+"goasynth" (a bundle, a patch pack) would be pulled in. If the store sells more than the synth, pass the
+listing's own name instead, e.g. `--product "GoaSynth — Goa Trance Synthesizer"`.
 
 **It refuses to guess.** A column named `Machine ID` / `HWID` / `Device ID` (any case, or your custom
 field's name) is used directly. With no such column it scans every value for a 20-hex token, and that
@@ -147,8 +186,9 @@ serial. A licence file you delete by accident is simply re-created on the next p
    the event to `activity.log`;
 4. does nothing at all the second time round — revoking is idempotent.
 
-`GoaSynthKeygen --list` then shows only live licences (plus a revoked count), and `--verify <serial>` on a
-refunded one answers `VALID — … REVOKED on <date> - refund - order 7001`.
+`GoaSynthKeygen --list` then shows only live licences (plus revoked and moved counts, counted separately),
+and `--verify <serial>` on a refunded one answers `VALID — … REVOKED on <date> - refund - order 7001`. A
+serial retired by a machine move answers `MOVED` instead, so a move never reads as a refund.
 
 **A re-purchase puts the serial back.** If the same buyer buys again (or a corrected export shows the
 order as paid), the next pass re-issues the serial — the signature is deterministic, so they get the
@@ -158,8 +198,8 @@ order 7001, later restored*), and the refund itself never leaves the log. Runnin
 nothing: a serial that is already live is not restored again. A licence file deleted by accident is
 re-created from the manifest, never re-signed.
 
-**The log is an append-only event stream**, one line per event (`revoked` or `restored`) with the serial,
-machine ID, reason and timestamp; the newest line for a serial is its current state. It is also your
+**The log is an append-only event stream**, one line per event (`revoked`, `restored` or `moved`) with the
+serial, machine ID, reason and timestamp; the newest line for a serial is its current state. It is also your
 refund ledger: it answers "was order 7001 refunded?" six months later, which `--unregister` (a transfer,
 where erasing the line is the point) cannot. The same operation by hand is
 `GoaSynthKeygen --revoke <serial> [reason]`.
@@ -188,13 +228,23 @@ install it and press **COPY MACHINE ID** on the activation screen. The 24-hour t
 When the ID arrives, drop it into a small `manual.csv` in the inbox (`Order ID,Email,Product,Machine ID`)
 and run the pass again; it is signed like any other order, and the .eml draft comes back with it.
 
+If the buyer's machine has changed since, reuse their **original Order ID** in `manual.csv` and the pass
+does the move for you: seeing the same order against a different machine id, it retires the old serial and
+issues for the new one in a single step (the same operation as `--reissue` below) instead of silently
+treating the order as already fulfilled. The order's newest `manifest.tsv` row then reads `moved` — not
+`issued` — so `--status` counts it as a moved seat rather than a live licence.
+
 **If a buyer changes computer or reinstalls Windows:** the machine ID changes and the old serial
 correctly refuses to activate. Check their order with `--list`, then:
 
 ```bash
-GoaSynthKeygen --unregister <serial>       # lift the old binding
-GoaSynthKeygen --file <newMachineId> "Order #1234 — Jane (new PC)"
+GoaSynthKeygen --reissue <serial> <newMachineId> "Order #1234 — Jane (new PC)"
 ```
+
+`--reissue` is the old `--unregister` + `--file` pair as one step: it retires the old serial, records the
+move as a **`moved` event** (reason `machine move`) in `revoked_serials.txt` — distinct from a refund, so
+`--verify` and `--list` never call a move a revocation — and writes the buyer-ready
+`GoaSynth-<newMachineId>.goalicense` in the same pass. One command, no half-finished move.
 
 Issue the replacement free — the site says you will, and it is the difference between a customer and a
 chargeback. Never send a serial that is not bound to the machine ID the buyer gave you: it will simply
@@ -245,7 +295,7 @@ says "VAT added at checkout" instead of "VAT included".
 > Gemini or OpenAI API key (or a local Ollama/LM Studio server) for language-model generation — your key,
 > your provider, your account.
 >
-> Source code is published under the AGPLv3 at <https://github.com/YOURUSER/goasynth> — buyers
+> Source code is published under the AGPLv3 at <https://github.com/Y4m4/GoaSynth> — buyers
 > receive the corresponding source with their download.
 >
 > VST® is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries.
@@ -256,31 +306,63 @@ say so. Buyers who prefer to compile it themselves are welcome to.
 
 ## 4. The file to attach
 
-Ship one ZIP per platform, or a single ZIP with all three — buyers tend to have one machine, but
-multi-machine users appreciate the bundle.```
-GoaSynth-1.1.0-win64.zip
-  GoaSynth.vst3/            ← the whole bundle, copy it into your VST3 folder
-  GoaSynthLicense.exe       ← optional: opens .goalicense files on double-click
-  README.txt                ← install steps, activation steps, licence terms, source link
-  EULA.txt
-GoaSynth-1.1.0-macos.zip
-GoaSynth-1.1.0-linux.zip
+The packaging already exists: `tools/make-release.py` turns the built installer into the ZIP a buyer
+gets, and publishes the hashes for it in the same pass.
+
+```bash
+python tools/make-release.py           # build, package, publish the checksums
+python tools/make-release.py --check   # report what would change, change nothing
 ```
+
+It writes `dist/GoaSynth-<version>-win64.zip`:
+
+```
+GoaSynth-1.1.0-win64.zip
+  GoaSynth-Setup.exe        ← run this: installs the plugin, the standalone and the licence helper
+  GoaSynthLicense.exe       ← opens .goalicense files on double-click
+  README.txt                ← install steps, activation steps, the published checksums, source link
+  EULA.txt                  ← the licence terms, taken from docs/legal/eula.html
+```
+
+The plugin bundle lives *inside* the installer rather than beside it in the ZIP, which is why the
+release block on the site publishes three hashes: the ZIP, the `GoaSynth-Setup.exe` inside it, and
+the standalone `GoaSynth.exe` the installer puts next to the plugin.
+
+Two more things go to the site in the same command, and both are meant to be public:
+
+- `docs/downloads/SHA256SUMS.txt` — so a buyer can check what they downloaded against a file the
+  seller cannot quietly rewrite;
+- the release block in `docs/index.html` — the version, the commit it was built from, and the hashes.
+
+**Attach that ZIP to the store product** (§3) and turn the store's customer library on, so the
+receipt carries a download link buyers can return to. That is the whole delivery path: the store
+hosts the file, the serial arrives by email from §3b, and no binary is ever served from the
+repository.
 
 > **Build order matters.** `Source/LicenseKeys.h` is gitignored and generated by
 > `GoaSynthKeygen --init`, and a fresh checkout builds with a **placeholder that rejects every serial**.
 > Run `--init` once, rebuild, and verify activation *before* you package — a ZIP built from a clean clone
 > without that step looks perfectly normal and silently refuses every serial you sell.
 
-Build the artefacts with the commands in the main `README.md` (`GoaSynth_VST3` target, then take
-`build/GoaSynth_artefacts/Release/VST3/GoaSynth.vst3`), copy the bundle whole — it is a folder, not a
-file — and add a checksum file. Put the activation steps in `README.txt`: open the plugin, copy the
-machine ID, send it with the order, then double-click the `.goalicense` file. Never ship a build you
-have not opened in at least two DAWs.
+Do not hand-build that ZIP. `make-release.py` refuses a **dirty working tree**, a Setup installer
+**older than the newest file under `Source/`** (which would ship last week's code with a fresh hash),
+and a missing installer, plugin bundle or licence helper — the three ways a release goes out wrong. It
+builds the targets itself, so the two commands above are the whole release, and the hashes on the site
+stop being a claim you made by hand.
+
+The activation steps it puts in `README.txt` are the ones that matter: open the plugin, copy the
+machine ID, send it with the order, then double-click the `.goalicense` file.
+
+**Only Windows is packaged today.** The site's hero line advertises **VST3 + AU · Windows · macOS ·
+Linux**, so either package the other two platforms (a macOS build needs a Mac with the SDK, and the AU
+wrapper has its own target) or reword that line before taking money: a macOS buyer who pays and
+receives a Windows installer is a refund, not a customer. Never ship a build you have not opened in at
+least two DAWs.
 
 ## 5. Wire the URL into the site
 
-Paste a handful of values into the `CONFIG` block at the top of `docs/app.js`:
+The `CONFIG` block at the top of `docs/app.js` is the only place the store touches the site. Its
+shape, with the placeholders spelled out:
 
 ```js
 var CONFIG = {
@@ -292,19 +374,56 @@ var CONFIG = {
   support: 'support@yourdomain',                            // falls back to ordersEmail
   download: 'https://yourstore.lemonsqueezy.com/my-orders', // customer re-download page
   repo: 'https://github.com/YOURUSER/goasynth',
-  releases: '',
   machineIdField: true      // checkout collects the buyer's machine id
 };
 ```
+
+**What the repository has today.** Three values are already set, and three are deliberate blanks that
+the store fills in:
+
+```js
+  store: 'Lemon Squeezy',                       // set — the legal pages already name it
+  vatIncluded: true,                            // set — keep in step with the store's tax setting
+  repo: 'https://github.com/Y4m4/GoaSynth',     // set — see the note below on why this is written down
+  checkout: '',                                 // ← paste the product's checkout URL: Buy goes live
+  download: '',                                 // ← paste the customer-library URL
+  support: '',                                  // ← paste goasynth.support@gmail.com
+```
+
+That is the whole wiring: no page has to be edited, and no build has to be re-run — the site is
+static, and `CONFIG` is read at load time. `tools/check-deployed.py` will confirm afterwards that the
+live copy is this copy.
+
+| Value | Where it comes from | When it is empty or wrong |
+| --- | --- | --- |
+| `checkout` | product → *Share* → the `https://<store>.lemonsqueezy.com/buy/<uuid>` link | every Buy button scrolls to the pricing card and the page says the checkout is being wired up — the honest state, and the one it is in now |
+| `download` | the store's customer/library page, the one a receipt links to | the Install buttons fall back to the install steps on this page, which say the link arrives with the receipt |
+| `support` | `goasynth.support@gmail.com`, the address the legal pages publish | the "ask first" sentence is removed rather than pointing nowhere |
+| `ordersEmail` | your order inbox — **only if you intend to take orders by email** | setting it flips the whole page into email-order mode: Buy buttons become a pre-filled mail, and the site says orders are taken by email for now. That is a promise to invoice, sign and reply by hand, so leave it empty until you mean it |
+
+Three notes, each of which has already cost time here once:
+
+- **`download` is never derived from the repository.** The paid build is not published in a public
+  repository, so a fallback to `<repo>/releases/latest` points buyers at an empty page — and this site
+  did exactly that, invisibly, because an empty release list answers 404 rather than saying so. An
+  empty `download` is a working state; a derived one was not.
+- **Leave `repo` written down.** It has a fallback that derives the repository from a `*.github.io`
+  hostname, so a fork points at itself, but that only works while the site is hosted on `github.io`:
+  on a custom domain every link that depends on it goes empty. One line removes the dependency on where
+  the site is hosted. (The fallback itself was also broken until recently — it compared the last ten
+  characters of the hostname, dot included, against `github.io` — which is why the Source and
+  Repository links were hidden on the deployed site.)
+- **A fragment is not a download URL.** `CONFIG.download` is also what the "copy link" button copies,
+  so putting `#install` in it would copy the string `#install` and call that a download link. Leave it
+  empty and let the links fall back.
 
 `machineIdField` only controls one sentence on the pricing card — the note telling buyers that checkout
 asks for their machine ID. Leave it `true` if you added the custom field in §3; set it `false` if you
 take the ID over email instead, and the note hides itself rather than promising a field that isn't
 there (the order-email fallback already asks for it automatically).
 
-Where the URL comes from, per store:
+If you use a different store, the link comes from:
 
-- **Lemon Squeezy** — product → *Share* → copy the `https://<store>.lemonsqueezy.com/buy/<uuid>` link.
 - **Gumroad** — product → *Share* → `https://<name>.gumroad.com/l/<slug>`.
 - **Paddle** — the checkout link shown on the product; paste whatever it copies.
 - **FastSpring** — the storefront or product URL.
@@ -343,6 +462,21 @@ That is deliberate: the site must never advertise a checkout that doesn't exist.
    number as its reason, and that the manifest row for that order now reads `revoked`.
 7. Try the other two config modes by emptying `checkout` (and then `ordersEmail`) to make sure the
    copy swaps over cleanly.
+8. **Push, then prove the deploy landed.** The store's test purchase is not the live site; the live
+   site is whatever GitHub Pages is serving, which is not always the commit you just pushed:
+
+   ```bash
+   python tools/check-deployed.py --wait 60
+   ```
+
+   It fetches every file in `docs/` and compares it with the repository byte for byte, checks each
+   page's canonical link and `og:url` against the address it was actually served at, follows the
+   sitemap's `<loc>` list, rechecks the verification token, and confirms the one-address redirect. A
+   push that has not been published yet looks exactly like drift, which is what `--wait` is for.
+9. **Re-check the claims the store can contradict.** `DocsCheck` compares `CONFIG.price` with every
+   euro amount on the pages, so a store price that is not €15 is a red build rather than a refund
+   request. The refund window and the three-machine seat are only compared by eye, so make the listing
+   say what the pages say: 14 days, three machines you use yourself.
 
 ## 7. Before you take real money
 
@@ -352,19 +486,24 @@ That is deliberate: the site must never advertise a checkout that doesn't exist.
 
   | Page | URL | What still needs doing |
   | --- | --- | --- |
-  | Licence Agreement (EULA) | `/legal/eula.html` | Replace the `class="ph"` placeholders, then a lawyer's read of §§10 and 12 |
-  | Terms of Sale | `/legal/terms.html` | Fill in the store name, VAT ID (if registered), and check §3 matches how the store handles tax. §6 promises the licence serial within one working day — make sure you can actually meet it |
-  | Refund Policy | `/legal/refunds.html` | Must state the same 14 days as the site and the store setting. §5 says the serial is revoked with the refund, which `GoaSynthFulfil` now does for you — just make sure the export you feed it actually carries the refund |
-  | Privacy Policy | `/legal/privacy.html` | Fill in the processors list, the retention periods, and your privacy contact. §2 already documents the machine ID, the licence files and the optional cloud AI engines — keep it that way if you change either |
+  | Licence Agreement (EULA) | `/legal/eula.html` | Nothing mechanical — the seller details are in. A lawyer's read of §§10 and 12 (liability, termination) is still owed before the first sale |
+  | Terms of Sale | `/legal/terms.html` | Check §3 against how the store actually handles tax, and that §6's "serial within one working day" is a promise you can keep — `GoaSynthFulfil` makes it easy, but it needs running |
+  | Refund Policy | `/legal/refunds.html` | Must keep matching the store setting: 14 days. §5 says the serial is revoked with the refund, which `GoaSynthFulfil` does — provided the export you feed it carries the refund |
+  | Privacy Policy | `/legal/privacy.html` | Keep the processor list, the retention periods and the privacy contact in step with the store you actually sign up with |
 
-  Every placeholder is wrapped in `<span class="ph">[…]</span>` and rendered in the accent colour, so
-  an unfilled one is impossible to miss on a published page. Search for `class="ph"` in each file.
+  The placeholders are resolved: the seller is named (David Jeremic, Cetinjska 26, 11080 Beograd,
+  Serbia), the three addresses are real, and the merchant of record is named in all four pages. If
+  `grep -n 'class="ph"' docs/legal/*.html` ever matches again, something has been un-filled — the
+  styled placeholders were the whole point of that class.
+
   These are templates written for this exact setup — AGPLv3 binaries sold under a personal licence —
   but they are not legal advice; have a lawyer read them, especially the liability cap, the governing
   law clause, and the interaction between the purchase licence and the AGPLv3.
-- **Business identity.** Legal name and address for the store account and invoices; a tax ID/VAT
-  number if you are registered (Germany also expects an Impressum on the site); bank details for
-  payouts; and a payout schedule you are happy with.
+- **Business identity.** The store account needs what the legal pages already state: David Jeremic,
+  Cetinjska 26, 11080 Beograd (Zemun), Serbia — plus payout details and a payout schedule you are
+  happy with. A Serbian seller who is **not VAT-registered** is exactly the case a merchant of record
+  exists for: the store charges and remits the VAT. If that ever changes, the legal pages have to say
+  so and `CONFIG.vatIncluded` has to follow the store.
 - **Keep the site and the store identical.** Price, 14-day refund, three-machine seat, free 1.x
   updates, 24-hour trial, and the promise that a machine move is re-issued free. Any mismatch between
   the listing and the page is a refund request waiting to happen.

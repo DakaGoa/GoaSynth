@@ -50,13 +50,31 @@ juce::String fieldValue (const juce::StringPairArray& fields, const juce::String
     return fields.getValue (key, {});
 }
 
-// First value whose column/key name matches any pattern (case-insensitive
-// substring), preferring the earlier pattern.
+// Column names arrive with spaces, underscores or nothing at all ("Machine
+// ID", "machine_id", "machineid"), so every name comparison drops everything
+// that is not a letter or a digit. Otherwise "order_id" would never match the
+// pattern "order id" and "Product Name" and "product_name" would diverge.
+juce::String normaliseKey (const juce::String& name)
+{
+    juce::String out;
+    for (auto c : name)
+        if (juce::CharacterFunctions::isLetterOrDigit (c))
+            out << juce::CharacterFunctions::toLowerCase (c);
+    return out;
+}
+
+bool keyMatches (const juce::String& key, const juce::String& pattern)
+{
+    return normaliseKey (key).contains (normaliseKey (pattern));
+}
+
+// First value whose column/key name matches any pattern, preferring the earlier
+// pattern.
 juce::String valueForKey (const juce::StringPairArray& fields, const juce::StringArray& patterns)
 {
     for (const auto& pattern : patterns)
         for (const auto& k : fields.getAllKeys())
-            if (k.containsIgnoreCase (pattern))
+            if (keyMatches (k, pattern))
             {
                 const juce::String v = fieldValue (fields, k);
                 if (v.isNotEmpty())
@@ -64,6 +82,16 @@ juce::String valueForKey (const juce::StringPairArray& fields, const juce::Strin
             }
 
     return {};
+}
+
+// A name like "Product ID", "Order Number" or "Variant SKU" names an
+// identifier, never the human-readable product, so it must not shadow
+// "Product Name" when a real store export carries both.
+bool keyNamesAnIdentifier (const juce::String& key)
+{
+    const juce::String k = normaliseKey (key);
+    return k.endsWith ("id") || k.endsWith ("number") || k.endsWith ("code")
+        || k.endsWith ("reference") || k.endsWith ("sku");
 }
 
 bool looksLikeEmail (const juce::String& s)
@@ -126,7 +154,7 @@ juce::String findMachineId (const juce::StringPairArray& fields, juce::String& p
     for (const auto& pattern : labelledKeys)
         for (const auto& k : fields.getAllKeys())
         {
-            if (! k.containsIgnoreCase (pattern))
+            if (! keyMatches (k, pattern))
                 continue;
 
             const juce::StringArray runs = machineIdRuns (fieldValue (fields, k));
@@ -186,7 +214,19 @@ bool looksRefunded (const juce::StringPairArray& fields)
 
 juce::String productText (const juce::StringPairArray& fields)
 {
-    return valueForKey (fields, { "product", "item", "variant", "title", "plan" });
+    // Take the first product-ish column that is a name, not an id: a real Lemon
+    // Squeezy export lists "Product ID" (e.g. prod_551) before "Product Name",
+    // and reading the id makes every order look like "another product".
+    for (const auto& pattern : { "product", "item", "variant", "title", "plan" })
+        for (const auto& k : fields.getAllKeys())
+            if (keyMatches (k, pattern) && ! keyNamesAnIdentifier (k))
+            {
+                const juce::String v = fieldValue (fields, k);
+                if (v.isNotEmpty())
+                    return v;
+            }
+
+    return {};
 }
 
 //==============================================================================
@@ -334,6 +374,38 @@ std::vector<Order> parseCsvFile (const juce::File& file)
     return orders;
 }
 
+// A store's JSON export is nearly always a wrapper around the orders
+// ({"orders":[...]}, {"data":[...]}). Read as-is, the wrapper itself looks like
+// a single order and addJsonFields glues every order's fields into one record -
+// "6001 6002" as an order id, two refund flags concatenated into a false
+// positive. Descend into the orders array when the object is only a shell (it
+// carries no scalar field of its own).
+juce::var unwrapOrderArray (const juce::var& value)
+{
+    auto* object = value.getDynamicObject();
+    if (object == nullptr)
+        return value;
+
+    const auto& props = object->getProperties();
+    const juce::var* arrayProperty = nullptr;
+    bool hasScalarField = false;
+
+    for (int i = 0; i < props.size(); ++i)
+    {
+        const juce::var& v = props.getValueAt (i);
+
+        if (v.isArray())
+            arrayProperty = &v;
+        else if (! v.isObject() && ! v.isVoid() && ! v.isUndefined() && ! v.isMethod())
+            hasScalarField = true;
+    }
+
+    if (arrayProperty != nullptr && ! hasScalarField)
+        return *arrayProperty;
+
+    return value;
+}
+
 std::vector<Order> parseJsonFile (const juce::File& file)
 {
     std::vector<Order> orders;
@@ -343,12 +415,15 @@ std::vector<Order> parseJsonFile (const juce::File& file)
     if (result.failed())
         return orders;
 
+    // Read as-is, the wrapper itself looks like a single order.
+    const juce::var unwrapped = unwrapOrderArray (parsed);
+
     std::vector<juce::var> items;
-    if (parsed.isArray())
-        for (const auto& item : *parsed.getArray())
+    if (unwrapped.isArray())
+        for (const auto& item : *unwrapped.getArray())
             items.push_back (item);
     else
-        items.push_back (parsed);
+        items.push_back (unwrapped);
 
     int index = 0;
     for (const auto& item : items)
@@ -590,6 +665,7 @@ void printSummary (const Options& options, const Summary& s)
     std::cout << "  files scanned      : " << s.filesScanned << "\n"
               << "  orders seen        : " << s.ordersSeen << "\n"
               << "  serials issued     : " << s.issued << "\n"
+              << "  machines moved     : " << s.moved << "\n"
               << "  serials revoked    : " << s.revoked << "\n"
               << "  already fulfilled  : " << s.alreadyFulfilled << "\n"
               << "  skipped            : " << s.skipped << " (refunds and other products)\n"
@@ -719,7 +795,10 @@ Summary runOnce (const Options& options)
         // its current state: issued -> (refund) -> revoked.
         bool haveEntry = false;
         const ManifestEntry latest = latestEntryFor (entries, order.key, haveEntry);
-        const bool fulfilledBefore = haveEntry && latest.status == "issued";
+        // A "moved" row is still a live licence - it just names a different
+        // machine - so it counts as fulfilled here (and can still be refunded),
+        // while the move test above it sees the machine change on a later pass.
+        const bool fulfilledBefore = haveEntry && (latest.status == "issued" || latest.status == "moved");
 
         // ---- refunds: pull that serial out of the active ledger -------------
         if (order.refunded)
@@ -838,6 +917,108 @@ Summary runOnce (const Options& options)
 
         if (fulfilledBefore)
         {
+            // ---- machine move: the same order now names a different machine ---
+            // The buyer changed computer (or support dropped the buyer's new
+            // machine id into manual.csv under the SAME order id - the workflow
+            // in CHECKOUT.md). The serial on record is signed for the OLD machine
+            // and cannot activate the new one, and a plain second issue would
+            // leave the old seat live for an order that only ever bought one.
+            // So retire the old serial and issue for the new machine as one step
+            // - the same operation as `GoaSynthKeygen --reissue`, through the
+            // shared core, and recorded as a move rather than a refund.
+            const juce::String newMachine = normaliseMachineId (order.machineId);
+            const bool isMove = latest.machineId.isNotEmpty()
+                                 && newMachine.isNotEmpty()
+                                 && normaliseMachineId (latest.machineId) != newMachine;
+
+            if (isMove && options.dryRun)
+            {
+                ++s.moved;
+                s.notes.add ("would move order " + order.key + " from machine " + latest.machineId
+                              + " to " + newMachine);
+                continue;
+            }
+
+            if (isMove)
+            {
+                const auto move = reissueSerial (keys, latest.serial, newMachine,
+                                                 "order " + order.key
+                                                   + (order.name.isNotEmpty() ? " - " + order.name
+                                                                              : juce::String()),
+                                                 "machine move - order " + order.key);
+
+                if (! move.ok)
+                {
+                    // The old serial is no longer in the active ledger (already
+                    // unregistered, or the order was refunded before) so there
+                    // is nothing to retire; still give the buyer a working
+                    // licence for the new machine rather than strand them.
+                    s.notes.add ("move for order " + order.key + " could not retire the old serial ("
+                                  + move.error + "); issuing for " + newMachine + " only");
+                    logLine (activity, "MOVE PARTIAL " + order.key + " -> " + move.error);
+                }
+
+                bool alreadyIssued = false;
+                const juce::String serial = move.ok
+                                                ? move.newSerial
+                                                : recordIssued (keys, newMachine, "order " + order.key,
+                                                                alreadyIssued);
+
+                const juce::String licenseName = "GoaSynth-" + newMachine + ".goalicense";
+                const juce::File licenseFile = licenseDir.getChildFile (licenseName);
+                const juce::File emlFile = mailDir.getChildFile (keyFilename (order.key)
+                                                                  + (order.email.isNotEmpty() ? "-" + keyFilename (order.email)
+                                                                                              : juce::String())
+                                                                  + ".eml");
+
+                if (! writeLicenseFile (serial, newMachine, "order " + order.key, licenseFile,
+                                        order.name, order.email))
+                {
+                    ++s.needAttention;
+                    order.problems.add ("could not write " + licenseFile.getFullPathName());
+                    needsAttention.push_back (order);
+                    continue;
+                }
+
+                juce::String body;
+                if (options.bodyTemplate.existsAsFile())
+                    body = options.bodyTemplate.loadFileAsString().replace ("\r\n", "\n").replace ("\n", "\r\n");
+                else
+                    body = defaultBody();
+
+                body = fillTemplate (body, options, order, serial, licenseName);
+
+                if (! writeEml (emlFile, options, order, body, licenseFile))
+                    s.notes.add ("licence written but the email draft failed for order " + order.key);
+
+                ++s.moved;
+
+                // The manifest is append-only, so this row is now the order's
+                // current state: the serial is bound to the new machine, and a
+                // later pass sees machine == machine and leaves it alone. The
+                // status records that the seat moved rather than being freshly
+                // issued, so --status matches the revocation log's three states.
+                ManifestEntry e;
+                e.key         = order.key;
+                e.status      = "moved";
+                e.email       = order.email;
+                e.machineId   = newMachine;
+                e.serial      = serial;
+                e.licenseFile = licenseFile.getFullPathName();
+                e.emlFile     = emlFile.getFullPathName();
+                e.issuedAt    = juce::Time::getCurrentTime().toISO8601 (true);
+                appendManifest (manifest, e);
+                entries.push_back (e);
+
+                logLine (activity, "MOVED " + order.key + " machine " + latest.machineId + " -> " + newMachine
+                                     + " (" + shortSerial (serial) + ")");
+                s.notes.add ("moved order " + order.key + " to machine " + newMachine
+                              + " (retired the serial for " + latest.machineId + ")");
+                std::cout << "moved   order " << order.key.paddedRight (' ', 10) << " machine "
+                          << latest.machineId << " -> " << newMachine << "\n";
+                continue;
+            }
+
             ++s.alreadyFulfilled;
 
             // Re-create a missing file rather than re-issue: the serial is
@@ -876,17 +1057,22 @@ Summary runOnce (const Options& options)
         // would go on calling a paying customer's serial revoked. The refund
         // event itself stays in revoked_serials.txt for the support history.
         const auto prior = revocationState (serial);
-        if (prior.revoked)
+        if (prior.revoked || prior.moved)
         {
+            // A refunded serial comes back on a re-purchase; a moved one comes
+            // back if the buyer moves to the machine it was originally signed
+            // for. Either way the deterministic serial is the same, so this is a
+            // restoration - and the earlier refund/move stays in the history.
+            const juce::String why = prior.moved ? "moved" : "revoked";
             const auto restore = restoreSerial (serial, "re-purchase - order " + order.key);
 
-            s.notes.add ("order " + order.key + " re-issues a serial revoked on " + prior.at
+            s.notes.add ("order " + order.key + " re-issues a serial " + why + " on " + prior.at
                           + (prior.reason.isEmpty() ? juce::String() : " (" + prior.reason + ")")
                           + (restore.ok ? " - ledger line restored" : " - could not be restored: " + restore.error));
 
             if (restore.ok)
                 logLine (activity, "RESTORED " + order.key + " -> " + shortSerial (serial)
-                                     + " (refund of " + prior.at + " stays on record)");
+                                     + " (" + why + " of " + prior.at + " stays on record)");
         }
 
         if (! writeLicenseFile (serial, order.machineId, "order " + order.key, licenseFile,
@@ -932,9 +1118,10 @@ Summary runOnce (const Options& options)
     {
         writeAttentionReport (attention, needsAttention);
 
-        if (s.issued > 0 || s.revoked > 0 || s.needAttention > 0)
+        if (s.issued > 0 || s.moved > 0 || s.revoked > 0 || s.needAttention > 0)
             logLine (activity, "pass: " + juce::String (s.issued) + " issued, "
                                  + juce::String (s.alreadyFulfilled) + " already fulfilled, "
+                                 + juce::String (s.moved) + " moved, "
                                  + juce::String (s.revoked) + " revoked, "
                                  + juce::String (s.skipped) + " skipped, "
                                  + juce::String (s.needAttention) + " need attention");
@@ -983,6 +1170,12 @@ void printHelp()
         << "instead of being signed -- a serial bound to the wrong machine is worse\n"
         << "than one sent a day late.\n"
         << "\n"
+        << "Machine moves: when an order already fulfilled reappears with a\n"
+        << "different machine id under the SAME Order ID, the pass retires the\n"
+        << "old serial and issues for the new machine in one step, recorded as a\n"
+        << "move. A new Order ID from the same buyer is a second seat and is\n"
+        << "left alone.\n"
+        << "\n"
         << "The signing key comes from the keygen's own folder\n"
         << "(" << keygenDir().getFullPathName() << "),\n"
         << "so run GoaSynthKeygen --init first if keys.txt is missing.\n";
@@ -1002,21 +1195,21 @@ int showStatus (const Options& options)
             rows.push_back (e);
         else
             *found = e;
-    }
-
-    int live = 0, revoked = 0, refunded = 0;
+    }    int live = 0, moved = 0, revoked = 0, refunded = 0;
     for (const auto& e : rows)
     {
         if      (e.status == "issued")   ++live;
+        else if (e.status == "moved")    ++moved;
         else if (e.status == "revoked")  ++revoked;
         else if (e.status == "refunded") ++refunded;
     }
 
     std::cout << "outbox : " << outbox.getFullPathName() << "\n"
               << "orders : " << (int) rows.size() << " handled - " << live << " live, "
-              << revoked << " revoked, " << refunded << " refunded\n"
+              << moved << " moved, " << revoked << " revoked, " << refunded << " refunded\n"
               << "ledger : " << issuedFile().getFullPathName() << "\n"
-              << "         " << revokedCount() << " revoked in " << revokedFile().getFileName() << "\n\n";
+              << "         " << revokedCount() << " revoked, " << movedCount() << " moved in "
+              << revokedFile().getFileName() << "\n\n";
 
     for (const auto& e : rows)
         std::cout << "  " << e.key.paddedRight (' ', 12)

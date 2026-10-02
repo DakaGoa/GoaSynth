@@ -34,6 +34,7 @@ struct Summary
     int filesScanned = 0;
     int ordersSeen = 0;
     int issued = 0;
+    int moved = 0;                    // machine moves: old serial retired, new one issued
     int revoked = 0;                  // refunds pulled out of the active ledger
     int alreadyFulfilled = 0;
     int skipped = 0;                  // refunded, or a different product

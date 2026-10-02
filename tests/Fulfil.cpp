@@ -75,6 +75,79 @@ static juce::String decodeFirstBase64Block (const juce::String& eml)
     return juce::String::fromUTF8 ((const char*) decoded.getData(), (int) decoded.getDataSize());
 }
 
+// The seller tools are sibling artefacts of this test in the build tree, but the
+// depth differs by generator: a multi-config build puts the test in
+// build/<Config>/ while the tools live in build/<Target>_artefacts/<Config>/, and
+// a single-config build is one level shallower. So walk up from this executable
+// until the artefact is actually found - a hardcoded parent count silently found
+// nothing and skipped every CLI check.
+static juce::File findSiblingArtefact (const juce::String& relativePath)
+{
+    juce::File dir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+
+    for (int i = 0; i < 6 && dir.isDirectory(); ++i)
+    {
+        const juce::File candidate = dir.getChildFile (relativePath);
+        if (candidate.existsAsFile())
+            return candidate;
+
+        const juce::File parent = dir.getParentDirectory();
+        if (parent == dir)
+            break;
+        dir = parent;
+    }
+
+    return {};
+}
+
+// Drive the real keygen with no arguments: feed a scripted keystroke sequence
+// through stdin and return the console output. A plain ChildProcess argument
+// vector handles paths with spaces, unlike a hand-built shell command, and the
+// child inherits GOASYNTH_KEYGEN_DIR. It runs in its own folder so a guided
+// licence and --init / --rotate-master's Source/LicenseKeys.h cannot land in
+// the build tree.
+static juce::String runScriptedMenu (const juce::File& tool, const juce::StringArray& script,
+                                     const juce::File& runDir, const juce::File& scriptFile,
+                                     const juce::File& outFile, int& exitCode)
+{
+    exitCode = -1;
+
+    if (! runDir.isDirectory())
+        runDir.createDirectory();
+
+    scriptFile.replaceWithText (script.joinIntoString ("\n") + "\n");
+
+    juce::ChildProcess p;
+
+   #if JUCE_WINDOWS
+    const juce::File wrapper = runDir.getChildFile ("run-menu.bat");
+    wrapper.replaceWithText (juce::String ("@echo off\r\n")
+        + "cd /d \"" + runDir.getFullPathName() + "\"\r\n"
+        + "\"" + tool.getFullPathName() + "\" < \"" + scriptFile.getFullPathName()
+              + "\" > \"" + outFile.getFullPathName() + "\" 2>&1\r\n"
+        + "exit /b %errorlevel%\r\n");
+
+    if (p.start ({ "cmd.exe", "/c", wrapper.getFullPathName() }))
+    {
+        p.waitForProcessToFinish (-1);
+        exitCode = p.getExitCode();
+    }
+   #else
+    const juce::File wrapper = runDir.getChildFile ("run-menu.sh");
+    wrapper.replaceWithText ("#!/bin/sh\ncd \"" + runDir.getFullPathName() + "\"\n\""
+                             + tool.getFullPathName() + "\" < \"" + scriptFile.getFullPathName()
+                             + "\" > \"" + outFile.getFullPathName() + "\" 2>&1\n");
+
+    if (p.start ({ "/bin/sh", wrapper.getFullPathName() }))
+    {
+        p.waitForProcessToFinish (-1);
+        exitCode = p.getExitCode();
+    }
+   #endif
+
+    return outFile.existsAsFile() ? outFile.loadFileAsString() : juce::String();
+}
+
 int main()
 {
     using namespace keygen::core;
@@ -409,6 +482,140 @@ int main()
                 "a later pass dropped the serial from the ledger");
     }
 
+    // ---- machine move: one command retires the old serial, signs the new -----
+    // A buyer changes machine, so the serial signed for their old id cannot
+    // activate the new one. This used to be --unregister then --file - two
+    // commands that could leave two live ledger lines for one buyer, or drop the
+    // old line and forget to issue the new one. reissueSerial does both halves
+    // as one operation and records the move, so support can tell a move apart
+    // from a refund later.
+    {
+        const juce::String movedMachine = "A1B2C3D4E5F60718293A";   // order 1006, no revocation history
+        const juce::String newMachine   = "BBBBCCCCDDDDEEEEFFFF";
+        const juce::String oldSerial    = makeSerial (keys, movedMachine);
+
+        expect (ledger.loadFileAsString().contains (oldSerial),
+                "the move test needs the old serial live in the ledger first");
+
+        const auto move = reissueSerial (keys, oldSerial, newMachine, "order 1006 machine move");
+
+        expect (move.ok, "reissueSerial: " + move.error);
+        expect (! move.sameMachine, "a different machine was reported as the same machine");
+        expect (! move.oldAlreadyGone, "a live serial was reported as already retired");
+        expect (move.ledgerLinesRemoved == 1,
+                "reissue removed " + juce::String (move.ledgerLinesRemoved) + " ledger lines, expected 1");
+        expect (move.oldMachineId == movedMachine, "the move lost the old machine id");
+        expect (move.newMachineId == newMachine, "the move normalised the new machine id wrong");
+
+        // The old serial is out of the active list and on the record, with the
+        // reason it left - that is what makes a move auditable. It is recorded
+        // as a MOVE, not a refund: the log tells the two apart.
+        expect (! ledger.loadFileAsString().contains (oldSerial),
+                "the old serial is still in the active ledger after the move");
+        expect (isMoved (oldSerial), "the move was not recorded as a move");
+        expect (! isRevoked (oldSerial), "a machine move is being reported as a refund-style revocation");
+        expect (revocationState (oldSerial).event == "moved",
+                "the log event for a move is \"" + revocationState (oldSerial).event + "\", expected \"moved\"");
+        expect (revocationState (oldSerial).reason.contains ("machine move"),
+                "the move record lost its reason: " + revocationState (oldSerial).reason);
+        expect (revokedLog.loadFileAsString().contains (movedMachine),
+                "the move record does not name the machine that moved");
+
+        // ...and the counts separate the two states: moved, not revoked.
+        expect (movedCount() == 1, "movedCount = " + juce::String (movedCount()) + ", expected 1");
+        expect (revokedCount() == 0, "a machine move was counted as a revocation");
+
+        // ...and the new machine got a serial that verifies for exactly it.
+        expect (move.newSerial == makeSerial (keys, newMachine),
+                "a machine move must issue the deterministic serial for the new machine");
+        expect (ledger.loadFileAsString().contains (move.newSerial),
+                "the new serial is not in the active ledger");
+        {
+            juce::String seenId, why;
+            expect (verifySerial (keys, move.newSerial, seenId, why), "the new serial does not verify: " + why);
+            expect (seenId == newMachine, "the new serial verifies against the wrong machine");
+        }
+
+        // Repeating the move is a no-op: nothing is retired twice, no event is
+        // appended, and the same serial comes back (the signature is deterministic).
+        const auto again = reissueSerial (keys, oldSerial, newMachine, "order 1006 machine move");
+        expect (again.ok, "repeating the move failed: " + again.error);
+        expect (again.oldAlreadyGone, "repeating the move re-retired the serial");
+        expect (again.newAlreadyIssued, "repeating the move did not recognise the issued serial");
+        expect (again.newSerial == move.newSerial, "repeating the move issued a different serial");
+        expect (countLines (revokedLog, oldSerial) == 1,
+                "repeating the move appended another event ("
+                  + juce::String (countLines (revokedLog, oldSerial)) + " lines)");
+
+        // Moving to the machine the serial is already for is not a move: the
+        // live serial must survive.
+        const auto sameness = reissueSerial (keys, move.newSerial, newMachine, "same again");
+        expect (sameness.ok && sameness.sameMachine, "re-issuing for the same machine was not detected");
+        expect (! isRevoked (move.newSerial), "the same-machine path retired the live serial");
+        expect (ledger.loadFileAsString().contains (move.newSerial),
+                "the same-machine path dropped the live serial");
+
+        // Refusals: an unknown old serial is a typo, not a reason to hand out a
+        // second licence, and a malformed new id cannot be signed for.
+        expect (! reissueSerial (keys, "GOA1-DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEAD",
+                                 "1234567890ABCDEF1234").ok,
+                "re-issuing from a serial that was never issued was accepted");
+        expect (! reissueSerial (keys, oldSerial, "not-a-machine-id").ok,
+                "re-issuing for a malformed machine id was accepted");
+
+        // The CLI is the same code path; drive it when it has been built. It
+        // writes the licence to the path we give it, so the test tree stays clean.
+        const juce::File tool = findSiblingArtefact ("GoaSynthKeygen_artefacts/Release/GoaSynthKeygen.exe");
+
+        if (tool.existsAsFile())
+        {
+            juce::ChildProcess help;
+            if (help.start ({ tool.getFullPathName(), "--help" }, juce::ChildProcess::wantStdOut))
+            {
+                const juce::String out = help.readAllProcessOutput();
+                expect (out.contains ("--reissue"), "keygen --help does not list --reissue");
+            }
+
+            // --verify must call a moved serial MOVED, never REVOKED...
+            juce::ChildProcess verify;
+            if (verify.start ({ tool.getFullPathName(), "--verify", oldSerial }, juce::ChildProcess::wantStdOut))
+            {
+                const juce::String out = verify.readAllProcessOutput();
+                expect (out.contains ("MOVED"), "keygen --verify does not report a moved serial as MOVED: "
+                                                  + out.substring (0, 140));
+                expect (! out.contains ("REVOKED"), "keygen --verify reports a moved serial as REVOKED");
+            }
+
+            // ...and --list must mention the moved count.
+            juce::ChildProcess list;
+            if (list.start ({ tool.getFullPathName(), "--list" }, juce::ChildProcess::wantStdOut))
+            {
+                const juce::String out = list.readAllProcessOutput();
+                expect (out.contains ("moved"), "keygen --list does not report moved serials: "
+                                                  + out.substring (out.length() - 120));
+            }
+
+            const juce::String cliMachine = "CCCCDDDDEEEEFFFF0000";
+            const juce::File cliFile = root.getChildFile ("cli-move.goalicense");
+
+            juce::ChildProcess mv;
+            if (mv.start ({ tool.getFullPathName(), "--reissue", move.newSerial, cliMachine,
+                            cliFile.getFullPathName() },
+                          juce::ChildProcess::wantStdOut))
+            {
+                const juce::String out = mv.readAllProcessOutput();
+                expect (mv.getExitCode() == 0, "keygen --reissue exit code " + juce::String (mv.getExitCode()));
+                expect (out.contains ("Machine move complete"), "--reissue said nothing useful: " + out.substring (0, 160));
+                expect (cliFile.existsAsFile() && cliFile.loadFileAsString().contains ("machine: " + cliMachine),
+                        "--reissue did not write a licence for the new machine");
+                expect (! ledger.loadFileAsString().contains (move.newSerial),
+                        "--reissue left the previous serial in the active ledger");
+                expect (ledger.loadFileAsString().contains (makeSerial (keys, cliMachine)),
+                        "--reissue did not log the new serial");
+            }
+        }
+    }
+
     // ---- master-key rotation ------------------------------------------------
     // The command exists for one moment: the master key may have leaked, and the
     // answer cannot be "delete keys.txt and run --init" — that invalidates every
@@ -489,11 +696,7 @@ int main()
     // The tool is a sibling artefact of this test in the build tree; smoke-test
     // its help output when it has been built, and stay quiet if it has not.
     {
-        const juce::File tool = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
-                                    .getParentDirectory()                    // Release
-                                    .getParentDirectory()                    // FulfilTest_artefacts
-                                    .getParentDirectory()                    // build
-                                    .getChildFile ("GoaSynthFulfil_artefacts/Release/GoaSynthFulfil.exe");
+        const juce::File tool = findSiblingArtefact ("GoaSynthFulfil_artefacts/Release/GoaSynthFulfil.exe");
 
         if (tool.existsAsFile())
         {
@@ -511,11 +714,346 @@ int main()
                          juce::ChildProcess::wantStdOut))
             {
                 const juce::String out = s.readAllProcessOutput();
-                expect (out.contains ("4 live, 1 revoked, 1 refunded"),
+                expect (out.contains ("4 live, 0 moved, 1 revoked, 1 refunded"),
                         "CLI --status did not read the manifest: " + out.substring (0, 140));
                 expect (out.contains ("jane@example.com"), "CLI --status output omits the buyers");
                 expect (out.contains ("revoked_serials.txt"), "CLI --status does not point at the revocation log");
             }
+        }
+    }
+
+    // ---- real store export shapes ------------------------------------------
+    // A Lemon Squeezy export carries both "Product ID" and "Product Name", and
+    // its JSON wraps orders in an array. Both used to break: the product id
+    // shadowed the product name so every row was skipped as "another product",
+    // and the wrapper object was read as one order, gluing two orders' fields
+    // into a single key ("6001 6002") with a bogus refund flag attached.
+    {
+        const juce::File storeInbox  = root.getChildFile ("store-inbox");
+        const juce::File storeOutbox = root.getChildFile ("store-fulfilled");
+        storeInbox.createDirectory();
+
+        fulfil::Options store = o;
+        store.inbox  = storeInbox;
+        store.outbox = storeOutbox;
+
+        storeInbox.getChildFile ("orders.csv").replaceWithText (
+            "Order ID,Order Number,Order Status,Refunded,Customer Name,Customer Email,"
+            "Product ID,Product Name,Variant Name,Machine ID\n"
+            "5001,5001,paid,No,Jane Doe,jane@example.com,prod_551,"
+            "\"GoaSynth - Goa Trance Synthesizer (VST3)\",\"Personal licence - 3 machines\",1A2B3C4D5E6F70819A2B\n"
+            "5002,5002,paid,No,Bob,bob@example.com,prod_551,"
+            "\"GoaSynth - Goa Trance Synthesizer (VST3)\",\"Personal licence - 3 machines\",AABBCCDDEEFF00112233\n");
+
+        storeInbox.getChildFile ("orders.json").replaceWithText (
+            "{ \"data\": [ "
+            "{ \"order_id\": \"6001\", \"customer_email\": \"zoe@example.com\", \"customer_name\": \"Zoe\", "
+            "\"product_name\": \"GoaSynth - Goa Trance Synthesizer (VST3)\", \"variant_name\": \"Personal licence - 3 machines\", "
+            "\"status\": \"paid\", \"refunded\": false, \"machine_id\": \"112233445566778899AA\" }, "
+            "{ \"order_id\": \"6002\", \"customer_email\": \"mia@example.com\", \"customer_name\": \"Mia\", "
+            "\"product_name\": \"GoaSynth - Goa Trance Synthesizer (VST3)\", "
+            "\"status\": \"paid\", \"refunded\": false, \"machine_id\": \"998877665544332211BB\" } ] }");
+
+        const auto storePass = fulfil::runOnce (store);
+
+        expect (storePass.ordersSeen == 4, "store export: orders seen = " + juce::String (storePass.ordersSeen) + ", expected 4");
+        expect (storePass.issued == 4, "store export: issued = " + juce::String (storePass.issued) + ", expected 4");
+        expect (storePass.skipped == 0, "store export: skipped = " + juce::String (storePass.skipped) + ", expected 0");
+
+        // Each JSON order keeps its own key - never "6001 6002".
+        const juce::String storeManifest = storeOutbox.getChildFile ("manifest.tsv").loadFileAsString();
+        expect (storeManifest.contains ("6001\tissued") && storeManifest.contains ("6002\tissued"),
+                "the JSON wrapper glued the two orders into one key: " + storeManifest);
+
+        const juce::File storeLicenses = storeOutbox.getChildFile ("licenses");
+        expect (storeLicenses.getChildFile ("GoaSynth-1A2B3C4D5E6F70819A2B.goalicense").existsAsFile(),
+                "the CSV order's licence was not written");
+        expect (storeLicenses.getChildFile ("GoaSynth-112233445566778899AA.goalicense").existsAsFile(),
+                "the first JSON order's licence was not written");
+        expect (storeLicenses.getChildFile ("GoaSynth-998877665544332211BB.goalicense").existsAsFile(),
+                "the second JSON order's licence was not written");
+    }
+
+    // ---- machine move in an export: same order, new machine ----------------
+    // The buyer changes computer and their order reappears (or support drops the
+    // new machine id into manual.csv under the SAME order id) naming a different
+    // machine. The tool must retire the old serial and issue for the new one in
+    // one pass - silently doing nothing would strand the buyer, and a plain
+    // second issue would leave two live seats against one order. This is the
+    // same operation as `GoaSynthKeygen --reissue`, through the shared core.
+    {
+        const juce::File moveInbox  = root.getChildFile ("move-inbox");
+        const juce::File moveOutbox = root.getChildFile ("move-fulfilled");
+        moveInbox.createDirectory();
+
+        fulfil::Options mv = o;
+        mv.inbox  = moveInbox;
+        mv.outbox = moveOutbox;
+
+        const juce::String oldMachine   = "AA11BB22CC33DD44EE55";
+        const juce::String newMachine   = "FF66EE77DD88CC99BBAA";
+        const juce::String otherMachine = "0A1B2C3D4E5F60718293";
+        const juce::String moveOrder    = "7001";
+
+        moveInbox.getChildFile ("orders.csv").replaceWithText (
+            "Order ID,Email,Product,Machine ID,Status\n"
+            + moveOrder + ",ivy@example.com,GoaSynth," + oldMachine + ",paid\n");
+
+        const auto first = fulfil::runOnce (mv);
+        expect (first.issued == 1 && first.moved == 0, "the pre-move order did not issue cleanly");
+
+        const juce::String oldSerial = makeSerial (keys, oldMachine);
+        expect (ledger.loadFileAsString().contains (oldSerial), "the pre-move serial is not in the ledger");
+
+        // Same order id, new machine id: a machine move.
+        moveInbox.getChildFile ("orders.csv").replaceWithText (
+            "Order ID,Email,Product,Machine ID,Status\n"
+            + moveOrder + ",ivy@example.com,GoaSynth," + newMachine + ",paid\n");
+
+        const auto moved = fulfil::runOnce (mv);
+
+        expect (moved.moved == 1, "moved = " + juce::String (moved.moved) + ", expected 1");
+        expect (moved.issued == 0, "a machine move was also counted as a new issue");
+        expect (moved.alreadyFulfilled == 0, "a machine move was counted as already fulfilled");
+
+        // Old serial retired, and on the record as a move rather than a refund.
+        expect (! ledger.loadFileAsString().contains (oldSerial),
+                "the move left the old serial in the active ledger");
+        expect (isMoved (oldSerial), "the move did not record a move event");
+        expect (! isRevoked (oldSerial), "a machine move is being reported as a refund-style revocation");
+        expect (revocationState (oldSerial).event == "moved",
+                "the log event for a move is \"" + revocationState (oldSerial).event + "\", expected \"moved\"");
+        expect (revocationState (oldSerial).reason.contains ("machine move"),
+                "the move record lost its reason: " + revocationState (oldSerial).reason);
+
+        // New serial issued for exactly the new machine.
+        const juce::String newSerial = makeSerial (keys, newMachine);
+        expect (ledger.loadFileAsString().contains (newSerial), "the move did not issue for the new machine");
+        {
+            juce::String seenId, why;
+            expect (verifySerial (keys, newSerial, seenId, why) && seenId == newMachine,
+                    "the new serial does not verify for the new machine: " + why);
+        }
+
+        const juce::File licenseDir2 = moveOutbox.getChildFile ("licenses");
+        expect (licenseDir2.getChildFile ("GoaSynth-" + newMachine + ".goalicense").existsAsFile(),
+                "the move did not write a licence for the new machine");
+
+        juce::Array<juce::File> moveDrafts;
+        moveOutbox.getChildFile ("mail").findChildFiles (moveDrafts, juce::File::findFiles, false, "*.eml");
+        expect (moveDrafts.size() == 1, "the move should leave one reply-ready draft, got "
+                                         + juce::String (moveDrafts.size()));
+
+        const juce::String moveManifest = moveOutbox.getChildFile ("manifest.tsv").loadFileAsString();
+        expect (moveManifest.contains (moveOrder + "\tmoved\t") && moveManifest.contains (newMachine),
+                "the manifest's newest row is not a moved row naming the new machine:\n" + moveManifest);
+        expect (moveOutbox.getChildFile ("activity.log").loadFileAsString().contains ("MOVED " + moveOrder),
+                "the move is not in the activity log");
+
+        // The order report must count that seat as moved, not live, so --status
+        // matches the revocation log's three states.
+        if (const juce::File tool = findSiblingArtefact ("GoaSynthFulfil_artefacts/Release/GoaSynthFulfil.exe");
+              tool.existsAsFile())
+        {
+            juce::ChildProcess st;
+            if (st.start ({ tool.getFullPathName(), "--status", "--out", moveOutbox.getFullPathName() },
+                          juce::ChildProcess::wantStdOut))
+            {
+                const juce::String out = st.readAllProcessOutput();
+                expect (out.contains ("0 live, 1 moved, 0 revoked"),
+                        "CLI --status did not count the moved order as moved: " + out.substring (0, 160));
+                expect (out.contains (moveOrder) && out.contains ("moved"),
+                        "CLI --status's per-order row does not read moved: " + out.substring (0, 200));
+            }
+        }
+
+        // Idempotent: the machine now matches, so a later pass leaves it alone.
+        const auto stable = fulfil::runOnce (mv);
+        expect (stable.moved == 0 && stable.issued == 0 && stable.alreadyFulfilled == 1,
+                "a second pass over the moved order did more work");
+        expect (countLines (revokedLog, oldSerial) == 1, "a second pass appended another move event");
+        expect (ledger.loadFileAsString().contains (newSerial), "a second pass dropped the new serial");
+
+        // A genuinely NEW order from the same email for another machine is a
+        // second seat, not a move: the first machine's live serial must stay.
+        moveInbox.getChildFile ("orders.csv").replaceWithText (
+            "Order ID,Email,Product,Machine ID,Status\n"
+            + moveOrder + ",ivy@example.com,GoaSynth," + newMachine + ",paid\n"
+            "7002,ivy@example.com,GoaSynth," + otherMachine + ",paid\n");
+
+        const auto secondSeat = fulfil::runOnce (mv);
+        expect (secondSeat.issued == 1 && secondSeat.moved == 0,
+                "a second order from the same email was treated as a move");
+        expect (ledger.loadFileAsString().contains (newSerial),
+                "a second purchase by the same email retired the first machine's serial");
+        expect (! isRevoked (newSerial), "a second purchase marked the first serial revoked");
+
+        // Dry run reports the move without touching anything. It runs against the
+        // real outbox so the manifest still knows the order's current machine.
+        moveInbox.getChildFile ("orders.csv").replaceWithText (
+            "Order ID,Email,Product,Machine ID,Status\n"
+            + moveOrder + ",ivy@example.com,GoaSynth," + oldMachine + ",paid\n");
+
+        fulfil::Options dryMove = mv;
+        dryMove.dryRun = true;
+        const auto wouldMove = fulfil::runOnce (dryMove);
+        expect (wouldMove.moved == 1, "dry run did not report the move");
+        expect (! isRevoked (newSerial), "dry run retired the live serial it only meant to move");
+        expect (countLines (revokedLog, newSerial) == 0, "dry run appended a revocation event");
+        expect (! moveOutbox.getChildFile ("activity.log").loadFileAsString()
+                     .contains ("MOVED " + moveOrder + " machine " + newMachine + " -> " + oldMachine),
+                "dry run logged a move it did not perform");
+        expect (ledger.loadFileAsString().contains (newSerial), "dry run disturbed the ledger");
+    }
+
+    // ---- the interactive menu, driven end to end ---------------------------
+    // The menu is the path a seller actually uses (double-click, no flags), and
+    // its options are numbered: inserting the move option renumbered every one
+    // below it. A number that no longer maps to its command - or a missing
+    // handler that falls through to "Unknown option" - is exactly the kind of
+    // bug a unit test of each command would miss. So run the real binary with no
+    // arguments, feed it a scripted keystroke sequence through stdin, and check
+    // that each numbered option did its own job.
+    {
+        const juce::File tool = findSiblingArtefact ("GoaSynthKeygen_artefacts/Release/GoaSynthKeygen.exe");
+
+        if (tool.existsAsFile())
+        {
+            const juce::String machineA = "AA00BB11CC22DD33EE44";
+            const juce::String machineB = "BB00CC11DD22EE33FF44";
+            const juce::String machineC = "CC00DD11EE22FF330011";
+            const juce::String serialA  = makeSerial (keys, machineA);
+            const juce::String serialB  = makeSerial (keys, machineB);
+            const juce::String serialC  = makeSerial (keys, machineC);
+
+            // Each option number, then its prompts, then a blank line for the
+            // "Press Enter for the menu..." pause. "0" exits.
+            juce::StringArray script;
+            script.add ("1");  script.add ("");                                          // master info
+            script.add ("2");  script.add (machineA); script.add ("Menu Buyer");
+                               script.add ("menu@example.com"); script.add ("order menu");
+                               script.add ("menu-a.goalicense"); script.add ("");          // guided .goalicense
+            script.add ("3");  script.add (machineB); script.add ("Menu B");
+                               script.add ("menub@example.com"); script.add ("order menub"); script.add ("");
+            script.add ("4");  script.add ("");                                          // list
+            script.add ("5");  script.add (serialB); script.add ("");                    // verify
+            script.add ("6");  script.add (serialB); script.add ("");                    // unregister
+            script.add ("7");  script.add (serialA); script.add (machineC);
+                               script.add ("moved menu"); script.add ("");                // move (the new option)
+            script.add ("8");  script.add (serialC); script.add ("menu test"); script.add ("");  // revoke
+            script.add ("9");  script.add ("");                                          // machine id
+            script.add ("10"); script.add ("MenuRotate!23"); script.add ("ROTATE"); script.add (""); // rotate
+            script.add ("0");
+
+            const juce::File menuCwd = root.getChildFile ("menu-cwd");
+            int status = -1;
+            const juce::String out = runScriptedMenu (tool, script, menuCwd,
+                                                      root.getChildFile ("menu-in.txt"),
+                                                      root.getChildFile ("menu-out.txt"), status);
+
+            expect (status == 0, "menu run exited " + juce::String (status));
+
+            expect (out.contains ("Master digest embedded in the plugin:"), "menu 1 did not show master info");
+            expect (out.contains ("License file written:"), "menu 2 did not write a guided .goalicense");
+            expect (out.contains ("Serial (send this to the buyer):"), "menu 3 did not issue a bare serial");
+            expect (out.contains ("active serial(s)"), "menu 4 did not list the serials");
+            expect (out.contains ("VALID") && out.contains ("signed for machine id " + machineB),
+                    "menu 5 did not verify the serial");
+            expect (out.contains ("Unregistered "), "menu 6 did not unregister the serial");
+            expect (out.contains ("Machine move complete"), "menu 7 did not perform the move");
+            expect (out.contains ("Revoked "), "menu 8 did not revoke the serial");
+            expect (out.contains ("Rotating the master key only"), "menu 10 did not rotate the master key");
+            expect (! out.contains ("Unknown option"),
+                    "a menu number has no handler (renumbering left a gap):"
+                      + out.substring (juce::jmax (0, out.indexOf ("Unknown option") - 40), 120));
+
+            // Option 9 prints the machine id on a line of its own.
+            bool sawMachineId = false;
+            for (const auto& line : juce::StringArray::fromLines (out))
+                if (line.trim() == thisMachineId())
+                    sawMachineId = true;
+            expect (sawMachineId, "menu 9 did not print this machine's id");
+
+            // Each option did the real work, not just printed a marker.
+            expect (menuCwd.getChildFile ("menu-a.goalicense").existsAsFile(),
+                    "menu 2 wrote no licence file");
+            expect (! ledger.loadFileAsString().contains (serialB),
+                    "menu 6 left the unregistered serial in the active ledger");
+            expect (isMoved (serialA), "menu 7 did not retire the old serial as a move");
+            expect (isRevoked (serialA) == false, "menu 7 called a move a refund");
+            expect (isRevoked (serialC), "menu 8 did not revoke the serial the move issued");
+            expect (loadKeys().masterDigest == stretchedMasterDigest ("MenuRotate!23"),
+                    "menu 10 did not actually rotate the master key");
+        }
+    }
+
+    // ---- the interactive menu's failure branches, driven end to end --------
+    // The happy path above proves each number maps to its command. This second
+    // run proves the menu survives the answers a seller actually gets wrong: an
+    // option 1 pressed on a store with no keypair yet, a malformed machine id,
+    // and a rotate the user backs out of. Each must print its guidance rather
+    // than crash or fall through, and the menu must stay usable afterwards.
+    {
+        const juce::File tool = findSiblingArtefact ("GoaSynthKeygen_artefacts/Release/GoaSynthKeygen.exe");
+
+        if (tool.existsAsFile())
+        {
+            // A keypair-less store of its own: option 1 is the create path here,
+            // and the options below then run against the keypair it makes.
+            const juce::File emptyKeyDir = root.getChildFile ("menu2-keys");
+            emptyKeyDir.createDirectory();
+            putEnv ("GOASYNTH_KEYGEN_DIR", emptyKeyDir.getFullPathName());
+
+            const juce::String badId     = "not-a-machine-id";
+            const juce::String goodId    = "DD00EE11FF2200331144";
+            const juce::String newMaster = "SecondMenu!23";
+
+            juce::StringArray script;
+            script.add ("1");  script.add (newMaster); script.add ("");   // create keypair (none yet)
+            script.add ("3");  script.add (badId);                        // invalid id -> retry hint
+                               script.add (goodId); script.add ("Fail Buyer");
+                               script.add ("fail@example.com"); script.add ("order bad-id"); script.add ("");
+            script.add ("10"); script.add ("CancelRotate!23"); script.add ("nope"); script.add (""); // cancel
+            script.add ("1");  script.add ("");                           // master info now works
+            script.add ("0");
+
+            int status = -1;
+            const juce::String out = runScriptedMenu (tool, script,
+                                                      root.getChildFile ("menu2-cwd"),
+                                                      root.getChildFile ("menu2-in.txt"),
+                                                      root.getChildFile ("menu2-out.txt"), status);
+
+            expect (status == 0, "failure-branch menu run exited " + juce::String (status));
+
+            // Option 1 on a keypair-less store explains itself rather than guessing,
+            // and really does create the keypair the options below rely on.
+            expect (out.contains ("Keypair: NOT CREATED YET"),
+                    "the menu did not notice the missing keypair");
+            expect (out.contains ("The master key must MATCH what was embedded"),
+                    "option 1 on a keypair-less store did not explain the master key");
+            expect (emptyKeyDir.getChildFile ("keys.txt").existsAsFile(),
+                    "option 1 did not create a keypair");
+
+            // A malformed machine id prints the retry hint and does not abort the
+            // menu: the good id on the next line goes on to issue a serial.
+            expect (out.contains ("That is not a valid 20-char machine id"),
+                    "an invalid machine id did not print the retry hint");
+            expect (out.contains ("Serial (send this to the buyer):"),
+                    "the menu did not issue after the bad machine id");
+
+            // Backing out of the rotate changes nothing.
+            expect (out.contains ("Cancelled"), "a cancelled rotate did not say so");
+            expect (loadKeys().masterDigest == stretchedMasterDigest (newMaster),
+                    "a cancelled rotate still changed the master key");
+
+            // The menu stayed usable: option 1's info path ran, nothing fell
+            // through to "Unknown option", and it exited cleanly.
+            expect (out.contains ("Master digest embedded in the plugin:"),
+                    "the menu was not usable after the failure branches");
+            expect (! out.contains ("Unknown option"),
+                    "a menu number lost its handler: " + out.substring (0, 160));
+
+            putEnv ("GOASYNTH_KEYGEN_DIR", keyDir.getFullPathName());
         }
     }
 

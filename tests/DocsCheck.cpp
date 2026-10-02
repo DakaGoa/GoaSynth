@@ -23,6 +23,11 @@
 //                           down again.
 //                           Search-engine verification files are tokens, not
 //                           pages, so they are exempt and stay out of the list
+//                           - but the token itself is pinned byte for byte,
+//                           because a search console is the only authority on
+//                           what it issued, and a token that drifts fails
+//                           silently: the file still serves 200 and the page
+//                           is unchanged, so nothing else here would notice
 //   7. the reviews        - the visible reviews, their average, the count and
 //                           the aggregateRating in the head all agreeing, and
 //                           every incentivized review disclosing that it was
@@ -458,6 +463,73 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         // the day a console changes it.
         static const std::regex verificationFile (R"(^google[a-z0-9]+\.html$)", std::regex::icase);
 
+        // The token is the one fact under docs/ that is written down here rather
+        // than derived from the code that decides it: every other number on the
+        // site is read out of Source/ or app.js, but what this file says was
+        // decided by Search Console, and there is nothing in the repository to
+        // read it from. So it is pinned, bytes included.
+        //
+        // It is worth a pin because its failure is invisible. Google's HTML-file
+        // method fetches the file and looks for its own name inside it, so a
+        // token re-saved with a trailing newline, saved as UTF-8 with a byte
+        // order mark, passed through an editor that curls the quotes, or simply
+        // left over from a property that was deleted reads as *not verified* -
+        // while still answering 200 and leaving every page on the site looking
+        // exactly as it did before. Nothing visual changes, so nothing visual
+        // catches it, which is the argument for a test rather than a convention.
+        //
+        // Moving to a new property is a deliberate act: replace both the file
+        // and these two lines together, and the build keeps working.
+        const std::string tokenFile = "googlebe8101dec58dcb76.html";
+        const std::string tokenBody = "google-site-verification: googlebe8101dec58dcb76.html";
+
+        // Bytes are what a console compares, and the usual drift is a byte a
+        // person cannot see in an editor, so failures show the bytes rather
+        // than the text: "\n", "\xEF" and so on, plus the length.
+        auto showBytes = [] (const std::string& s)
+        {
+            static const char* const hex = "0123456789ABCDEF";
+            std::string out;
+
+            for (const unsigned char c : s)
+            {
+                if (c == '\n')      out += "\\n";
+                else if (c == '\r') out += "\\r";
+                else if (c == '\t') out += "\\t";
+                else if (c < 0x20 || c > 0x7e)
+                {
+                    out += "\\x";
+                    out += hex[(c >> 4) & 0xF];
+                    out += hex[c & 0xF];
+                }
+                else
+                    out += (char) c;
+            }
+
+            return out;
+        };
+
+        const fs::path tokenPath = docsRoot / tokenFile;
+
+        if (! fs::exists (tokenPath))
+        {
+            r.problems.push_back ("docs/" + tokenFile + ": missing - this is the file the search "
+                "console fetches to prove the site is yours, and it has to stay published for as "
+                "long as the property exists, because verification is re-checked rather than "
+                "granted once");
+        }
+        else
+        {
+            const std::string found = readFile (tokenPath);
+
+            if (found != tokenBody)
+                r.problems.push_back ("docs/" + tokenFile + ": holds \"" + showBytes (found)
+                    + "\" (" + std::to_string (found.size()) + " bytes) but the verification token "
+                      "is \"" + showBytes (tokenBody) + "\" (" + std::to_string (tokenBody.size())
+                    + " bytes) - a console reads this file byte for byte, so a trailing newline, a "
+                      "byte-order mark or a re-saved encoding silently un-verifies the property");
+        }
+
         std::set<std::string> pages;    // the canonical URL of every published page
         std::map<std::string, std::string> canonByRel;
         std::string origin;
@@ -465,7 +537,26 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         for (const auto& rel : htmlFilesUnder (docsRoot))
         {
             if (std::regex_match (rel, verificationFile))
+            {
+                // The pin above covers today's token. This covers the next one,
+                // and it is the rule that has to hold for any of them: the file
+                // contains the marker, a space, its own file name as spelled on
+                // disk, and nothing else. Renaming the token without rewriting
+                // what is inside it is the same silent failure as editing the
+                // bytes, and this is the half of the check that does not need to
+                // know which token the console issued.
+                const std::string body = readFile (docsRoot / rel);
+                const std::string want = "google-site-verification: " + rel;
+
+                if (body != want)
+                    r.problems.push_back ("docs/" + rel + ": holds \"" + showBytes (body) + "\" ("
+                        + std::to_string (body.size()) + " bytes) but a search-engine verification "
+                          "file has to be exactly \"" + showBytes (want) + "\" - the console looks "
+                          "for its own file name in here, and anything else (a trailing newline, a "
+                          "byte-order mark, a stale token) reads as not verified");
+
                 continue;
+            }
 
             std::smatch m;
             const std::string page = readFile (docsRoot / rel);
@@ -814,7 +905,8 @@ int main (int argc, char* argv[])
     if (r.problems.empty())
     {
         std::cout << "docs check: " << r.checks << " claim(s) across the site still match the plugin "
-                     "(price, preset bank, AI defaults, local storage, trial, address, reviews)\n";
+                     "(price, preset bank, AI defaults, local storage, trial, address +"
+                     " verification token, reviews)\n";
         return 0;
     }
 

@@ -360,6 +360,10 @@ int main()
         return 2;
 
     {
+        // Written in exactly the shape the checker demands - marker, space, its
+        // own file name, no trailing newline - so this fixture also stands as the
+        // pass case for the token rules below, not just for the "is not a page"
+        // half. The clean-tree assertion at the end covers the pinned token.
         writeWhole (docs / "googleTESTtoken.html",
                     "google-site-verification: googleTESTtoken.html");
 
@@ -367,6 +371,65 @@ int main()
         expect (! anyProblemContains (r.problems, "googleTESTtoken"),
                 "verification token: a search-engine verification file was treated as a page");
         report ("verification token", r.problems, false);
+    }
+
+    // ---- 6g. the token is re-saved with one extra byte ---------------------
+    // The quiet failure the pin exists for. A trailing newline is what an editor
+    // or a copy-paste adds for free; the file still serves 200, every page is
+    // unchanged, and the console silently stops recognising the site.
+    if (! buildTree())
+        return 2;
+
+    {
+        append (docs / "googlebe8101dec58dcb76.html", "\n");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "silently un-verifies the property"),
+                "token drift: a token with a trailing newline was not reported");
+        expect (anyProblemContains (r.problems, "googlebe8101dec58dcb76.html"),
+                "token drift: the drifting token file was not named");
+        expect (anyProblemContains (r.problems, "\\n"),
+                "token drift: the extra byte was not shown in the message");
+        report ("token drift (trailing newline)", r.problems, true);
+    }
+
+    // ---- 6h. the token is deleted ------------------------------------------
+    // Deleting it looks like tidying up after verification succeeded. It is not:
+    // the console re-checks, so removing the file is how a verified property
+    // quietly becomes unverified - and nothing in the repository would say so.
+    if (! buildTree())
+        return 2;
+
+    {
+        std::error_code ec;
+        fs::remove (docs / "googlebe8101dec58dcb76.html", ec);
+        expect (! ec, "token missing: could not delete the token from the scratch tree");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "has to stay published for as long as the property"),
+                "token missing: a deleted verification token was not reported");
+        report ("token missing", r.problems, true);
+    }
+
+    // ---- 6i. a second token that does not name itself ----------------------
+    // The pinned token above cannot catch this one, and a token issued later will
+    // not be in this checker at all - so the shape rule has to fire on its own,
+    // before anyone remembers to add the new file to the pin.
+    if (! buildTree())
+        return 2;
+
+    {
+        writeWhole (docs / "googleLATERtok.html",
+                    "google-site-verification: googleSOMETHINGelse.html");
+
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "reads as not verified"),
+                "token shape: a token naming a file other than itself was not reported");
+        expect (anyProblemContains (r.problems, "googleLATERtok.html"),
+                "token shape: the offending token file was not named");
+        expect (! anyProblemContains (r.problems, "googlebe8101dec58dcb76.html"),
+                "token shape: the pinned token was blamed for another file's drift");
+        report ("token shape", r.problems, true);
     }
 
     // ---- 7. stars with nothing under them ---------------------------------

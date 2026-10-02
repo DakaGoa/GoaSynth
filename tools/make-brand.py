@@ -22,15 +22,42 @@ Outputs
     Assets/icon_256.png   docs / store / general use
     Assets/icon_32.png    ICON_SMALL for juceaide's Windows .ico
     docs/favicon.ico      multi-size 16/32/48 favicon for the website
+    Assets/goasynth-logo.png   raster lockup, mark + GOASYNTH wordmark
+    Assets/goasynth-logo-white.png   lockup with white wordmark (dark grounds)
+    Assets/goasynth-logo-square.png  1024x1024 stacked lockup
     Assets/goasynth-mark.svg   vector mark (swoosh only, transparent)
     Assets/goasynth-logo.svg   vector lockup (mark + GOASYNTH wordmark)
 """
+
+
+def _system_font(names):
+    """First Windows/system font that loads, else Pillow's tiny default."""
+    for name in names:
+        for folder in (os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts"), ""):
+            try:
+                return ImageFont.truetype(os.path.join(folder, name), 20)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+# Wordmark faces: Segoe UI bold/light like the site lockup, graceful fallbacks.
+FONT_BOLD = [("segoeuib.ttf"), ("arialbd.ttf"), ("DejaVuSans-Bold.ttf")]
+FONT_LIGHT = [("segoeuil.ttf"), ("segoeui.ttf"), ("arial.ttf"), ("DejaVuSans.ttf")]
+
+
+def _scaled_font(candidates, px):
+    f = _system_font(candidates)
+    try:
+        return f.font_variant(size=px)
+    except AttributeError:            # load_default() bitmap font
+        return f
 
 import math
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "Assets")
@@ -42,6 +69,7 @@ TEAL   = (0x36, 0xD6, 0xC3)
 MAGENTA= (0xFF, 0x5F, 0x9E)
 TILE_TOP  = (0x1C, 0x14, 0x33)   # purple-black, lifted for the tile
 TILE_BOT  = (0x0B, 0x0A, 0x14)   # the plugin's bgDark
+TEXT_BRIGHT = (0xEC, 0xEF, 0xFB) # the plugin's textBright, for white lockups
 
 SS = 4            # supersample factor: draw at N*512, downscale with LANCZOS
 SIZE = 512
@@ -210,6 +238,105 @@ def make_icon(n):
     return ss
 
 
+def _wordmark_mask(W, H, ss, base_px=270):
+    """GOA (bold) + SYNTH (light) as a text mask, auto-fit to the space right
+    of the mark so any font fallback still fits the canvas."""
+    x0 = 640 * ss
+    avail = W - x0 - 8 * ss
+    gap = 60 * ss
+    px = base_px * ss
+    bold = _scaled_font(FONT_BOLD, px)
+    light = _scaled_font(FONT_LIGHT, px)
+    total = bold.getlength("GOA") + gap + light.getlength("SYNTH")
+    if total > avail:
+        k = avail / total
+        bold = _scaled_font(FONT_BOLD, int(px * k))
+        light = _scaled_font(FONT_LIGHT, int(px * k))
+    mask = Image.new("L", (W, H), 0)
+    dm = ImageDraw.Draw(mask)
+    x = x0
+    baseline = 330 * ss
+    dm.text((x, baseline), "GOA", font=bold, fill=255, anchor="ls")
+    x += int(bold.getlength("GOA")) + gap
+    dm.text((x, baseline), "SYNTH", font=light, fill=255, anchor="ls")
+    return mask
+
+
+def _fill_wordmark(canvas, mask, wordmark):
+    """Paint the text mask: the accent gradient (default) or flat white."""
+    bbox = mask.getbbox()
+    if not bbox:
+        return
+    crop = mask.crop(bbox)
+    if wordmark == "white":
+        fill = Image.new("RGB", (bbox[2] - bbox[0], bbox[3] - bbox[1]), TEXT_BRIGHT)
+    else:
+        # the accent gradient runs across the wordmark only: GOA starts violet,
+        # SYNTH ends magenta (same fill family as the header's GOA text)
+        fill = three_stop_strip(VIOLET, TEAL, MAGENTA).resize(
+            (bbox[2] - bbox[0], bbox[3] - bbox[1]), Image.BILINEAR)
+    canvas.paste(fill, bbox[:2], crop)
+
+
+def make_png_logo(width=1560, height=512, wordmark="gradient"):
+    """Raster lockup: the mark at left, GOA (bold) + SYNTH (light) wordmark in
+    the accent gradient - the same fill the plugin header's GOA text uses.
+    Rendered at 2x and downsampled for crisp edges."""
+    ss = 2
+    W, H = width * ss, height * ss
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+
+    # mark in the left 512*ss square, vertically as designed
+    canvas.alpha_composite(draw_swoosh(512 * ss), (0, 0))
+
+    mask = _wordmark_mask(W, H, ss)
+    _fill_wordmark(canvas, mask, wordmark)
+
+    return canvas.resize((width, height), Image.LANCZOS)
+
+
+def make_png_logo_square(size=1024):
+    """Stacked square lockup: mark above, GOASYNTH wordmark below, both
+    centred - avatar / square-profile use."""
+    ss = 2
+    W = size * ss
+    mark_px = 560 * ss                      # swoosh drawn at this pixel size
+    gap = 90 * ss
+    canvas = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+
+    # wordmark line, centred on the full width
+    text_px = 180 * ss
+    bold = _scaled_font(FONT_BOLD, text_px)
+    light = _scaled_font(FONT_LIGHT, text_px)
+    gap_word = 34 * ss
+    total = bold.getlength("GOA") + gap_word + light.getlength("SYNTH")
+    target = 680 * ss
+    if total > target:
+        k = target / total
+        bold = _scaled_font(FONT_BOLD, int(text_px * k))
+        light = _scaled_font(FONT_LIGHT, int(text_px * k))
+        total = bold.getlength("GOA") + gap_word + light.getlength("SYNTH")
+    asc, _desc = bold.getmetrics()
+    text_h = asc
+
+    # vertically centre mark + gap + text as one composition
+    content_h = mark_px + gap + text_h
+    top = (W - content_h) // 2
+
+    canvas.alpha_composite(draw_swoosh(mark_px), ((W - mark_px) // 2, top))
+
+    mask = Image.new("L", (W, W), 0)
+    dm = ImageDraw.Draw(mask)
+    x = int((W - total) // 2)
+    baseline = top + mark_px + gap + text_h
+    dm.text((x, baseline), "GOA", font=bold, fill=255, anchor="ls")
+    x += int(bold.getlength("GOA")) + gap_word
+    dm.text((x, baseline), "SYNTH", font=light, fill=255, anchor="ls")
+    _fill_wordmark(canvas, mask, "gradient")
+
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
 def write_svg_mark(path):
     """Vector version of the mark (transparent background)."""
     seg = "M 44 330 C 128 176, 216 176, 256 300 C 296 424, 378 448, 448 138"
@@ -290,6 +417,21 @@ def main():
     # host), so the touch icon is copied there alongside the og:image assets
     fav_src.save(os.path.join(DOCS, "assets", "icon_256.png"))
     print("  docs/assets/icon_256.png")
+
+    logo = make_png_logo()
+    logo.save(os.path.join(ASSETS, "goasynth-logo.png"))
+    print("  Assets/goasynth-logo.png (%d KB)" % (
+        os.path.getsize(os.path.join(ASSETS, "goasynth-logo.png")) // 1024))
+
+    white = make_png_logo(wordmark="white")
+    white.save(os.path.join(ASSETS, "goasynth-logo-white.png"))
+    print("  Assets/goasynth-logo-white.png (%d KB)" % (
+        os.path.getsize(os.path.join(ASSETS, "goasynth-logo-white.png")) // 1024))
+
+    square = make_png_logo_square()
+    square.save(os.path.join(ASSETS, "goasynth-logo-square.png"))
+    print("  Assets/goasynth-logo-square.png (%d KB)" % (
+        os.path.getsize(os.path.join(ASSETS, "goasynth-logo-square.png")) // 1024))
 
     write_svg_mark(os.path.join(ASSETS, "goasynth-mark.svg"))
     write_svg_logo(os.path.join(ASSETS, "goasynth-logo.svg"))

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # Release numbering: every functional change bumps the minor (1.2, 1.3, ...);
 # the major stays 1 until the owner explicitly says otherwise. The major is
 # re-checked at build time (static_assert in PluginEditor.h) and by tests.
-project(GoaSynth VERSION 1.5.0 LANGUAGES C CXX)
+project(GoaSynth VERSION 1.6.0 LANGUAGES C CXX)
 
 enable_testing()   # so `ctest` picks up the RoundTripTest / FulfilTest targets
 

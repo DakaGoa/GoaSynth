@@ -28,6 +28,11 @@ To cut a release: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, run
 then push and tag `vX.Y.Z` — the Release workflow builds the VST, runs the
 tests and publishes the GitHub release with the notes from this file.
 
+## [Unreleased]
+
+### Changed
+- The update-available dialog's download link goes straight to the new version's installer (`GoaSynth-Setup-<version>.exe`, attached to its GitHub release) instead of the product site.
+
 ## [1.5.0] - 2026-10-02
 
 The update dialog tells you what changed: release notes now travel in the

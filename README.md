@@ -1,13 +1,14 @@
 # GoaSynth — Goa Trance VST3 Synthesizer
 
-**Version 1.5.0.** Numbering: every functional change bumps the minor (1.2 →
+**Version 1.6.0.** Numbering: every functional change bumps the minor (1.2 →
 1.3 → …); the major stays 1 until the owner explicitly says otherwise, and
 updates to this website or repository never change it — only VST changes do.
 The header's **MENU** dropdown carries an About card (version, license state,
 machine ID), **Check for updates** — which compares the running build against
 `docs/version.json` on the product site and always answers with a dialog, even
-when the feed is unreachable — the download link in the dialog is clickable and
-opens the site in your browser, a **View full change log** link opens the
+when the feed is unreachable — when a new version is available, its download
+link fetches the new installer straight from the release (`GoaSynth-Setup-
+<version>.exe`, named on the row), a **View full change log** link opens the
 release notes (deep-linked to the new version when one is available) — and
 **Change Log**, which opens the release notes on the product site.
 

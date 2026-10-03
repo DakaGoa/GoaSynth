@@ -14,7 +14,7 @@
 // it fall back to the same string CMake currently bakes in — keep the two in
 // sync when bumping.
 #ifndef GOASYNTH_VERSION
- #define GOASYNTH_VERSION "1.5.0"
+ #define GOASYNTH_VERSION "1.6.0"
 #endif
 
 // Version policy: the product line is 1.x until the owner says otherwise, so
@@ -529,11 +529,15 @@ struct UpdateResultOverlay : juce::Component
     // address (empty hides the row — "up to date" has nothing to download),
     // changelogUrl is the "View full change log" deep link (empty hides it —
     // the unreachable branch offers no second door into a site the check
-    // just failed to reach). The editor positions and shows the overlay
+    // just failed to reach). linkLabel replaces the download row's text when
+    // the address itself is too long to show (the update branch's GitHub
+    // installer URL): the row then names the file, and the address stays the
+    // link's target and tooltip. The editor positions and shows the overlay
     // afterwards, like every other overlay's open path.
     void configure (const juce::String& title, const juce::String& message,
                     const juce::String& linkUrl,
-                    const juce::String& changelogUrl = {});
+                    const juce::String& changelogUrl = {},
+                    const juce::String& linkLabel = {});
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -997,7 +1001,8 @@ public:
     // drive all three branches without a fetch, a feed, or a DAW.
     void showUpdateResult (const juce::String& title, const juce::String& message,
                            const juce::String& linkUrl,    // empty = no download row
-                           const juce::String& changelogUrl = {});   // empty = no change-log row
+                           const juce::String& changelogUrl = {},   // empty = no change-log row
+                           const juce::String& linkLabel = {});     // row text if the URL is too long to show
     std::unique_ptr<juce::Thread> updateThread;   // owned; joined in the destructor
     juce::String updateThreadVersion;             // latest version the thread read
     juce::StringArray updateNotes;                // "What's new" lines from the feed

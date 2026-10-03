@@ -2314,6 +2314,17 @@ int main()
                         + res->messageLabel.getText());
             EXPECT (res->link.isVisible(),
                     "the update-available dialog carries the download link");
+            // The download row is the new version's installer asset, direct
+            // from its GitHub release: named by its file (the full address
+            // would be drawn ellipsized over the part that matters), with
+            // the address itself as the link's target.
+            EXPECT (res->link.getButtonText() == "GoaSynth-Setup-1.5.0.exe",
+                    "the update dialog names the installer file on the row, got "
+                        + res->link.getButtonText());
+            EXPECT (res->link.getURL().toString (true)
+                        == "https://github.com/Y4m4/GoaSynth/releases/download/v1.5.0/GoaSynth-Setup-1.5.0.exe",
+                    "the update dialog links the new version's installer asset directly, got "
+                        + res->link.getURL().toString (true));
             EXPECT (res->changelogLink.isVisible(),
                     "the update-available dialog carries the change-log link");
             EXPECT (res->changelogLink.getURL().toString (true)

@@ -7402,7 +7402,8 @@ goaui::UpdateResultOverlay::UpdateResultOverlay()
 void goaui::UpdateResultOverlay::configure (const juce::String& title,
                                             const juce::String& message,
                                             const juce::String& linkUrl,
-                                            const juce::String& changelogUrl)
+                                            const juce::String& changelogUrl,
+                                            const juce::String& linkLabel)
 {
     titleLabel.setText (title, juce::dontSendNotification);
     messageLabel.setText (message, juce::dontSendNotification);
@@ -7411,7 +7412,14 @@ void goaui::UpdateResultOverlay::configure (const juce::String& title,
     // than shown as dead furniture — the message then takes the whole body.
     if (linkUrl.isNotEmpty())
     {
-        link.setButtonText (linkUrl);
+        // By default the row shows the address itself (the unreachable
+        // branch's short site URL). The override label is for addresses too
+        // long to show: juce draws overflowing text with an ellipsis, which
+        // would cut the update branch's GitHub installer URL off exactly
+        // where the file name starts — so that branch names the file
+        // instead, and the address stays the link's target and tooltip
+        // (setURL refreshes it).
+        link.setButtonText (linkLabel.isNotEmpty() ? linkLabel : linkUrl);
         link.setURL (juce::URL (linkUrl));   // also refreshes the tooltip
         link.setVisible (true);
     }
@@ -7526,6 +7534,14 @@ namespace
     constexpr const char* siteUrl = "https://y4m4.github.io/GoaSynth/";
     constexpr const char* updateFeedUrl =
         "https://y4m4.github.io/GoaSynth/version.json";
+
+    // Release assets live on GitHub, not on the site: the Release workflow
+    // attaches GoaSynth-Setup-<version>.exe to every vX.Y.Z release (the same
+    // address the site's download row links). The update-available dialog
+    // builds this prefix + the version into the direct installer URL, so a
+    // click downloads the installer instead of a detour through the site.
+    constexpr const char* releaseAssetUrl =
+        "https://github.com/Y4m4/GoaSynth/releases/download";
 
     class UpdateCheckThread : public juce::Thread
     {
@@ -7651,13 +7667,21 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
                 message += "\n\u2022 " + note;
         }
 
-        // The change-log link lands on the new version's own section of the
-        // release notes (each generated heading carries id="vX.Y.Z").
+        // Two doors: the new version's installer asset — the Release
+        // workflow attaches GoaSynth-Setup-<version>.exe to every release,
+        // the same address the site's download row links — so one click
+        // fetches the installer instead of a detour through the site; and
+        // the change-log link lands on the new version's own section of the
+        // release notes (each generated heading carries id="vX.Y.Z"). The
+        // GitHub address is far too long for the row, so it is named by its
+        // file instead (configure's linkLabel).
         showUpdateResult ("UPDATE AVAILABLE",
                           message + "\n\n"
-                          "Download the new installer from:",
-                          siteUrl,
-                          juce::String (siteUrl) + "#v" + updateThreadVersion);
+                          "Download the new installer:",
+                          juce::String (releaseAssetUrl) + "/v" + updateThreadVersion
+                              + "/GoaSynth-Setup-" + updateThreadVersion + ".exe",
+                          juce::String (siteUrl) + "#v" + updateThreadVersion,
+                          "GoaSynth-Setup-" + updateThreadVersion + ".exe");
         return;
     }
 
@@ -7672,14 +7696,15 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
 void GoaSynthAudioProcessorEditor::showUpdateResult (const juce::String& title,
                                                      const juce::String& message,
                                                      const juce::String& linkUrl,
-                                                     const juce::String& changelogUrl)
+                                                     const juce::String& changelogUrl,
+                                                     const juce::String& linkLabel)
 {
     // One open path for all three outcomes, mirroring the About card's:
     // configure, fit to the current window, front, show.
     if (updateResultOverlay == nullptr)
         return;
 
-    updateResultOverlay->configure (title, message, linkUrl, changelogUrl);
+    updateResultOverlay->configure (title, message, linkUrl, changelogUrl, linkLabel);
     updateResultOverlay->setBounds (getLocalBounds());
     updateResultOverlay->toFront (true);
     updateResultOverlay->setVisible (true);

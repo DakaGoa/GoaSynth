@@ -101,9 +101,7 @@ void GoaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     reverb.prepare (spec); reverb.reset();
     masterGain.prepare (spec); masterGain.reset();
     masterGain.setRampDurationSeconds (0.03);
-    limiter.prepare (spec); limiter.reset();
-    limiter.setThreshold (-0.5f);
-    limiter.setRelease (80.0f);
+    limiter.prepare (sampleRate);   // juce limiter's curve + a real peak stage; see goa::MasterLimiter
 
     ott.prepare (sampleRate, juce::jmax (1, samplesPerBlock));
     ott.reset();
@@ -993,7 +991,11 @@ void GoaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 goa::ld (apvts.getRawParameterValue (param::eqMidFreq)),
                 goa::ld (apvts.getRawParameterValue (param::eqHigh)));
 
-    limiter.process (ctx);
+    // Master limiter (goa::MasterLimiter): the replaced juce limiter ended
+    // in a ±1.0 hard clipper that squared off hot peaks — the audible
+    // "clipping". The new stage rides those down to its -0.5 dB ceiling
+    // and soft-clips whatever a single sample slips past the envelope.
+    limiter.process (buffer, numSamples);
 
     // Per-channel true peaks for the header meter's L/R bars, plus the
     // smoothed mono follower for the UI backdrop pulse.

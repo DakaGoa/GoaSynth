@@ -1446,4 +1446,71 @@ bool GoaSynth::releaseHeldNote (int note)
     return false;
 }
 
+//==============================================================================
+// Master limiter (see the class comment in SynthEngine.h). Stage A is the
+// replaced juce limiter's static curve — gain in dB = +4.26 - 0.75*max(0,
+// in_dB + 10) — driven by its 2 ms / 200 ms ballistics so the compression
+// breathes with the material instead of amplitude-modulating the waveform.
+// Stage B is what juce's ratio-1000 stage was meant to be: an instant-attack
+// peak rider with an 80 ms release that catches everything the curve leaves
+// above the -0.5 dB ceiling — the region juce handed to its ±1.0 hard
+// clipper, squared off at full scale.
+void goa::MasterLimiter::prepare (double sampleRate)
+{
+    // One-pole coefficients: y += c*(x - y) reaches 63% of a step in tau.
+    aAttack  = (float) (1.0 - std::exp (-1.0 / (0.002 * sampleRate)));
+    aRelease = (float) (1.0 - std::exp (-1.0 / (0.200 * sampleRate)));
+    // The peak stage releases multiplicatively (log-linear, the classic
+    // limiter shape) and attacks instantly: envB takes the sample itself.
+    bRelease = (float) std::exp (-1.0 / (0.080 * sampleRate));
+    envA = envB = 0.0f;
+}
+
+void goa::MasterLimiter::reset() noexcept
+{
+    envA = envB = 0.0f;
+}
+
+void goa::MasterLimiter::process (juce::AudioBuffer<float>& buffer, int numSamples) noexcept
+{
+    auto* xl = buffer.getWritePointer (0);
+    auto* xr = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+
+    // juce::dsp::Limiter's makeup for its 4:1 first stage: +3.75 dB plus the
+    // threshold compensation its outputVolume applies (+0.5 dB here).
+    constexpr float makeup = 1.6322f;
+    // The -0.5 dB ceiling everything is held under.
+    constexpr float ceiling = 0.94406f;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // Stereo-linked: both channels share one envelope (and so one gain),
+        // which keeps the image from lurching when only one side peaks.
+        const float level = juce::jmax (std::abs (xl[i]),
+                                        xr != nullptr ? std::abs (xr[i]) : 0.0f);
+
+        // Stage A: juce's first compressor — hard knee at -10 dB, 4:1, its
+        // attack/release ballistics on the level detector.
+        envA += (level > envA ? aAttack : aRelease) * (level - envA);
+        float gA = makeup;
+        {
+            const float envDb = juce::Decibels::gainToDecibels (envA);
+            if (envDb > -10.0f)
+                gA *= std::pow (10.0f, -0.75f * (envDb + 10.0f) / 20.0f);
+        }
+
+        // Stage B: the real brickwall. envB takes this very sample (instant
+        // attack) and decays over 80 ms, so the gain reduction lands on the
+        // sample that asked for it — a peak can never outrun the ceiling.
+        const float postA = level * gA;
+        envB = juce::jmax (postA, envB * bRelease);
+        const float gB = envB > ceiling ? ceiling / envB : 1.0f;
+
+        const float g = gA * gB;
+        xl[i] = softClip (xl[i] * g, 0.95f);
+        if (xr != nullptr)
+            xr[i] = softClip (xr[i] * g, 0.95f);
+    }
+}
+
 } // namespace goa

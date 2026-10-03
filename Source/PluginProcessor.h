@@ -254,7 +254,10 @@ private:
     int shW = 0;
     double shPhase = 0.0;
     juce::dsp::Gain<float> masterGain;
-    juce::dsp::Limiter<float> limiter;
+    // Replaces juce::dsp::Limiter: same loudness curve, but the ±1.0 hard
+    // clipper that limiter ends with squared off hot peaks (the audible
+    // "clipping"). See goa::MasterLimiter in SynthEngine.h.
+    goa::MasterLimiter limiter;
     juce::SmoothedValue<float> delayTimeSmoothed;
     float fbL = 0.0f, fbR = 0.0f;                // damped delay-feedback state
     StepClock gateClock, arpClock, pumpClock;

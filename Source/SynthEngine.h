@@ -107,6 +107,48 @@ inline float pumpGain (double phase, float depth) noexcept
     return 1.0f - juce::jlimit (0.0f, 0.95f, dip);
 }
 
+// Master safety soft clip: linear below the knee, tanh-rounded above. The
+// slope is 1 at the knee (C1 continuous, so the bend cannot be heard) and
+// the output never exceeds 1.0. Last resort of the master chain: whatever
+// leaves the plugin stays inside full scale without the square edges a hard
+// clipper stamps onto transients.
+inline float softClip (float x, float knee = 0.9f) noexcept
+{
+    const float a = std::abs (x);
+    if (a <= knee)
+        return x;
+    return std::copysign (knee + (1.0f - knee) * std::tanh ((a - knee) / (1.0f - knee)), x);
+}
+
+// Master limiter — replaces juce::dsp::Limiter, whose static curve this
+// reproduces (a 4:1 compression above -10 dB plus that limiter's +4.26 dB
+// makeup, which is where the master's loudness comes from) and whose top
+// end it fixes. juce's limiter finishes with a hard clipper at ±1.0, and
+// input hotter than about +13 dB comes out with its peaks squared off —
+// the audible "clipping" that full OTT squeeze, runaway delay feedback or
+// a hot MASTER knob produced. Here the same curve feeds a true peak stage:
+// a stereo-linked envelope with instant attack and an 80 ms release rides
+// everything down to a -0.5 dB ceiling (gain reduction lands on the very
+// sample that asked for it, so no peak can outrun it), and softClip rounds
+// off whatever a single sample might still slip past the envelope. Below
+// the ceiling the chain is exactly the old curve, so moderate material is
+// unchanged; only what used to be hard-clipped sounds different — clean
+// instead of crackling.
+class MasterLimiter
+{
+public:
+    void prepare (double sampleRate);   // also resets the envelopes
+    void reset() noexcept;
+
+    void process (juce::AudioBuffer<float>& buffer, int numSamples) noexcept;
+
+private:
+    float envA = 0.0f;          // glue-stage level (2 ms attack, 200 ms release)
+    float envB = 0.0f;          // peak-stage level (instant attack, 80 ms release)
+    float aAttack = 0.0f, aRelease = 0.0f;   // one-pole coefficients for envA
+    float bRelease = 0.0f;                   // multiplicative decay for envB
+};
+
 struct EngineParams
 {
     std::atomic<float>* osc1Wave = nullptr;

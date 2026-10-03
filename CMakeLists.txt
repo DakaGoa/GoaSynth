@@ -158,6 +158,41 @@ target_sources(OverlayTest PRIVATE
 )
 add_test(NAME OverlayTest COMMAND OverlayTest)
 
+# Master limiter test: goa::MasterLimiter replaced juce::dsp::Limiter, whose
+# final stage was a ±1.0 hard clipper that squared off hot peaks (the
+# audible "clipping" on full-OTT / hot-master patches). Pins the kept
+# loudness curve as steady-state output levels and renders a deliberately
+# over-hot patch through the real processor, asserting every sample stays
+# under the -0.5 dB ceiling with no full-scale square-clip signature.
+add_executable(ClipTest tests/ClipTest.cpp)
+target_link_libraries(ClipTest PRIVATE
+    juce::juce_recommended_config_flags
+    juce::juce_audio_processors
+    juce::juce_dsp
+    juce::juce_cryptography
+)
+target_include_directories(ClipTest PRIVATE Source tests)
+target_compile_definitions(ClipTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    GOA_TEST_BUILD=1   # use tests/TestMasterKey.h - never the seller's real key
+)
+target_sources(ClipTest PRIVATE
+    Source/License.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/SynthEngine.cpp
+    Source/Parameters.cpp
+    Source/AiPatchGen.cpp
+    Source/AiCloudGen.cpp
+    Source/LearnedPatches.h
+)
+# Same 16 MB main stack as RoundTripTest: the factory-preset table's static
+# initializer is frame-hungry (see the comment there).
+target_link_options(ClipTest PRIVATE "/STACK:16777216")
+add_test(NAME ClipTest COMMAND ClipTest)
+
 # The changelog is generated, not copied: CHANGELOG.md feeds the site's
 # release notes and the update feed's notes. This keeps every generated
 # artefact in lockstep with its source — editing docs/index.html's release

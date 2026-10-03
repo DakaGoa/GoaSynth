@@ -896,9 +896,12 @@ int main()
             std::printf ("render smoke: non-finite samples in output\n");
             ++fails;
         }
-        if (peak > 4.0)
+        // The master limiter holds everything under its -0.5 dB ceiling
+        // (goa::MasterLimiter); anything near full scale means the limiter
+        // or its soft-clip safety was bypassed.
+        if (peak > 0.95)
         {
-            std::printf ("render smoke: runaway output, peak %f\n", peak);
+            std::printf ("render smoke: output above the master ceiling, peak %f\n", peak);
             ++fails;
         }
         if (peak < 1.0e-4)
@@ -2414,7 +2417,7 @@ int main()
             setG (param::gateStep (i).toRawUTF8(), (i % 2) == 0 ? 1.0f : 0.0f);
 
         // A held note; the gate shapes its volume while the transport runs.
-        double prevPeak[4] = { -1.0, -1.0, -1.0, -1.0 };
+        double prevRms[4]  = { -1.0, -1.0, -1.0, -1.0 };
         double maxJump[4]  = { 0.0, 0.0, 0.0, 0.0 };
         for (int shape = 0; shape < 4; ++shape)
         {
@@ -2426,6 +2429,8 @@ int main()
             m.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
             float prev = 0.0f;
             double peak = 0.0;
+            double sumSq = 0.0;
+            long long samples = 0;
             for (int b = 0; b < 16; ++b)
             {
                 juce::AudioBuffer<float> buf (2, 512);
@@ -2438,25 +2443,30 @@ int main()
                         (double) std::fabs (s - prev));
                     prev = s;
                     peak = juce::jmax (peak, (double) s);
+                    sumSq += (double) s * s;
+                    ++samples;
                 }
                 fake.ppq += 512 / 48000.0 * 2.0;
             }
 
             if (peak <= 0.0)
                 std::printf ("gate20: shape %d produced silence\n", shape), ++fails;
-            prevPeak[(size_t) shape] = peak;
+            prevRms[(size_t) shape] = std::sqrt (sumSq / (double) juce::jmax (samples, 1LL));
 
-            // Finite and bounded.
-            if (peak > 4.0)
+            // Finite and bounded by the master limiter's -0.5 dB ceiling.
+            if (peak > 0.95)
                 std::printf ("gate20: shape %d render too hot (%.2f)\n", shape, peak), ++fails;
         }
 
-        // Shapes must actually differ: saw/triangle ramp the step volume, so
-        // their peak differs from square's full-level plateau.
-        if (std::abs (prevPeak[2] - prevPeak[0]) < 1.0e-3
-            || std::abs (prevPeak[3] - prevPeak[1]) < 1.0e-3)
-            std::printf ("gate20: shapes produced identical peaks (square=%.4f saw=%.4f smooth=%.4f tri=%.4f)\n",
-                         prevPeak[0], prevPeak[2], prevPeak[1], prevPeak[3]), ++fails;
+        // Shapes must actually differ. They used to be told apart by peak,
+        // but the master limiter (goa::MasterLimiter) pins every hot shape's
+        // peak at its -0.5 dB ceiling — the shape now lives in the energy, so
+        // compare RMS: square's full-level plateaus carry the most of it, the
+        // ramping shapes progressively less.
+        if (std::abs (prevRms[2] - prevRms[0]) < 1.0e-3
+            || std::abs (prevRms[3] - prevRms[1]) < 1.0e-3)
+            std::printf ("gate20: shapes produced identical RMS (square=%.4f saw=%.4f smooth=%.4f tri=%.4f)\n",
+                         prevRms[0], prevRms[2], prevRms[1], prevRms[3]), ++fails;
 
         // Click check: SMOOTH and TRIANGLE are band-limited by construction, so
         // their worst per-sample jump |ds| must stay below HALF the raw sample

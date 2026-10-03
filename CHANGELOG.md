@@ -30,6 +30,9 @@ tests and publishes the GitHub release with the notes from this file.
 
 ## [Unreleased]
 
+### Fixed
+- Loud passages no longer clip: the master limiter's final stage was a hard clipper at full scale, so anything hot patches pushed past it — full OTT squeeze, runaway delay feedback, MASTER at +6 — came out with squared-off, crackling peaks. The same loudness curve now ends in a true peak rider (instant attack, 80 ms release) with a soft-clip safety, holding −0.5 dB cleanly.
+
 ### Added
 - The update-available dialog also shows the new version's release date and the installer's file size.
 

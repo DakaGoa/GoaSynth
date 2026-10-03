@@ -4,5 +4,7 @@
   "notes": [
     "The update dialogs carry a View full change log link: update-available lands on the new version's own notes, up-to-date opens the release notes.",
     "The update-available dialog shows What's new — the release notes ride along in the version feed the plugin already fetches."
-  ]
+  ],
+  "released": "2 October 2026",
+  "installer_size": "21.9 MB"
 }

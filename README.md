@@ -6,11 +6,13 @@ updates to this website or repository never change it — only VST changes do.
 The header's **MENU** dropdown carries an About card (version, license state,
 machine ID), **Check for updates** — which compares the running build against
 `docs/version.json` on the product site and always answers with a dialog, even
-when the feed is unreachable — when a new version is available, its download
-link fetches the new installer straight from the release (`GoaSynth-Setup-
-<version>.exe`, named on the row), a **View full change log** link opens the
-release notes (deep-linked to the new version when one is available) — and
-**Change Log**, which opens the release notes on the product site.
+when the feed is unreachable — it shows what changed, when it shipped and how
+big the download is, and when a new version is available its download link
+fetches the new installer straight from the release
+(`GoaSynth-Setup-<version>.exe`, named on the row), a **View full change log**
+link opens the release notes (deep-linked to the new version when one is
+available) — and **Change Log**, which opens the release notes on the product
+site.
 
 ![The GoaSynth mark: the sine swoosh in the UV GOA palette](Assets/icon_256.png)
 

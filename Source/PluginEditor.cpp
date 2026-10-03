@@ -7587,6 +7587,12 @@ namespace
                 // updateCheckDone() can never read half-published state.
                 owner.updateThreadVersion = latestVer;
                 owner.updateNotes = goaui::latestReleaseNotes (latest);
+                // Release date and installer size ride in the feed too
+                // (tools/make-changelog.py writes them). Reading them here —
+                // even when the feed lacks them, as "" — also clears any
+                // leftovers from a previous check.
+                owner.updateThreadDate = latest.getProperty ("released", {}).toString();
+                owner.updateThreadSize = latest.getProperty ("installer_size", {}).toString();
                 owner.updateOlder.store (owner.updateReachable.load()
                                              && goaui::compareVersions (goaVersionString(),
                                                                         latestVer) < 0);
@@ -7595,6 +7601,8 @@ namespace
             {
                 owner.updateReachable.store (false);
                 owner.updateNotes.clear();
+                owner.updateThreadDate.clear();
+                owner.updateThreadSize.clear();
             }
 
             // Report — always, success or failure.
@@ -7656,6 +7664,12 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
         juce::String message = "GoaSynth " + updateThreadVersion + " is available (you are running "
                                + goaVersionString() + ").";
 
+        // When it shipped (the generator writes "released" into the feed
+        // from CHANGELOG.md's dated heading). Optional: an old feed without
+        // the field simply omits the line.
+        if (updateThreadDate.isNotEmpty())
+            message += "\nReleased " + updateThreadDate + ".";
+
         // The feed carries the released version's notes (written by
         // tools/make-changelog.py from CHANGELOG.md): show what changed, not
         // just that something did. Capped by latestReleaseNotes; the change
@@ -7667,6 +7681,13 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
                 message += "\n\u2022 " + note;
         }
 
+        // The size sets expectations before the click — "how big is this?"
+        // answered in the very row that asks for the click, straight from
+        // the feed's installer_size. Optional like the date line above.
+        const juce::String downloadLine = updateThreadSize.isNotEmpty()
+            ? "Download the new installer (" + updateThreadSize + "):"
+            : "Download the new installer:";
+
         // Two doors: the new version's installer asset — the Release
         // workflow attaches GoaSynth-Setup-<version>.exe to every release,
         // the same address the site's download row links — so one click
@@ -7676,8 +7697,7 @@ void GoaSynthAudioProcessorEditor::updateCheckDone()
         // GitHub address is far too long for the row, so it is named by its
         // file instead (configure's linkLabel).
         showUpdateResult ("UPDATE AVAILABLE",
-                          message + "\n\n"
-                          "Download the new installer:",
+                          message + "\n\n" + downloadLine,
                           juce::String (releaseAssetUrl) + "/v" + updateThreadVersion
                               + "/GoaSynth-Setup-" + updateThreadVersion + ".exe",
                           juce::String (siteUrl) + "#v" + updateThreadVersion,

@@ -33,7 +33,13 @@ What it writes
     docs/version.json  "notes": the released latest version's bullets as plain
                        strings, which the plugin's update-available dialog
                        shows under "What's new". "latest" is kept in sync with
-                       the newest released version in CHANGELOG.md.
+                       the newest released version in CHANGELOG.md, which also
+                       supplies "released" (its date, printed the way the site
+                       prints it) and "installer_size" (the size of its
+                       GoaSynth-Setup asset, probed from the GitHub release —
+                       omitted until the Release workflow has attached the
+                       file, and left alone when the probe cannot answer; the
+                       dialog degrades without both).
 
 Format (see CHANGELOG.md's header for the full contract)
 --------------------------------------------------------
@@ -178,6 +184,51 @@ def row_is_published(tag: str) -> bool:
     return _row_probe_result
 
 
+def human_size(num_bytes: int) -> str:
+    """22939648 -> "21.9 MB": the form the update dialog shows."""
+    if num_bytes >= 1024 ** 3:
+        return f"{num_bytes / 1024 ** 3:.1f} GB"
+    if num_bytes >= 1024 ** 2:
+        return f"{num_bytes / 1024 ** 2:.1f} MB"
+    return f"{num_bytes / 1024:.0f} kB"
+
+
+_size_probe_done = False
+_size_probe_value = None    # "21.9 MB", or None when absent / unknown
+_size_probe_known = False   # the probe got an authoritative answer (200 or clean 404)
+
+
+def probe_installer_size(tag: str) -> tuple[bool, str | None]:
+    """(known, size) for the release's GoaSynth-Setup-<tag>.exe asset.
+
+    A HEAD on the asset's download URL answers with its Content-Length, so
+    the update dialog can say how big the download is without the plugin
+    growing a second network path. One probe per run, cached, same
+    philosophy as row_is_published: a clean 404 (no release yet) is a real
+    answer — known-absent, so a stale size from an older version is dropped
+    instead of being mislabelled; anything ambiguous (DNS, timeout, rate
+    limit, odd response) is unknown — callers keep whatever the feed
+    already says, and an offline --check stays stable.
+    """
+    global _size_probe_done, _size_probe_value, _size_probe_known
+    if not _size_probe_done:
+        url = f"{RELEASES_URL}/download/v{tag}/GoaSynth-Setup-{tag}.exe"
+        try:
+            request = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(request, timeout=10) as response:
+                length = response.headers.get("Content-Length", "")
+                if length.isdigit():
+                    _size_probe_value = human_size(int(length))
+                    _size_probe_known = True
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                _size_probe_known = True   # no asset yet: authoritative
+        except Exception:
+            pass                           # unknown
+        _size_probe_done = True
+    return _size_probe_known, _size_probe_value
+
+
 def download_row(tag: str) -> list[str]:
     """Direct links to the published GitHub assets, so the newest section of
     the release notes doubles as the download page. Gated by --download-row:
@@ -254,7 +305,8 @@ def released(versions: list[dict]) -> list[dict]:
 
 
 def update_feed(versions: list[dict]) -> bool:
-    """Sync version.json: latest = newest released, notes = its bullets."""
+    """Sync version.json: latest = newest released; notes = its bullets;
+    released = its date; installer_size = its Setup asset's size."""
     rel = released(versions)
     if not rel:
         raise SystemExit("CHANGELOG.md has no released version - nothing to publish")
@@ -269,6 +321,28 @@ def update_feed(versions: list[dict]) -> bool:
     notes = [inline_to_plain(bullet) for _cat, bullet in newest["notes"]]
     if feed.get("notes") != notes:
         feed["notes"] = notes
+        changed = True
+
+    # The two facts the update dialog names alongside the notes: when the
+    # version shipped (straight from the heading's date) and how big its
+    # installer is (probed). Unknown (offline) never deletes — the probe
+    # failing must not eat a correct value; known-absent (clean 404 before
+    # the Release workflow has attached the file) must — a stale size for a
+    # previous version mislabelled as the new one is misinformation.
+    released_at = pretty_date(newest["date"])
+    if released_at and feed.get("released") != released_at:
+        feed["released"] = released_at
+        changed = True
+    if not released_at and "released" in feed:
+        del feed["released"]
+        changed = True
+
+    size_known, size = probe_installer_size(newest["tag"])
+    if size_known and size and feed.get("installer_size") != size:
+        feed["installer_size"] = size
+        changed = True
+    if size_known and not size and "installer_size" in feed:
+        del feed["installer_size"]
         changed = True
 
     if changed:
@@ -315,12 +389,30 @@ def check(versions: list[dict], row_mode: str = "auto") -> int:
         problems.append('docs/version.json "notes" are stale - '
                         "run: python tools/make-changelog.py")
 
+    want_released = pretty_date(rel[0]["date"])
+    if feed.get("released") != (want_released or None):
+        problems.append('docs/version.json "released" is stale - '
+                        f'(feed "{feed.get("released")}" vs CHANGELOG '
+                        f'"{want_released or "-"}") - '
+                        "run: python tools/make-changelog.py")
+
+    size_known, want_size = probe_installer_size(rel[0]["tag"])
+    if size_known and feed.get("installer_size") != want_size:
+        problems.append('docs/version.json "installer_size" is stale - '
+                        f'(feed "{feed.get("installer_size")}" vs probe '
+                        f'"{want_size or "-"}") - '
+                        "run: python tools/make-changelog.py")
+
     for problem in problems:
         print("changelog-check: " + problem)
     if problems:
         return 1
-    print(f"changelog-check: site block, feed notes and latest "
-          f"({rel[0]['tag']}) all match CHANGELOG.md")
+    checked = "site block, feed notes and latest (" + rel[0]["tag"] + ")"
+    if want_released:
+        checked += ", released date"
+    if size_known:
+        checked += " and installer size"
+    print("changelog-check: " + checked + " all match CHANGELOG.md")
     return 0
 
 

@@ -2299,6 +2299,8 @@ int main()
             edr->updateThreadVersion = "1.5.0";
             edr->updateNotes = juce::StringArray { "Faster preset browser",
                                                    "New trancegate shapes" };
+            edr->updateThreadDate = "2 October 2026";
+            edr->updateThreadSize = "21.9 MB";
             edr->updateCheckDone();
             EXPECT (res->titleLabel.getText() == "UPDATE AVAILABLE",
                     "a newer feed shows UPDATE AVAILABLE, got "
@@ -2311,6 +2313,12 @@ int main()
                         && res->messageLabel.getText().contains ("Faster preset browser")
                         && res->messageLabel.getText().contains ("New trancegate shapes"),
                     "the update dialog shows the feed's release notes, got "
+                        + res->messageLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("Released 2 October 2026."),
+                    "the update dialog shows when the new version shipped, got "
+                        + res->messageLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("Download the new installer (21.9 MB):"),
+                    "the download lead-in names the installer's size, got "
                         + res->messageLabel.getText());
             EXPECT (res->link.isVisible(),
                     "the update-available dialog carries the download link");
@@ -2333,6 +2341,19 @@ int main()
                         + res->changelogLink.getURL().toString (true));
             EXPECT (res->cardBounds().contains (res->changelogLink.getBounds()),
                     "the change-log link sits on the card");
+
+            // Degrade path: a feed without the new fields (an older site, or
+            // a release whose assets the Release workflow has not attached
+            // yet) must lose only the optional lines, never the dialog.
+            edr->updateThreadDate.clear();
+            edr->updateThreadSize.clear();
+            edr->updateCheckDone();
+            EXPECT (! res->messageLabel.getText().contains ("Released "),
+                    "no date in the feed, no date line, got "
+                        + res->messageLabel.getText());
+            EXPECT (res->messageLabel.getText().contains ("Download the new installer:"),
+                    "no size in the feed leaves the download lead-in bare, got "
+                        + res->messageLabel.getText());
 
             // Branch 3 — up to date: nothing to download, so the download row
             // is hidden rather than dead furniture — but the release notes are
@@ -2383,6 +2404,14 @@ int main()
         // The same feed carries the release notes the update dialog shows:
         EXPECT (goaui::latestReleaseNotes (feed).size() > 0,
                 "docs/version.json carries the released version's notes");
+        // ...and the facts the update dialog names alongside them: when it
+        // shipped, and how big its installer is.
+        EXPECT (feed.getProperty ("released", {}).toString().isNotEmpty(),
+                "docs/version.json carries the released version's date");
+        const juce::String installerSize = feed.getProperty ("installer_size", {}).toString();
+        EXPECT (installerSize.contains ("MB") || installerSize.contains ("kB")
+                    || installerSize.contains ("GB"),
+                "docs/version.json carries the installer size, got " + installerSize);
         // ...and the helper is strict about what it lets through:
         const auto junkFeed = juce::JSON::parse (
             R"({"notes":["  kept ", "", "second"]})");

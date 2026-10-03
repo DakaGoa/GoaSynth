@@ -1006,6 +1006,8 @@ public:
     std::unique_ptr<juce::Thread> updateThread;   // owned; joined in the destructor
     juce::String updateThreadVersion;             // latest version the thread read
     juce::StringArray updateNotes;                // "What's new" lines from the feed
+    juce::String updateThreadDate;                // release date of that version, display-ready
+    juce::String updateThreadSize;                // installer size from the feed, display-ready
     std::atomic<bool> updateOlder { false };      // released < current
     std::atomic<bool> updateReachable { false };  // feed fetched and parsed
 

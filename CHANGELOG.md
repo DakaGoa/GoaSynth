@@ -30,6 +30,9 @@ tests and publishes the GitHub release with the notes from this file.
 
 ## [Unreleased]
 
+### Added
+- The update-available dialog also shows the new version's release date and the installer's file size.
+
 ### Changed
 - The update-available dialog's download link goes straight to the new version's installer (`GoaSynth-Setup-<version>.exe`, attached to its GitHub release) instead of the product site.
 

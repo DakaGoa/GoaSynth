@@ -2405,13 +2405,22 @@ int main()
         EXPECT (goaui::latestReleaseNotes (feed).size() > 0,
                 "docs/version.json carries the released version's notes");
         // ...and the facts the update dialog names alongside them: when it
-        // shipped, and how big its installer is.
+        // shipped (from the CHANGELOG heading, always known), and how big
+        // its installer is. The size is probed from the GitHub release, so
+        // it is legitimately absent in the window between tagging and the
+        // Release workflow's landing commit — a release that does not exist
+        // yet has no asset to measure, and stripping the previous version's
+        // size (rather than mislabelling it) is what make-changelog.py must
+        // do. Absent is fine; present, it must be a size the dialog quotes.
         EXPECT (feed.getProperty ("released", {}).toString().isNotEmpty(),
                 "docs/version.json carries the released version's date");
         const juce::String installerSize = feed.getProperty ("installer_size", {}).toString();
-        EXPECT (installerSize.contains ("MB") || installerSize.contains ("kB")
-                    || installerSize.contains ("GB"),
-                "docs/version.json carries the installer size, got " + installerSize);
+        if (installerSize.isNotEmpty())
+            EXPECT (installerSize.contains ("MB") || installerSize.contains ("kB")
+                        || installerSize.contains ("GB"),
+                    "docs/version.json's installer size is a size, got " + installerSize);
+        else
+            std::printf ("[feed] no installer_size (pre-release window): the dialog degrades\n");
         // ...and the helper is strict about what it lets through:
         const auto junkFeed = juce::JSON::parse (
             R"({"notes":["  kept ", "", "second"]})");

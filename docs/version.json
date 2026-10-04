@@ -6,5 +6,6 @@
     "The update-available dialog also shows the new version's release date and the installer's file size.",
     "The update-available dialog's download link goes straight to the new version's installer (GoaSynth-Setup-<version>.exe, attached to its GitHub release) instead of the product site."
   ],
-  "released": "4 October 2026"
+  "released": "4 October 2026",
+  "installer_size": "21.9 MB"
 }

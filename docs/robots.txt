@@ -1,4 +1,4 @@
-# GoaSynth — https://y4m4.github.io/GoaSynth/
+# GoaSynth — https://dakagoa.github.io/GoaSynth/
 #
 # Everything served from here is meant to be found: the landing page, the four
 # legal pages, the screenshots and the published checksums. There is no private
@@ -13,4 +13,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://y4m4.github.io/GoaSynth/sitemap.xml
+Sitemap: https://dakagoa.github.io/GoaSynth/sitemap.xml

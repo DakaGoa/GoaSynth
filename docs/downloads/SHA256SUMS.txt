@@ -1,7 +1,7 @@
 # GoaSynth 1.6.0 - checksums for the published download
 #
 # Built 04 October 2026 at 01:27, from commit fbc9a38.
-# Site and install notes: https://y4m4.github.io/GoaSynth/
+# Site and install notes: https://dakagoa.github.io/GoaSynth/
 #
 # Check the ZIP before you install it, in the folder you downloaded it to:
 #

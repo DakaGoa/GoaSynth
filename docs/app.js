@@ -52,7 +52,7 @@
     ordersEmail: 'goasynth.orders@gmail.com',
     support: 'goasynth.support@gmail.com',
     download: '',        // TODO: the store's customer-library URL, once it exists
-    repo: 'https://github.com/Y4m4/GoaSynth',
+    repo: 'https://github.com/DakaGoa/GoaSynth',
     machineIdField: false // no checkout yet: the machine ID arrives by email
                           // (the order template asks for it). Flip to true when
                           // the Lemon Squeezy custom field is in place
@@ -73,7 +73,7 @@
   function deriveFromHost() {
     var host = location.hostname;
 
-    // The last ten characters of "y4m4.github.io" are ".github.io", dot
+    // The last ten characters of "dakagoa.github.io" are ".github.io", dot
     // included — comparing them to "github.io" is never true, so this used to
     // return before deriving anything and every *.github.io deployment kept an
     // empty repo URL. (It hid the Source links rather than breaking a page,

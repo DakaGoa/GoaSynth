@@ -62,6 +62,11 @@ const std::set<std::string> allowlist =
     "sitemap.xml",                // the page list search engines read
     "googlebe8101dec58dcb76.html", // Google Search Console's token - a token, not a page
     "downloads/SHA256SUMS.txt",   // the checksums buyers verify their download with
+    "gacidbase/index.html",       // the G-AcidBase page, linked from the landing page's nav
+    "assets/gacidbase-ui.png",    // the G-AcidBase screenshots and mark that page shows
+    "assets/gacidbase-circuit.png",
+    "assets/gacidbase-tools.png",
+    "assets/gacidbase-logo.png",
     "legal/eula.html",
     "legal/privacy.html",
     "legal/refunds.html",

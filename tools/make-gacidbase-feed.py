@@ -29,6 +29,10 @@ NOTES_BEGIN = "<!-- gacidbase-changelog:begin -->"
 NOTES_END = "<!-- gacidbase-changelog:end -->"
 DOWNLOAD_BEGIN = "<!-- gacidbase-download:begin -->"
 DOWNLOAD_END = "<!-- gacidbase-download:end -->"
+CTA_BEGIN = "<!-- gacidbase-cta:begin -->"
+CTA_END = "<!-- gacidbase-cta:end -->"
+VERSION_BEGIN = "<!-- gacidbase-version:begin -->"
+VERSION_END = "<!-- gacidbase-version:end -->"
 PRODUCT_URL = "https://dakagoa.github.io/GoaSynth/gacidbase/"
 REPOSITORY_URL = "https://github.com/DakaGoa/G-AcidBase"
 RELEASE_API = "https://api.github.com/repos/DakaGoa/G-AcidBase/releases/latest"
@@ -240,7 +244,28 @@ def render_download(release: dict) -> str:
     return '      ' + download_row(release["tag_name"][1:], release)
 
 
-def replace_block(page: str, begin: str, end: str, body: str) -> str:
+def primary_asset(version: str, release: dict) -> str:
+    """What the one-click button fetches: the installer when the release has
+    one, the package when it does not."""
+    names = {asset.get("name") for asset in release.get("assets", [])
+             if isinstance(asset, dict)}
+    return installer_asset(version) if installer_asset(version) in names else ASSET_NAME
+
+
+def render_cta(release: dict) -> str:
+    """The hero's one-click download button, versioned from the release."""
+    version = release["tag_name"][1:]
+    url = f"{RELEASE_BASE}/download/v{version}/{primary_asset(version, release)}"
+    return ('          <a class="btn btn-primary btn-lg" href="' + url
+            + '">Download v' + version + ' — Windows</a>')
+
+
+def render_version_stat(release: dict) -> str:
+    """The hero's "current release" stat - the version, never a hand edit."""
+    return ('          <li><b>v' + release["tag_name"][1:] + '</b><span>current release</span></li>')
+
+
+def replace_block(page: str, begin: str, end: str, body: str, indent: str = '      ') -> str:
     """Replace one marker block, refusing a page whose contract is broken."""
     name = begin.strip('<!-> ')
     if page.count(begin) != 1 or page.count(end) != 1:
@@ -249,7 +274,7 @@ def replace_block(page: str, begin: str, end: str, body: str) -> str:
     stop = page.index(end)
     if stop < start:
         raise ValueError(f"product page {name} markers are reversed")
-    return page[:start] + '\n' + body + '\n      ' + page[stop:]
+    return page[:start] + '\n' + body + '\n' + indent + page[stop:]
 
 
 def update_page(page: str, changelog: str, release: dict | None = None) -> str:
@@ -257,6 +282,8 @@ def update_page(page: str, changelog: str, release: dict | None = None) -> str:
     page = replace_block(page, NOTES_BEGIN, NOTES_END, render_notes(changelog, release))
     if release is not None:
         page = replace_block(page, DOWNLOAD_BEGIN, DOWNLOAD_END, render_download(release))
+        page = replace_block(page, CTA_BEGIN, CTA_END, render_cta(release), '          ')
+        page = replace_block(page, VERSION_BEGIN, VERSION_END, render_version_stat(release), '          ')
     return page
 
 

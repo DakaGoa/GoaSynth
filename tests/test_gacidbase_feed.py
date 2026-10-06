@@ -57,17 +57,34 @@ class FeedTests(unittest.TestCase):
 
     def test_site_block_preserves_surrounding_page_and_rejects_broken_markers(self):
         page = ('before' + feed.NOTES_BEGIN + '\nold\n' + feed.NOTES_END + 'middle'
-                + feed.DOWNLOAD_BEGIN + '\nold row\n' + feed.DOWNLOAD_END + 'after')
+                + feed.DOWNLOAD_BEGIN + '\nold row\n' + feed.DOWNLOAD_END + 'cta'
+                + feed.CTA_BEGIN + '\nold button\n' + feed.CTA_END + 'stat'
+                + feed.VERSION_BEGIN + '\nold version\n' + feed.VERSION_END + 'after')
         updated = feed.update_page(page, self.changelog, self.release)
         self.assertTrue(updated.startswith('before' + feed.NOTES_BEGIN))
-        self.assertTrue(updated.endswith(feed.DOWNLOAD_END + 'after'))
-        self.assertIn('middle', updated)
-        self.assertNotIn('old row', updated)
+        self.assertTrue(updated.endswith(feed.VERSION_END + 'after'))
+        for untouched in ('middle', 'cta', 'stat'):
+            self.assertIn(untouched, updated)
+        for replaced in ('old row', 'old button', 'old version'):
+            self.assertNotIn(replaced, updated)
         self.assertEqual(feed.update_page(updated, self.changelog, self.release), updated)
         for invalid in ('no markers', page + feed.NOTES_BEGIN, feed.NOTES_END + feed.NOTES_BEGIN,
-                        page.replace(feed.DOWNLOAD_END, ''), page.replace(feed.DOWNLOAD_BEGIN, '')):
+                        page.replace(feed.DOWNLOAD_END, ''), page.replace(feed.DOWNLOAD_BEGIN, ''),
+                        page.replace(feed.CTA_END, ''), page.replace(feed.VERSION_BEGIN, ''),
+                        page.replace(feed.VERSION_END, '')):
             with self.subTest(page=invalid), self.assertRaises(ValueError):
                 feed.update_page(invalid, self.changelog, self.release)
+
+    def test_hero_button_fetches_the_installer_and_names_the_version(self):
+        cta = feed.render_cta(self.release)
+        self.assertIn(f'href="{feed.RELEASE_BASE}/download/v1.1.0/'
+                      + feed.installer_asset("1.1.0") + '"', cta)
+        self.assertIn('Download v1.1.0 — Windows', cta)
+        self.assertIn('<b>v1.1.0</b>', feed.render_version_stat(self.release))
+        # A release with no installer falls back to the package it does carry,
+        # so the button is never a dead link.
+        zip_only = {"tag_name": "v1.1.0", "assets": [{"name": feed.ASSET_NAME, "size": 5798127}]}
+        self.assertIn('/' + feed.ASSET_NAME + '"', feed.render_cta(zip_only))
 
     def test_download_row_links_only_the_assets_the_release_carries(self):
         row = feed.download_row("1.1.0", self.release)

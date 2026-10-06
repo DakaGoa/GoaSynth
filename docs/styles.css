@@ -807,6 +807,10 @@ html[data-theme="warm"] .glare {
 
 /* --- generated release notes (tools/make-changelog.py) -------------------- */
 #changelog, .release-entry h3 { scroll-margin-top: 100px; }
+/* The GoaSynth notes sit straight under a section head rather than in a
+   .release-entry, and the plugin's update dialog deep-links to them; clear the
+   sticky header for those headings too so both product pages land alike. */
+.section-head > h2[id] { scroll-margin-top: 100px; }
 .release-entry { margin-top: 2rem; }
 .release-entry h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem 1rem; padding-bottom: .65rem; border-bottom: 1px solid var(--line); }
 .release-entry h3 > a { color: var(--text); }

@@ -258,21 +258,78 @@
   }
 
   /* ---------- release-note deep links ---------- */
+  // Installed builds and the update dialogs link straight to a version heading.
+  // The browser's own fragment jump races with everything that settles after it
+  // — web fonts swapping, images that reserve no space — which used to leave the
+  // heading clipped under the sticky header, or scrolled past it entirely. Park
+  // the heading under the header and keep it there until the page stops moving,
+  // and hand over the moment the visitor scrolls.
   function initReleaseLinks() {
-    var history = document.getElementById('changelog');
-    if (!history) return;
-    function alignRelease() {
+    if (!document.getElementById('changelog') && !document.querySelector('[id^="v"]')) return;
+
+    var following = false;
+    var observer = null;
+    var deadline = null;
+
+    function targetFor() {
       var id = location.hash.slice(1);
-      if (id !== 'changelog' && !/^v\d+\.\d+\.\d+$/.test(id)) return;
-      var target = document.getElementById(id);
-      if (!target || (target !== history && !history.contains(target))) return;
-      // Images above the notes change layout after the initial fragment jump.
-      // Align once they load; CSS scroll-margin keeps the sticky header clear.
-      target.scrollIntoView({ block: 'start', behavior: 'instant' });
+      if (id === 'changelog') return document.getElementById('changelog');
+      return /^v\d+\.\d+\.\d+$/.test(id) ? document.getElementById(id) : null;
     }
-    window.addEventListener('hashchange', alignRelease);
-    if (document.readyState === 'complete') alignRelease();
-    else window.addEventListener('load', alignRelease, { once: true });
+
+    function align() {
+      var target = targetFor();
+      if (target) target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+
+    function stopFollowing() {
+      following = false;
+      clearTimeout(deadline);
+      if (observer) { observer.disconnect(); observer = null; }
+    }
+
+    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function (evt) {
+      window.addEventListener(evt, stopFollowing, { passive: true });
+    });
+    // A resize is the visitor taking over too, and it changes this page's own
+    // layout, so it must not be mistaken for a late image arriving.
+    window.addEventListener('resize', stopFollowing, { passive: true });
+    document.addEventListener('visibilitychange', function () {
+      if (following && !document.hidden) align();
+    });
+
+    function follow() {
+      following = true;
+      align();
+
+      if ('ResizeObserver' in window) {
+        if (observer) observer.disconnect();
+        observer = new ResizeObserver(function () {
+          if (following) align();
+        });
+        observer.observe(document.body);
+      } else {
+        [80, 500, 1500].forEach(function (delay) {
+          setTimeout(function () { if (following) align(); }, delay);
+        });
+      }
+
+      // Late layout on a slow connection can take a while; the observer catches
+      // it whenever it lands. After this we stop, so nothing drags the visitor
+      // back to the heading long after they arrived.
+      clearTimeout(deadline);
+      deadline = setTimeout(stopFollowing, 30000);
+    }
+
+    window.addEventListener('hashchange', function () {
+      stopFollowing();
+      if (targetFor()) follow();
+    });
+
+    if (targetFor()) {
+      if (document.readyState === 'complete') follow();
+      else window.addEventListener('load', follow, { once: true });
+    }
   }
 
   /* ---------- scroll reveal ---------- */

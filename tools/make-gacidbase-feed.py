@@ -2,8 +2,8 @@
 """Generate G-AcidBase's update feed and site release notes; --check never writes.
 
 Sources: tools/gacidbase/CHANGELOG.md and tools/gacidbase/release.json.
-Use --refresh after publishing a release to fetch GitHub's latest stable tag
-and ZIP size. Optional --tag vX.Y.Z requires that exact tag (it cannot select
+Use --refresh after publishing a release to fetch GitHub's latest stable tag,
+its installer size and the assets its download row links. Optional --tag vX.Y.Z requires that exact tag (it cannot select
 an older release). Validation must finish before any output is written.
 Plain Python 3; no dependencies, credentials, or auto-publishing.
 """
@@ -27,14 +27,25 @@ FEED = ROOT / "docs/gacidbase/version.json"
 PAGE = ROOT / "docs/gacidbase/index.html"
 NOTES_BEGIN = "<!-- gacidbase-changelog:begin -->"
 NOTES_END = "<!-- gacidbase-changelog:end -->"
+DOWNLOAD_BEGIN = "<!-- gacidbase-download:begin -->"
+DOWNLOAD_END = "<!-- gacidbase-download:end -->"
 PRODUCT_URL = "https://dakagoa.github.io/GoaSynth/gacidbase/"
 REPOSITORY_URL = "https://github.com/DakaGoa/G-AcidBase"
 RELEASE_API = "https://api.github.com/repos/DakaGoa/G-AcidBase/releases/latest"
 ASSET_NAME = "G-AcidBase-Windows-x64.zip"
+SETUP_PREFIX = "G-AcidBase-Setup-"
+SETUP_SUFFIX = ".exe"
+SUMS_NAME = "SHA256SUMS.txt"
+RELEASE_BASE = "https://github.com/DakaGoa/G-AcidBase/releases"
 VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 HEADING = re.compile(r"## \[(" + VERSION + r")\] - (\d{4}-\d{2}-\d{2})")
 MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
+
+
+def installer_asset(version: str) -> str:
+    """The Setup installer a release attaches, named for the version it installs."""
+    return SETUP_PREFIX + version + SETUP_SUFFIX
 
 
 def plain(text: str) -> str:
@@ -106,7 +117,7 @@ def parse_changelog(text: str) -> list[dict]:
     return releases
 
 
-def validate_release(release: dict, expected_tag: str | None = None) -> tuple[str, int]:
+def validate_release(release: dict, expected_tag: str | None = None) -> tuple[str, int, int | None]:
     if not isinstance(release, dict):
         raise ValueError("release metadata must be an object")
     tag = release.get("tag_name")
@@ -131,11 +142,21 @@ def validate_release(release: dict, expected_tag: str | None = None) -> tuple[st
     size = matching[0].get("size")
     if type(size) is not int or size <= 0:
         raise ValueError("release ZIP size must be a positive integer byte count")
-    return tag[1:], size
+    # The installer is what the update dialog offers and what the download row
+    # names first, so the size quoted to the user is the installer's. A release
+    # that carries only the ZIP still validates: the dialog then quotes the
+    # package it does have, which is what it always did.
+    installers = [asset for asset in assets if asset.get("name") == installer_asset(tag[1:])]
+    if len(installers) > 1:
+        raise ValueError(f"release lists more than one {installer_asset(tag[1:])}")
+    installer_size = installers[0].get("size") if installers else None
+    if installer_size is not None and (type(installer_size) is not int or installer_size <= 0):
+        raise ValueError("release installer size must be a positive integer byte count")
+    return tag[1:], size, installer_size
 
 
 def make_feed(changelog: str, release: dict, expected_tag: str | None = None) -> dict:
-    version, size = validate_release(release, expected_tag)
+    version, zip_size, installer_size = validate_release(release, expected_tag)
     newest = parse_changelog(changelog)[0]
     if newest["version"] != version:
         raise ValueError(f"newest changelog release {newest['version']} does not match release tag v{version}")
@@ -146,16 +167,53 @@ def make_feed(changelog: str, release: dict, expected_tag: str | None = None) ->
         "notes": newest["notes"],
         "released": f"{released.day} {MONTHS[released.month - 1]} {released.year}",
         # Preserve the existing plugin/site size presentation (MiB rounded as MB).
-        "installer_size": f"{size / (1024 * 1024):.1f} MB",
+        "installer_size": f"{(installer_size if installer_size is not None else zip_size) / (1024 * 1024):.1f} MB",
     }
 
 
-def render_notes(changelog: str) -> str:
-    """Stable #vX.Y.Z anchors for every released section; no Unreleased leaks."""
+def row_links(version: str, release: dict) -> list[tuple[str, str]]:
+    """One link per asset the release actually carries.
+
+    Which links appear is read from tools/gacidbase/release.json, which
+    --refresh writes straight from the GitHub API after the uploads finished,
+    so a link can never point at a file nobody uploaded, --check stays offline,
+    and an older release that carries only the ZIP shows only the ZIP.
+    """
+    base = f"{RELEASE_BASE}/download/v{version}"
+    names = {asset.get("name") for asset in release.get("assets", [])
+             if isinstance(asset, dict)}
+    links = [(f"{base}/{ASSET_NAME}", "ZIP package")]
+    if installer_asset(version) in names:
+        links.append((f"{base}/{installer_asset(version)}", "Installer"))
+    if SUMS_NAME in names:
+        links.append((f"{base}/{SUMS_NAME}", "SHA-256 checksums"))
+    links.append((f"{RELEASE_BASE}/tag/v{version}", "all files"))
+    return links
+
+
+def download_row(version: str, release: dict) -> str:
+    """The direct download row: the newest release's assets, version-named."""
+    cells = []
+    for index, (href, label) in enumerate(row_links(version, release)):
+        if index:
+            cells.append('<span class="sep">·</span>')
+        cells.append(f'<a href="{href}">{label}</a>')
+    return (f'<p class="release-downloads"><span class="dl-label">Download {version}</span>'
+            + ''.join(cells) + '</p>')
+
+
+def render_notes(changelog: str, release: dict | None = None) -> str:
+    """Stable #vX.Y.Z anchors for every released section; no Unreleased leaks.
+
+    With the release metadata, the newest version also carries the download row
+    the product's other pages link to; without it (older callers, and releases
+    whose assets are not recorded) the notes stay pure history.
+    """
     releases = parse_changelog(changelog)
     links = ' · '.join(f'<a href="#v{item["version"]}">{item["version"]}</a>'
                        for item in releases)
     lines = [f'      <nav class="release-versions" aria-label="Release versions">{links}</nav>']
+    row_version = release.get("tag_name", "")[1:] if release else None
     for item in releases:
         version, released = item["version"], item["date"]
         lines.extend([
@@ -168,19 +226,38 @@ def render_notes(changelog: str) -> str:
         for category, note in item["entries"]:
             lines.append(f'          <li><span class="cat">{html.escape(category)}</span> '
                          f'{html.escape(note)}</li>')
-        lines.extend(['        </ul>', '      </article>'])
+        lines.append('        </ul>')
+        # The row rides under the newest released version: that is the one
+        # people download, and older sections stay pure history.
+        if version == row_version:
+            lines.append('        ' + download_row(version, release))
+        lines.append('      </article>')
     return '\n'.join(lines)
 
 
-def update_page(page: str, changelog: str) -> str:
-    """Replace only the generated block; fail if the page contract is broken."""
-    if page.count(NOTES_BEGIN) != 1 or page.count(NOTES_END) != 1:
-        raise ValueError("product page requires exactly one release-notes marker pair")
-    start = page.index(NOTES_BEGIN) + len(NOTES_BEGIN)
-    end = page.index(NOTES_END)
-    if end < start:
-        raise ValueError("product page release-notes markers are reversed")
-    return page[:start] + '\n' + render_notes(changelog) + '\n      ' + page[end:]
+def render_download(release: dict) -> str:
+    """The download section's row, generated from the same recorded assets."""
+    return '      ' + download_row(release["tag_name"][1:], release)
+
+
+def replace_block(page: str, begin: str, end: str, body: str) -> str:
+    """Replace one marker block, refusing a page whose contract is broken."""
+    name = begin.strip('<!-> ')
+    if page.count(begin) != 1 or page.count(end) != 1:
+        raise ValueError(f"product page requires exactly one {name} marker pair")
+    start = page.index(begin) + len(begin)
+    stop = page.index(end)
+    if stop < start:
+        raise ValueError(f"product page {name} markers are reversed")
+    return page[:start] + '\n' + body + '\n      ' + page[stop:]
+
+
+def update_page(page: str, changelog: str, release: dict | None = None) -> str:
+    """Replace only the generated blocks; fail if the page contract is broken."""
+    page = replace_block(page, NOTES_BEGIN, NOTES_END, render_notes(changelog, release))
+    if release is not None:
+        page = replace_block(page, DOWNLOAD_BEGIN, DOWNLOAD_END, render_download(release))
+    return page
 
 
 def fetch_release() -> dict:
@@ -189,11 +266,12 @@ def fetch_release() -> dict:
     with urllib.request.urlopen(request, timeout=20) as response:
         release = json.load(response)
     validate_release(release)
+    interesting = {ASSET_NAME, installer_asset(release["tag_name"][1:]), SUMS_NAME}
     # Save only public fields that the generator actually consumes.
     return {**{key: release[key] for key in
               ("tag_name", "html_url", "draft", "prerelease", "published_at")},
             "assets": [{"name": asset["name"], "size": asset["size"]}
-                       for asset in release["assets"] if asset["name"] == ASSET_NAME]}
+                       for asset in release["assets"] if asset["name"] in interesting]}
 
 
 def render(data: dict) -> str:
@@ -216,7 +294,7 @@ def main() -> int:
         wanted = render(make_feed(changelog, release, args.tag))
         current = FEED.read_bytes() if FEED.exists() else b""
         page = PAGE.read_bytes()
-        wanted_page = update_page(page.decode('utf-8'), changelog).encode('utf-8')
+        wanted_page = update_page(page.decode('utf-8'), changelog, release).encode('utf-8')
         if args.check:
             stale = False
             for label, actual, expected in (("feed", current, wanted.encode('utf-8')),

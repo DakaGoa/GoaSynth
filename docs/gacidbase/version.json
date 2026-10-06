@@ -1,14 +1,13 @@
 {
-  "latest": "1.1.0",
+  "latest": "1.1.1",
   "url": "https://dakagoa.github.io/GoaSynth/gacidbase/",
   "notes": [
-    "Sequencer transport fixed: RUN is the sequencer's play button - it starts the sequence from any play mode, browsing the 50 presets keeps it running, and choosing MIDI play mode stops it.",
-    "Animated header mark: the logo beside the plugin name runs one cycle per beat of host tempo, swells on the beat and opens up with the resonance control.",
-    "Pattern banks and repeatable chains: hold several lines in banks and chain them with per-entry repeat counts.",
-    "Probability, ratchets and microtiming per step, so a line can breathe without leaving the 16-step grid.",
-    "Macros with morphing, a MIDI modulation matrix, and controller pickup plus two relative encoder modes.",
-    "MIDI CC learn by right-click on any continuous control, and MIDI file export with drag-out to the DAW."
+    "A Windows installer, G-AcidBase-Setup-1.1.1.exe: it puts the plugin and the standalone app where DAWs look for them - the standard VST3 folder every host scans (Windows asks for administrator permission once) or any custom folder - adds an Add/Remove-Programs entry, installs with no window at all through --silent <folder>, and removes everything again through --uninstall.",
+    "The plugin checks for a new release by itself, once per session, on the first window opening. It stays silent unless a newer version is really available, so an unreachable feed and an up-to-date build say nothing; CHECK FOR UPDATES by hand still always answers, and reopening the window never repeats the automatic request.",
+    "TOOLS → CHANGE LOG opens the full release history on the product site, and the up-to-date dialog links the running version's notes.",
+    "The update dialog's download link now goes straight to the new version's installer instead of the package, and the size it quotes is the installer's.",
+    "The product page's release notes and download section are generated from this changelog and the release's assets, so they name the package, the installer and the published checksums without anyone pasting links by hand."
   ],
-  "released": "5 October 2026",
-  "installer_size": "5.5 MB"
+  "released": "6 October 2026",
+  "installer_size": "14.7 MB"
 }

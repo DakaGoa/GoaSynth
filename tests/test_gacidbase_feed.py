@@ -22,10 +22,13 @@ spec.loader.exec_module(feed)
 class FeedTests(unittest.TestCase):
     def setUp(self):
         self.changelog = "## [1.1.0] - 2026-10-05\n### Fixed\n- A release note.\n"
+        self.setup_asset = {"name": feed.installer_asset("1.1.0"), "size": 15421440}
+        self.sums_asset = {"name": feed.SUMS_NAME, "size": 1215}
         self.release = {
             "tag_name": "v1.1.0", "html_url": feed.REPOSITORY_URL + "/releases/tag/v1.1.0",
             "draft": False, "prerelease": False, "published_at": "2026-10-05T03:28:43Z",
-            "assets": [{"name": feed.ASSET_NAME, "size": 5798127}],
+            "assets": [{"name": feed.ASSET_NAME, "size": 5798127}, self.setup_asset,
+                       self.sums_asset],
         }
 
     def test_checked_in_feed_exactly_matches_sources(self):
@@ -53,20 +56,50 @@ class FeedTests(unittest.TestCase):
         self.assertNotIn('<script>', result)
 
     def test_site_block_preserves_surrounding_page_and_rejects_broken_markers(self):
-        page = 'before' + feed.NOTES_BEGIN + '\nold\n' + feed.NOTES_END + 'after'
-        updated = feed.update_page(page, self.changelog)
+        page = ('before' + feed.NOTES_BEGIN + '\nold\n' + feed.NOTES_END + 'middle'
+                + feed.DOWNLOAD_BEGIN + '\nold row\n' + feed.DOWNLOAD_END + 'after')
+        updated = feed.update_page(page, self.changelog, self.release)
         self.assertTrue(updated.startswith('before' + feed.NOTES_BEGIN))
-        self.assertTrue(updated.endswith(feed.NOTES_END + 'after'))
-        self.assertEqual(feed.update_page(updated, self.changelog), updated)
-        for invalid in ('no markers', page + feed.NOTES_BEGIN, feed.NOTES_END + feed.NOTES_BEGIN):
+        self.assertTrue(updated.endswith(feed.DOWNLOAD_END + 'after'))
+        self.assertIn('middle', updated)
+        self.assertNotIn('old row', updated)
+        self.assertEqual(feed.update_page(updated, self.changelog, self.release), updated)
+        for invalid in ('no markers', page + feed.NOTES_BEGIN, feed.NOTES_END + feed.NOTES_BEGIN,
+                        page.replace(feed.DOWNLOAD_END, ''), page.replace(feed.DOWNLOAD_BEGIN, '')):
             with self.subTest(page=invalid), self.assertRaises(ValueError):
-                feed.update_page(invalid, self.changelog)
+                feed.update_page(invalid, self.changelog, self.release)
+
+    def test_download_row_links_only_the_assets_the_release_carries(self):
+        row = feed.download_row("1.1.0", self.release)
+        self.assertIn('<span class="dl-label">Download 1.1.0</span>', row)
+        for label in ("ZIP package", "Installer", "SHA-256 checksums", "all files"):
+            self.assertIn(f'>{label}</a>', row)
+        self.assertEqual(row.count('<a '), 4)
+        self.assertLess(row.index('ZIP package'), row.index('Installer'))
+        self.assertLess(row.index('Installer'), row.index('SHA-256 checksums'))
+        # An older release carries only the ZIP: its row links what it has, and
+        # never a file nobody uploaded.
+        zip_only = {"tag_name": "v1.1.0", "assets": [{"name": feed.ASSET_NAME, "size": 5798127}]}
+        bare = feed.download_row("1.1.0", zip_only)
+        self.assertIn('>ZIP package</a>', bare)
+        self.assertIn('>all files</a>', bare)
+        self.assertNotIn('Installer', bare)
+        self.assertNotIn(feed.SUMS_NAME, bare)
+
+    def test_the_row_rides_under_the_newest_release_only(self):
+        changelog = self.changelog + "\n## [1.0.0] - 2026-09-30\n### Added\n- Older feature.\n"
+        result = feed.render_notes(changelog, self.release)
+        self.assertEqual(result.count('class="release-downloads"'), 1)
+        self.assertLess(result.index('id="v1.1.0"'), result.index('class="release-downloads"'))
+        self.assertLess(result.index('class="release-downloads"'), result.index('id="v1.0.0"'))
+        # No release metadata: pure history, no row to get wrong.
+        self.assertNotIn('release-downloads', feed.render_notes(changelog))
 
     def test_fixture_wire_values(self):
         result = feed.make_feed(self.changelog, self.release)
         self.assertEqual(result["latest"], "1.1.0")
         self.assertEqual(result["released"], "5 October 2026")
-        self.assertEqual(result["installer_size"], "5.5 MB")
+        self.assertEqual(result["installer_size"], "14.7 MB")
 
     def test_unreleased_does_not_leak_and_multiline_notes_are_plain(self):
         changelog = """# Changelog
@@ -125,6 +158,9 @@ class FeedTests(unittest.TestCase):
             ("assets", [{"name": feed.ASSET_NAME, "size": 0}]),
             ("assets", [{"name": feed.ASSET_NAME, "size": True}]),
             ("assets", self.release["assets"] * 2),
+            ("assets", self.release["assets"] + [dict(self.setup_asset)]),
+            ("assets", [self.release["assets"][0],
+                        {"name": feed.installer_asset("1.1.0"), "size": 0}]),
         ]
         for key, value in changes:
             release = copy.deepcopy(self.release)
@@ -132,9 +168,17 @@ class FeedTests(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 feed.make_feed(self.changelog, release)
 
-    def test_asset_size_is_derived_and_not_copied_from_old_feed(self):
+    def test_installer_size_is_the_installers_and_falls_back_to_the_zip(self):
+        # The dialog offers the installer, so the size it quotes is the
+        # installer's - not the package's, and never a number copied from the
+        # feed that was there before.
         self.release["assets"][0]["size"] = 8 * 1024 * 1024
-        self.assertEqual(feed.make_feed(self.changelog, self.release)["installer_size"], "8.0 MB")
+        self.assertEqual(feed.make_feed(self.changelog, self.release)["installer_size"], "14.7 MB")
+        # A release from before the installer existed still validates: the
+        # dialog quotes the package it does have instead of inventing a size.
+        without_installer = copy.deepcopy(self.release)
+        without_installer["assets"] = [{"name": feed.ASSET_NAME, "size": 8 * 1024 * 1024}]
+        self.assertEqual(feed.make_feed(self.changelog, without_installer)["installer_size"], "8.0 MB")
 
     def test_refresh_fetch_is_bounded_and_saves_only_needed_public_fields(self):
         raw = copy.deepcopy(self.release)

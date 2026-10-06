@@ -25,10 +25,16 @@ generation and checking are deterministic and offline. Commit this changelog,
 `docs/gacidbase/index.html` notes together.
 See the website README for the complete command reference.
 
-## [Unreleased]
+## [1.1.1] - 2026-10-06
 
 ### Added
-- TOOLS → CHANGE LOG opens the full release history on the product site. Update dialogs deep-link to the offered or running version's notes.
+- A Windows installer, G-AcidBase-Setup-1.1.1.exe: it puts the plugin and the standalone app where DAWs look for them - the standard VST3 folder every host scans (Windows asks for administrator permission once) or any custom folder - adds an Add/Remove-Programs entry, installs with no window at all through --silent <folder>, and removes everything again through --uninstall.
+- The plugin checks for a new release by itself, once per session, on the first window opening. It stays silent unless a newer version is really available, so an unreachable feed and an up-to-date build say nothing; CHECK FOR UPDATES by hand still always answers, and reopening the window never repeats the automatic request.
+- TOOLS → CHANGE LOG opens the full release history on the product site, and the up-to-date dialog links the running version's notes.
+
+### Changed
+- The update dialog's download link now goes straight to the new version's installer instead of the package, and the size it quotes is the installer's.
+- The product page's release notes and download section are generated from this changelog and the release's assets, so they name the package, the installer and the published checksums without anyone pasting links by hand.
 
 ## [1.1.0] - 2026-10-05
 

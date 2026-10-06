@@ -1,13 +1,21 @@
 {
-  "tag_name": "v1.1.0",
-  "html_url": "https://github.com/DakaGoa/G-AcidBase/releases/tag/v1.1.0",
+  "tag_name": "v1.1.1",
+  "html_url": "https://github.com/DakaGoa/G-AcidBase/releases/tag/v1.1.1",
   "draft": false,
   "prerelease": false,
-  "published_at": "2026-10-05T03:28:43Z",
+  "published_at": "2026-10-06T20:09:10Z",
   "assets": [
     {
+      "name": "G-AcidBase-Setup-1.1.1.exe",
+      "size": 15421952
+    },
+    {
       "name": "G-AcidBase-Windows-x64.zip",
-      "size": 5798127
+      "size": 12937167
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 1073
     }
   ]
 }

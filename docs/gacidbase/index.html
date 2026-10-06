@@ -320,25 +320,29 @@
     <div class="wrap">
       <header class="section-head">
         <p class="kicker">Download</p>
-        <h2>G-AcidBase 1.1.0 for Windows</h2>
+        <h2>Install G-AcidBase for Windows</h2>
         <p class="section-lede">
-          One ZIP, two ways to run it: a VST3 instrument and a standalone executable.
-          Nothing to install globally, nothing to activate.
+          The installer puts the VST3 instrument and the standalone app where your DAW looks for them,
+          and removes them again. Prefer to place the files yourself? The same ZIP holds the plugin folder.
+          Nothing to activate, no account, no phone-home.
         </p>
       </header>
 
-      <p class="release-downloads"><span class="dl-label">Download 1.1.0</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.0/G-AcidBase-Windows-x64.zip">ZIP package</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/tag/v1.1.0">all files</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase" target="_blank" rel="noopener">source</a></p>
+      <!-- gacidbase-download:begin -->
+      <p class="release-downloads"><span class="dl-label">Download 1.1.1</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/G-AcidBase-Windows-x64.zip">ZIP package</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/G-AcidBase-Setup-1.1.1.exe">Installer</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/SHA256SUMS.txt">SHA-256 checksums</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/tag/v1.1.1">all files</a></p>
+      <!-- gacidbase-download:end -->
 
       <ol class="steps">
-        <li>Download and unzip <code>G-AcidBase-Windows-x64.zip</code>.</li>
-        <li>Copy <code>G-AcidBase.vst3</code> into <code>%LOCALAPPDATA%\Programs\Common\VST3\</code>, or add the unzipped folder to your DAW's VST3 scan paths. The machine-wide location is <code>C:\Program Files\Common Files\VST3\</code>, which needs administrator permission.</li>
+        <li>Run <code>G-AcidBase-Setup-&lt;version&gt;.exe</code> and press <b>INSTALL</b>. It puts the plugin in the standard VST3 folder every DAW scans (Windows asks for administrator permission once) and the standalone app beside it. Prefer no administrator rights? Choose <b>Custom folder</b> and pick <code>%LOCALAPPDATA%\Programs\Common\VST3\</code> if your DAW scans that user location. <b>UNINSTALL</b>, or <code>--silent &lt;folder&gt;</code> with no window at all, are both there.</li>
+        <li>Or unzip <code>G-AcidBase-Windows-x64.zip</code> and copy <code>G-AcidBase.vst3</code> into <code>%LOCALAPPDATA%\Programs\Common\VST3\</code>, or add the unzipped folder to your DAW's VST3 scan paths. The machine-wide location is <code>C:\Program Files\Common Files\VST3\</code>, which needs administrator permission.</li>
         <li>Rescan plugins and load <b>G-AcidBase as an instrument</b> on a MIDI track — it is a synth, not an audio effect.</li>
         <li>Start with low monitor volume. Choose one of the 50 presets, or send note C2 (MIDI 36) and turn the cutoff down.</li>
       </ol>
 
       <p class="note">
         Every file in the archive is listed with its own SHA-256 in <code>G-AcidBase/manifest.json</code>,
-        and the archive also carries the verification reports the build produced.
+        and the archive also carries the verification reports the build produced. The published
+        <code>SHA256SUMS.txt</code> on the release is what the downloaded installer and ZIP are checked against.
       </p>
     </div>
   </section>
@@ -353,7 +357,18 @@
       </header>
       <!-- Generated from tools/gacidbase/CHANGELOG.md. Edit the changelog, not this block. -->
       <!-- gacidbase-changelog:begin -->
-      <nav class="release-versions" aria-label="Release versions"><a href="#v1.1.0">1.1.0</a></nav>
+      <nav class="release-versions" aria-label="Release versions"><a href="#v1.1.1">1.1.1</a> · <a href="#v1.1.0">1.1.0</a></nav>
+      <article class="release-entry" aria-labelledby="v1.1.1">
+        <h3 id="v1.1.1"><a href="#v1.1.1">Version 1.1.1</a> <time class="ver-date" datetime="2026-10-06">6 October 2026</time></h3>
+        <ul class="changelog">
+          <li><span class="cat">Added</span> A Windows installer, G-AcidBase-Setup-1.1.1.exe: it puts the plugin and the standalone app where DAWs look for them - the standard VST3 folder every host scans (Windows asks for administrator permission once) or any custom folder - adds an Add/Remove-Programs entry, installs with no window at all through --silent &lt;folder&gt;, and removes everything again through --uninstall.</li>
+          <li><span class="cat">Added</span> The plugin checks for a new release by itself, once per session, on the first window opening. It stays silent unless a newer version is really available, so an unreachable feed and an up-to-date build say nothing; CHECK FOR UPDATES by hand still always answers, and reopening the window never repeats the automatic request.</li>
+          <li><span class="cat">Added</span> TOOLS → CHANGE LOG opens the full release history on the product site, and the up-to-date dialog links the running version&#x27;s notes.</li>
+          <li><span class="cat">Changed</span> The update dialog&#x27;s download link now goes straight to the new version&#x27;s installer instead of the package, and the size it quotes is the installer&#x27;s.</li>
+          <li><span class="cat">Changed</span> The product page&#x27;s release notes and download section are generated from this changelog and the release&#x27;s assets, so they name the package, the installer and the published checksums without anyone pasting links by hand.</li>
+        </ul>
+        <p class="release-downloads"><span class="dl-label">Download 1.1.1</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/G-AcidBase-Windows-x64.zip">ZIP package</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/G-AcidBase-Setup-1.1.1.exe">Installer</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/download/v1.1.1/SHA256SUMS.txt">SHA-256 checksums</a><span class="sep">·</span><a href="https://github.com/DakaGoa/G-AcidBase/releases/tag/v1.1.1">all files</a></p>
+      </article>
       <article class="release-entry" aria-labelledby="v1.1.0">
         <h3 id="v1.1.0"><a href="#v1.1.0">Version 1.1.0</a> <time class="ver-date" datetime="2026-10-05">5 October 2026</time></h3>
         <ul class="changelog">

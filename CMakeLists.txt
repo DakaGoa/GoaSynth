@@ -195,11 +195,20 @@ add_test(NAME ClipTest COMMAND ClipTest)
 
 # The changelog is generated, not copied: CHANGELOG.md feeds the site's
 # release notes and the update feed's notes. This keeps every generated
-# artefact in lockstep with its source — editing docs/index.html's release
+# artefact in lockstep with its source — editing docs/goasynth/index.html's release
 # block or docs/version.json's notes by hand fails the suite instead of
 # quietly drifting (run tools/make-changelog.py to fix).
 add_test(NAME ChangelogCheck
          COMMAND python tools/make-changelog.py --check
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+# G-AcidBase's companion feed is generated from its own changelog and saved
+# public release metadata. These checks are offline; CI also runs them alone.
+add_test(NAME GAcidBaseFeedCheck
+         COMMAND python tools/make-gacidbase-feed.py --check
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME GAcidBaseFeedTest
+         COMMAND python -m unittest discover -s tests -p test_gacidbase_feed.py
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Standalone key generator (seller-side console tool)

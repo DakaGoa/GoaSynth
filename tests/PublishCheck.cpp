@@ -48,7 +48,8 @@ const std::set<std::string> allowlist =
 {
     ".nojekyll",
     "app.js",
-    "index.html",
+    "index.html",                 // DakaGoaAudio's two-plugin landing page
+    "goasynth/index.html",        // GoaSynth's complete product page
     "styles.css",
     "assets/ui-overview.png",
     "assets/ai-patch-designer.png",

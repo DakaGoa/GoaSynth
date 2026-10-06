@@ -380,7 +380,13 @@ containing `.goapreset` files — so it's easy to email, torrent or archive.
 ## Website
 
 The landing/documentation site lives in [`docs/`](docs/) as plain static files — no build step,
-no dependencies, no external requests. It is published at **https://y4m4.github.io/GoaSynth/**.
+no dependencies, no external requests. It is published at **https://dakagoa.github.io/GoaSynth/**.
+The site is branded **DakaGoaAudio**. Its homepage at `docs/index.html` shows only the two
+plugin overviews. Clicking a plugin title, screenshot or Explore button opens the full page:
+`docs/goasynth/index.html` for GoaSynth, or `docs/gacidbase/index.html` for G-AcidBase.
+Both product pages link back to the homepage. Existing root release-note/install fragments
+are forwarded to GoaSynth's page; the two version feeds keep their existing paths.
+
 Open `docs/index.html` directly, or point any static host (GitHub Pages, Netlify, Cloudflare Pages)
 at the `docs` folder. `docs/.nojekyll` is already there for GitHub Pages.
 
@@ -399,6 +405,44 @@ the AGPLv3. The site therefore has a **Pricing** section and Buy buttons everywh
 in the copy is stamped from `CONFIG.price`, so that is a one-line edit — but the legal pages carry the
 figure as plain text (Terms §3 and the EULA), so change those too. `DocsCheck` (below) fails when they
 disagree.
+
+### Generated G-AcidBase update feed
+
+[`docs/gacidbase/version.json`](docs/gacidbase/version.json) and the **Change Log** section of
+[`docs/gacidbase/index.html`](docs/gacidbase/index.html#changelog) are generated, not hand-maintained.
+Every released changelog section gets a stable `gacidbase/#vX.Y.Z` anchor, newest first.
+The plugin's update dialog links the offered version; TOOLS → CHANGE LOG opens `#changelog`.
+Unreleased entries are excluded from both outputs; HTML notes are escaped before rendering.
+Its five-field schema and existing URL are unchanged, so installed plugins need no rebuild.
+
+Sources (both are outside the published `docs/` folder):
+- [`tools/gacidbase/CHANGELOG.md`](tools/gacidbase/CHANGELOG.md): newest released version,
+  date, and plain-text notes; Unreleased is excluded.
+- [`tools/gacidbase/release.json`](tools/gacidbase/release.json): the latest stable GitHub
+  release's tag and exact ZIP byte size, saved by the refresh command.
+
+```bash
+# After publishing the corresponding release and adding its changelog section:
+python tools/make-gacidbase-feed.py --refresh --tag vX.Y.Z
+# Regenerate offline from the saved release record:
+python tools/make-gacidbase-feed.py
+# CI/local read-only drift check (no network):
+python tools/make-gacidbase-feed.py --check
+python -m unittest discover -s tests -p test_gacidbase_feed.py -v
+```
+
+The newest released changelog version must match the GitHub tag. Missing/duplicate notes,
+invalid dates or tags, draft/prerelease releases, and missing/invalid ZIP sizes fail before
+writes. `--tag` is an optional exact-match safeguard, not a way to select an old release.
+The date comes from the changelog; size is derived from release asset bytes using the existing
+MiB-rounded-as-MB presentation. Commit the changelog, refreshed release record, and generated
+feed and generated product page together. Refreshing also updates the size after an asset is replaced under the same tag.
+
+The `G-AcidBase update feed` workflow and CTest's `GAcidBaseFeedCheck`/`GAcidBaseFeedTest`
+reject hand edits. Offline checks compare with the **saved** release snapshot; they do not
+claim to detect a newer remote release or an asset replacement until you run `--refresh`.
+This workflow only checks: it never commits, pushes, publishes, or builds either plugin.
+The plugin's existing packaging gate still checks the live feed against the binary version.
 
 Configure the links in the `CONFIG` block at the top of `docs/app.js`:
 
@@ -466,14 +510,14 @@ build, and this tool is the one-command fix.
 It also re-derives the absolute URLs in each page's head: `og:url` becomes that page's own canonical,
 and `og:image` / `twitter:image` are re-rooted at the site root — including social cards, which is the
 one place a stale host stayed invisible until somebody shared a link and got a broken image. The
-shared screenshot's path lives in `SITE_IMAGE` at the top of the tool, since it belongs to the site
-rather than to any one page.
+default screenshot's path lives in `SITE_IMAGE` at the top of the tool. Each product page keeps
+its own `assets/` screenshot path while its host is re-rooted.
 
-Everything still names `https://y4m4.github.io/GoaSynth/` — the GitHub Pages address of this
+The site remains at `https://dakagoa.github.io/GoaSynth/` — the GitHub Pages address of this
 repository — and the pages are the only place that address is written down. So moving to a custom
 domain is: edit the canonical links, run the tool, commit. `DocsCheck` fails if a page is left behind.
 
-The landing page's `SoftwareApplication` JSON-LD is re-rooted the same way, and it needs no list of
+Each product page's `SoftwareApplication` JSON-LD is re-rooted the same way, and it needs no list of
 paths: the block names its own site URL in the `WebSite` node's `url`, so the tool replaces that
 prefix wherever the block uses it — the `@id` fragments, the offer URL, the app URL, the image and
 the three screenshots. The block is parsed before and after the rewrite, so a rewrite can never leave
@@ -528,7 +572,7 @@ python tools/make-reviews.py --check   # fail if the page and the store disagree
   `<!-- reviews:end -->`, and the `aggregateRating` inside the `SoftwareApplication` JSON-LD. One run,
   so they cannot disagree.
 - Withdrawal works: set `consent` to `false` and the section and the rating come back out, leaving
-  `docs/index.html` byte-identical to what it was before the review was published.
+  `docs/goasynth/index.html` byte-identical to what it was before the review was published.
 - `DocsCheck` fails the suite when the two halves drift apart — a count larger than the reviews on the
   page, a rating the visible reviews do not average to, an incentivized review that does not disclose
   it, or stars with no reviews under them at all.
@@ -890,7 +934,7 @@ line — so a serial can never be permanently locked by an old binding.
 How hover info and modulation indicators work in the editor — keep new
 controls consistent with this. The published copy of this section (with the
 screenshot inline) lives at
-[docs/index.html → Contributing](docs/index.html#contrib):
+[GoaSynth → Contributing](docs/goasynth/index.html#contrib):
 
 **Tooltips.** Every interactive control has hover text, shown by the single
 `juce::TooltipWindow` owned by the editor (without it, `setTooltip()` calls

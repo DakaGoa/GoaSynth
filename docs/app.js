@@ -1,5 +1,5 @@
 /* =========================================================
-   GoaSynth site — interactions
+   DakaGoaAudio site — interactions
    No dependencies, no network requests, no tracking.
    ========================================================= */
 (function () {
@@ -84,6 +84,19 @@
     if (!user || !parts.length) return;
     var base = 'https://github.com/' + user + '/' + parts[0];
     CONFIG.repo = CONFIG.repo || base;
+  }
+
+  // Installed GoaSynth builds and old bookmarks still link to root fragments.
+  // Keep those deep links working after moving the manual to its product page.
+  if (document.body.classList.contains('catalogue')) {
+    var oldSections = ['whats-new', 'highlights', 'buy', 'sound', 'filters',
+      'modulation', 'fx', 'sequencers', 'tuning', 'ai', 'presets', 'themes',
+      'specs', 'install', 'contrib', 'play', 'licence', 'faq', 'reviews'];
+    var fragment = location.hash.slice(1);
+    if (oldSections.indexOf(fragment) !== -1 || /^v\d+\.\d+\.\d+$/.test(fragment)) {
+      location.replace('goasynth/' + location.hash);
+      return;
+    }
   }
 
   var pageUrl = location.href.split('#')[0];
@@ -244,6 +257,24 @@
     });
   }
 
+  /* ---------- release-note deep links ---------- */
+  function initReleaseLinks() {
+    var history = document.getElementById('changelog');
+    if (!history) return;
+    function alignRelease() {
+      var id = location.hash.slice(1);
+      if (id !== 'changelog' && !/^v\d+\.\d+\.\d+$/.test(id)) return;
+      var target = document.getElementById(id);
+      if (!target || (target !== history && !history.contains(target))) return;
+      // Images above the notes change layout after the initial fragment jump.
+      // Align once they load; CSS scroll-margin keeps the sticky header clear.
+      target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+    window.addEventListener('hashchange', alignRelease);
+    if (document.readyState === 'complete') alignRelease();
+    else window.addEventListener('load', alignRelease, { once: true });
+  }
+
   /* ---------- scroll reveal ---------- */
   function initReveal() {
     var targets = document.querySelectorAll(
@@ -282,6 +313,7 @@
     var img = document.getElementById('lightboxImg');
     var cap = document.getElementById('lightboxCap');
     var close = document.getElementById('lightboxClose');
+    if (!box || !img || !cap || !close) return;
 
     function open(src, alt, text) {
       img.src = src; img.alt = alt || ''; cap.textContent = text || '';
@@ -394,6 +426,7 @@
   /* ---------- boot ---------- */
   resolveLinks();
   initTopbar();
+  initReleaseLinks();
   initReveal();
   initLightbox();
   initCopy();

@@ -243,6 +243,23 @@ html[data-theme="warm"] .swirl-layer { mix-blend-mode: multiply; opacity: .18; f
   -webkit-background-clip: text; background-clip: text; color: transparent; }
 .stat-strip span { font-size: .72rem; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; }
 
+/* ---------- DAKAGOAUDIO CATALOGUE ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.brand-text strong { letter-spacing: .035em; }
+.product-overview h2 { font-size: clamp(2.6rem, 1.6rem + 4.6vw, 4.6rem); letter-spacing: .01em; margin: 0 0 .35rem; line-height: .98; }
+.product-overview h2 a { color: var(--text); text-decoration: none; }
+.product-overview h2 .grad { background: linear-gradient(96deg, var(--accent), var(--accent-2) 48%, var(--accent-3)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.product-overview h2 small { display: block; font-size: clamp(.95rem, .8rem + .5vw, 1.2rem); font-weight: 500; letter-spacing: .01em; color: var(--dim); margin-top: .8rem; line-height: 1.4; }
+.product-image-link { display: block; }
+.product-image-link img { height: auto; cursor: pointer !important; }
+.acid-overview { --accent: #b8ff38; --accent-2: #42e8da; --accent-3: #b290ff; --glow: rgba(184, 255, 56, .22); border-top: 1px solid var(--line); }
+.product-overview :is(h2 a, .product-image-link):focus-visible { outline: 3px solid var(--accent-2); outline-offset: 6px; border-radius: 12px; }
+@media (max-width: 560px) {
+  .brand-text strong { letter-spacing: 0; }
+  .product-overview .eyebrow { display: block; line-height: 1.7; letter-spacing: .08em; }
+  .product-overview .eyebrow .dot { display: inline-block; margin-right: .35rem; }
+}
+
 /* ---------- SCREENSHOTS ---------- */
 .hero-shot { margin: 0; }
 .shot-frame {
@@ -789,6 +806,14 @@ html[data-theme="warm"] .glare {
 }
 
 /* --- generated release notes (tools/make-changelog.py) -------------------- */
+#changelog, .release-entry h3 { scroll-margin-top: 100px; }
+.release-entry { margin-top: 2rem; }
+.release-entry h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem 1rem; padding-bottom: .65rem; border-bottom: 1px solid var(--line); }
+.release-entry h3 > a { color: var(--text); }
+.release-entry h3:target { border-color: var(--accent-2); }
+.release-versions { display: flex; flex-wrap: wrap; gap: .5rem; color: var(--faint); }
+.release-versions a { padding: .2rem .65rem; border: 1px solid var(--line); border-radius: 999px; }
+.release-entry .ver-date { margin-left: 0; }
 .ver-date {
   color: var(--dim);
   font-size: .55em;

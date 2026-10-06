@@ -26,6 +26,9 @@ jobs:
       - name: Check out the source
         uses: actions/checkout@v4
 
+      - name: Check product-directory deployment verification
+        run: python -m unittest discover -s tests -p test_check_deployed.py -v
+
       - name: Restore the licence key header
         env:
           GOA_LICENSE_KEYS: ${{ secrets.LICENSE_KEYS_H }}

@@ -210,7 +210,8 @@ def load_site(base_override: str | None) -> Site:
 
 def url_of(site: Site, rel: str) -> str:
     """Where a docs-relative path is published."""
-    return site.base + ("" if rel == "index.html" else rel)
+    # Root and product index pages publish at their canonical directory URLs.
+    return site.base + (rel[:-len("index.html")] if rel.endswith("index.html") else rel)
 
 
 #==============================================================================
@@ -403,7 +404,9 @@ def check(site: Site, timeout: float, verbose: bool) -> list[str]:
                                 f"base {site.base}")
                 continue
 
-            rel = loc[len(site.base):] or "index.html"
+            rel = loc[len(site.base):]
+            if not rel or rel.endswith("/"):
+                rel += "index.html"  # a product directory serves its own index page
 
             if rel not in site.files:
                 problems.append(f"docs/sitemap.xml: advertises {loc}, which the repository does not "

@@ -147,7 +147,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
 {
     Result r;
 
-    const fs::path indexHtml = docsRoot / "index.html";
+    const fs::path indexHtml = docsRoot / "goasynth" / "index.html";
     const fs::path appJs     = docsRoot / "app.js";
     const fs::path privacy   = docsRoot / "legal" / "privacy.html";
     const fs::path presetsH  = repoRoot / "Source" / "Presets.h";
@@ -235,7 +235,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
 
                 const std::string card = "<h3>" + name + R"(\s*<span>)" + std::to_string (count) + "</span>";
                 if (! std::regex_search (index, std::regex (card)))
-                    r.problems.push_back ("docs/index.html: the preset grid has no \"<h3>" + name
+                    r.problems.push_back ("docs/goasynth/index.html: the preset grid has no \"<h3>" + name
                         + " <span>" + std::to_string (count) + "</span>\" card, but Source/Presets.h "
                           "ships " + std::to_string (count) + " " + name + " patches");
             }
@@ -258,7 +258,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
 
             const std::regex phrase (std::to_string (headerTotal) + R"rx(\s*patches)rx");
             if (! std::regex_search (index.begin(), index.end(), phrase))
-                r.problems.push_back ("docs/index.html: never says \"" + std::to_string (headerTotal)
+                r.problems.push_back ("docs/goasynth/index.html: never says \"" + std::to_string (headerTotal)
                     + " patches\", which is how many the factory bank actually holds");
 
             // Every preset the page names has to exist in the bank. The counts
@@ -304,12 +304,12 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
                     ++citedCount;
                     const std::string name = (*it)[1].str();
                     if (bank.count (name) == 0)
-                        r.problems.push_back ("docs/index.html: cites the preset \"" + name
+                        r.problems.push_back ("docs/goasynth/index.html: cites the preset \"" + name
                             + "\", which Source/Presets.h does not contain");
                 }
 
                 if (citedCount == 0)
-                    r.problems.push_back ("docs/index.html: no data-preset=\"...\" citations found - "
+                    r.problems.push_back ("docs/goasynth/index.html: no data-preset=\"...\" citations found - "
                                           "the preset-name check would silently pass, so fix this "
                                           "checker, not the site");
             }
@@ -356,13 +356,13 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
 
         for (const auto& token : { geminiDefault, openAiDefault })
             if (! token.empty() && ! containsIgnoreCase (index, token))
-                r.problems.push_back ("docs/index.html: never names the current default model \""
+                r.problems.push_back ("docs/goasynth/index.html: never names the current default model \""
                     + token + "\" from Source/AiCloudGen.cpp - the page is advertising a model the "
                       "plugin no longer calls");
 
         for (const char* engine : { "LOCAL", "GEMINI", "OPENAI", "CUSTOM" })
             if (! containsIgnoreCase (index, engine))
-                r.problems.push_back (std::string ("docs/index.html: never mentions the ") + engine
+                r.problems.push_back (std::string ("docs/goasynth/index.html: never mentions the ") + engine
                     + " engine, which Source/AiCloudGen.h exposes");
     }
 
@@ -423,7 +423,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
             const std::string n = m[1].str();
 
             if (! containsIgnoreCase (index, n + " hour") && ! containsIgnoreCase (index, n + "-hour"))
-                r.problems.push_back ("docs/index.html: the plugin's trial is " + n + " hours "
+                r.problems.push_back ("docs/goasynth/index.html: the plugin's trial is " + n + " hours "
                     "(Source/License.h) but the page never says so");
         }
     }
@@ -758,7 +758,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
     // worth a check rather than a convention.
     ++r.checks;
     {
-        const std::string page = readFile (docsRoot / "index.html");
+        const std::string page = readFile (indexHtml);
 
         // data-rating is what the generator writes on each review card; the
         // section itself is generated, so this reads the generated contract.
@@ -819,13 +819,13 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
                                    ? std::stoi (visible[1].str()) : -1;
 
         if (reviews == 0 && rated)
-            r.problems.push_back ("docs/index.html: it carries an aggregateRating but no review "
+            r.problems.push_back ("docs/goasynth/index.html: it carries an aggregateRating but no review "
                 "is visible on the page - a rating the reader cannot check the evidence for is "
                 "the fake-review case Google takes manual action over, and the guidelines "
                 "require the marked-up reviews to be on the marked-up page");
 
         if (reviews > 0 && ! rated)
-            r.problems.push_back ("docs/index.html: it shows " + std::to_string (reviews)
+            r.problems.push_back ("docs/goasynth/index.html: it shows " + std::to_string (reviews)
                 + " review(s) but carries no aggregateRating - where individual reviews are "
                   "marked up, the aggregate of those reviews has to be there too");
 
@@ -833,7 +833,7 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         {
             if (! hasValue || ! hasCount)
             {
-                r.problems.push_back ("docs/index.html: the aggregateRating has no "
+                r.problems.push_back ("docs/goasynth/index.html: the aggregateRating has no "
                     "ratingValue or no ratingCount/reviewCount - both are required before Google "
                     "will show the stars at all");
             }
@@ -844,27 +844,27 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
                 const int mean = (total * 20 + reviews) / (2 * reviews);
 
                 if (counted != reviews)
-                    r.problems.push_back ("docs/index.html: the aggregateRating says "
+                    r.problems.push_back ("docs/goasynth/index.html: the aggregateRating says "
                         + std::to_string (counted) + " ratings but " + std::to_string (reviews)
                         + " review(s) are on the page - the count has to be the reviews a reader "
                           "can see, not a bigger number");
 
                 if (claimed != mean)
-                    r.problems.push_back ("docs/index.html: the aggregateRating says "
+                    r.problems.push_back ("docs/goasynth/index.html: the aggregateRating says "
                         + valueMatch[1].str() + " but the visible reviews average "
                         + std::to_string (mean / 10) + "." + std::to_string (mean % 10)
                         + " - the stars and the reviews come from the same set or the stars are "
                           "not backed by anything");
 
                 if (shownAverage != claimed)
-                    r.problems.push_back ("docs/index.html: the reviews section says the average "
+                    r.problems.push_back ("docs/goasynth/index.html: the reviews section says the average "
                         "is " + std::to_string (shownAverage / 10) + "."
                         + std::to_string (shownAverage % 10) + " while the markup says "
                         + valueMatch[1].str() + " - a reader has to be able to see the rating "
                           "the markup claims");
 
                 if (shownCount != counted)
-                    r.problems.push_back ("docs/index.html: the reviews section says there are "
+                    r.problems.push_back ("docs/goasynth/index.html: the reviews section says there are "
                         + std::to_string (shownCount) + " buyers while the markup says "
                         + std::to_string (counted));
             }
@@ -876,10 +876,33 @@ Result scan (const fs::path& docsRoot, const fs::path& repoRoot)
         const int disclosed = occurrences (disclosure);
 
         if (incentivized != disclosed)
-            r.problems.push_back ("docs/index.html: " + std::to_string (incentivized)
+            r.problems.push_back ("docs/goasynth/index.html: " + std::to_string (incentivized)
                 + " review(s) are marked as incentivized but " + std::to_string (disclosed)
                 + " carry a disclosure - a review written for a free copy or a discount has to "
                   "say so, clearly and prominently, or the markup is against the guidelines");
+    }
+
+    // ---- 8. catalogue navigation leads to both complete product pages -----
+    ++r.checks;
+    {
+        const std::string home = readFile (docsRoot / "index.html");
+        if (home.find ("<title>DakaGoaAudio") == std::string::npos)
+            r.problems.push_back ("docs/index.html: the catalogue must name DakaGoaAudio");
+
+        for (const char* slug : { "goasynth", "gacidbase" })
+        {
+            const std::string path (slug);
+            if (home.find ("href=\"" + path + "/\"") == std::string::npos)
+                r.problems.push_back ("docs/index.html: missing product link to " + path + "/");
+            if (home.find ("id=\"" + path + "\"") == std::string::npos)
+                r.problems.push_back ("docs/index.html: missing overview for " + path);
+            const std::string product = readFile (docsRoot / path / "index.html");
+            if (product.find ("href=\"../\" aria-label=\"DakaGoaAudio home\"") == std::string::npos)
+                r.problems.push_back ("docs/" + path + "/index.html: missing return to DakaGoaAudio");
+        }
+        if (home.find ("changelog:begin") != std::string::npos
+            || home.find ("id=\"buy\"") != std::string::npos)
+            r.problems.push_back ("docs/index.html: full product content belongs on its details page");
     }
 
     return r;

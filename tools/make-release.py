@@ -13,7 +13,7 @@ What it writes
     dist/MANIFEST.txt                    every member, size and SHA-256
     dist/SHA256SUMS.txt                  copy of the published checksum file
     docs/downloads/SHA256SUMS.txt        the published checksum file (served)
-    docs/index.html                      the "Verify your download" block,
+    docs/goasynth/index.html                      the "Verify your download" block,
                                          regenerated from the real hashes
 
 The ZIP is deterministic: entries are sorted, timestamps come from the Setup
@@ -50,12 +50,13 @@ SETUP_EXE = BUILD / "GoaSynthSetup_artefacts" / "Release" / "GoaSynth-Setup.exe"
 STANDALONE_EXE = BUILD / "GoaSynth_artefacts" / "Release" / "Standalone" / "GoaSynth.exe"
 LICENSE_HELPER = BUILD / "GoaSynthLicense_artefacts" / "Release" / "GoaSynthLicense.exe"
 DIST = ROOT / "dist"
-INDEX_HTML = ROOT / "docs" / "index.html"
+INDEX_HTML = ROOT / "docs" / "goasynth" / "index.html"
 PUBLISHED_SUMS = ROOT / "docs" / "downloads" / "SHA256SUMS.txt"
 EULA_HTML = ROOT / "docs" / "legal" / "eula.html"
 
-REPO_URL = "https://github.com/Y4m4/GoaSynth"
-SITE_URL = "https://y4m4.github.io/GoaSynth/"
+REPO_URL = "https://github.com/DakaGoa/GoaSynth"
+SITE_URL = "https://dakagoa.github.io/GoaSynth/"
+PRODUCT_URL = SITE_URL + "goasynth/"
 
 
 def die(message: str) -> None:
@@ -168,7 +169,7 @@ def readme_text(version: str, commit: str, built: str, zip_name: str,
 ================================================================
 
 Built {built} from commit {commit} of {REPO_URL}
-Website and manual: {SITE_URL}
+Website and manual: {PRODUCT_URL}
 
 What is in this package
 -----------------------
@@ -452,7 +453,7 @@ def refresh_site_block(zip_name: str, zip_size: int, zip_sha: str,
     # the old indentation and add its own, drifting the block right for ever.
     pattern = re.compile(r"(?s)[ \t]*<!-- release:begin.*?<!-- release:end -->")
     if not pattern.search(page):
-        die("docs/index.html has no release:begin/release:end block to write the hashes into")
+        die("docs/goasynth/index.html has no release:begin/release:end block to write the hashes into")
 
     updated = pattern.sub(lambda _: block, page, count=1)
     changed = updated != page
@@ -494,7 +495,7 @@ def main() -> int:
     print(f"      sha256 {standalone_sha}")
     print(f"  docs/downloads/SHA256SUMS.txt   published")
     print(f"  dist/MANIFEST.txt               {zip_name} + every member")
-    print(f"  docs/index.html                 verify block "
+    print(f"  docs/goasynth/index.html                 verify block "
           f"{'regenerated' if rewritten else 'already current'}")
     print("\nNot committed and not uploaded: the ZIP belongs on your store or "
           "customer-library\nhosting, next to the checksum file, and never in a "

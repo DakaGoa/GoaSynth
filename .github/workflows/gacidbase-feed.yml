@@ -1,0 +1,38 @@
+name: G-AcidBase update feed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/gacidbase/version.json'
+      - 'docs/gacidbase/index.html'
+      - 'tools/gacidbase/**'
+      - 'tools/make-gacidbase-feed.py'
+      - 'tests/test_gacidbase_feed.py'
+      - '.github/workflows/gacidbase-feed.yml'
+  pull_request:
+    paths:
+      - 'docs/gacidbase/version.json'
+      - 'docs/gacidbase/index.html'
+      - 'tools/gacidbase/**'
+      - 'tools/make-gacidbase-feed.py'
+      - 'tests/test_gacidbase_feed.py'
+      - '.github/workflows/gacidbase-feed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check generated feed (offline, read-only)
+        run: python tools/make-gacidbase-feed.py --check
+      - name: Exercise tag, changelog, and drift guards
+        run: python -m unittest discover -s tests -p test_gacidbase_feed.py -v

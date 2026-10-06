@@ -136,7 +136,7 @@ int main()
         fs::copy (realDocs, docs, fs::copy_options::recursive, ec);
         fs::copy (realRepo / "Source", src, fs::copy_options::recursive, ec);
 
-        if (ec || ! fs::exists (docs / "index.html") || ! fs::exists (src / "Presets.h"))
+        if (ec || ! fs::exists (docs / "goasynth" / "index.html") || ! fs::exists (src / "Presets.h"))
         {
             std::printf ("DOCS CHECK: could not build the scratch tree (%s)\n", ec.message().c_str());
             return false;
@@ -153,7 +153,7 @@ int main()
         const auto r = scan (docs, root);
 
         expect (! r.fatal, "clean tree: the guard could not run at all");
-        expect (r.checks == 7, "clean tree: expected 7 checks to run, got " + std::to_string (r.checks));
+        expect (r.checks == 8, "clean tree: expected 8 checks to run, got " + std::to_string (r.checks));
         report ("clean docs/ + Source/", r.problems, false);
     }
 
@@ -198,7 +198,7 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html", "BASS PSY ROLLER", "PSYTRANCE BASS 4");
+        const int n = replaceAll (docs / "goasynth" / "index.html", "BASS PSY ROLLER", "PSYTRANCE BASS 4");
         expect (n > 0, "preset-name drift: expected the page to cite a factory preset by name");
 
         const auto r = scan (docs, root);
@@ -212,7 +212,7 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html", "3.6", "2.0");
+        const int n = replaceAll (docs / "goasynth" / "index.html", "3.6", "2.0");
         expect (n > 0, "model drift: expected the page to name the current Gemini default");
 
         const auto r = scan (docs, root);
@@ -260,7 +260,7 @@ int main()
         // is a page that *declares* a different origin, and hitting both would
         // test the same branch twice.
         const int n = replaceAll (docs / "legal" / "terms.html",
-                                  "<link rel=\"canonical\" href=\"https://y4m4.github.io/GoaSynth/legal/terms.html\">",
+                                  "<link rel=\"canonical\" href=\"https://dakagoa.github.io/GoaSynth/legal/terms.html\">",
                                   "<link rel=\"canonical\" href=\"https://goasynth.example.com/legal/terms.html\">");
         expect (n == 1, "address drift: expected exactly one canonical link to rewrite, found "
                         + std::to_string (n));
@@ -279,8 +279,8 @@ int main()
 
     {
         const int n = replaceAll (docs / "sitemap.xml",
-                                  "<loc>https://y4m4.github.io/GoaSynth/legal/refunds.html</loc>",
-                                  "<loc>https://y4m4.github.io/GoaSynth/legal/refunds-2.html</loc>");
+                                  "<loc>https://dakagoa.github.io/GoaSynth/legal/refunds.html</loc>",
+                                  "<loc>https://dakagoa.github.io/GoaSynth/legal/refunds-2.html</loc>");
         expect (n == 1, "sitemap drift: expected exactly one <loc> entry to rewrite, found "
                         + std::to_string (n));
 
@@ -301,8 +301,8 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html",
-                                  "<meta property=\"og:image\" content=\"https://y4m4.github.io/GoaSynth/assets/ui-overview.png\">",
+        const int n = replaceAll (docs / "goasynth" / "index.html",
+                                  "<meta property=\"og:image\" content=\"https://dakagoa.github.io/GoaSynth/assets/ui-overview.png\">",
                                   "<meta property=\"og:image\" content=\"https://old-site.example/assets/ui-overview.png\">");
         expect (n == 1, "head drift: expected exactly one og:image tag to rewrite, found "
                         + std::to_string (n));
@@ -320,9 +320,9 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html",
-                                  "<meta property=\"og:url\" content=\"https://y4m4.github.io/GoaSynth/\">",
-                                  "<meta property=\"og:url\" content=\"https://y4m4.github.io/GoaSynth/index.html\">");
+        const int n = replaceAll (docs / "goasynth" / "index.html",
+                                  "<meta property=\"og:url\" content=\"https://dakagoa.github.io/GoaSynth/goasynth/\">",
+                                  "<meta property=\"og:url\" content=\"https://dakagoa.github.io/GoaSynth/index.html\">");
         expect (n == 1, "og:url drift: expected exactly one og:url tag to rewrite, found "
                         + std::to_string (n));
 
@@ -340,8 +340,8 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html",
-                                  R"("image": "https://y4m4.github.io/GoaSynth/assets/ui-overview.png")",
+        const int n = replaceAll (docs / "goasynth" / "index.html",
+                                  R"("image": "https://dakagoa.github.io/GoaSynth/assets/ui-overview.png")",
                                   R"("image": "https://old-site.example/assets/ui-overview.png")");
         expect (n == 1, "JSON-LD drift: expected exactly one image URL to rewrite, found "
                         + std::to_string (n));
@@ -439,7 +439,7 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html", "\"offers\": {",
+        const int n = replaceAll (docs / "goasynth" / "index.html", "\"offers\": {",
                                   "\"aggregateRating\": { \"@type\": \"AggregateRating\","
                                   " \"ratingValue\": 4.9, \"ratingCount\": 42 },\n      \"offers\": {");
         expect (n == 1, "invented stars: expected exactly one offers block to inject before, found "
@@ -456,13 +456,13 @@ int main()
         return 2;
 
     {
-        const int n = replaceAll (docs / "index.html", "\"offers\": {",
+        const int n = replaceAll (docs / "goasynth" / "index.html", "\"offers\": {",
                                   "\"aggregateRating\": { \"@type\": \"AggregateRating\","
                                   " \"ratingValue\": 4.9, \"ratingCount\": 42 },\n      \"offers\": {");
         expect (n == 1, "review drift: could not inject an aggregate rating");
 
         // Two reviews, one of them written for a free copy and not disclosing it.
-        append (docs / "index.html",
+        append (docs / "goasynth" / "index.html",
                 "\n<section id=\"reviews\">\n"
                 "<p><b data-review-average>4.9</b> out of 5, from <b data-review-count>42</b> buyers.</p>\n"
                 "<article class=\"review\" data-rating=\"5\" data-incentive=\"true\">A</article>\n"
@@ -485,13 +485,47 @@ int main()
         return 2;
 
     {
-        append (docs / "index.html",
+        append (docs / "goasynth" / "index.html",
                 "\n<article class=\"review\" data-rating=\"5\" data-incentive=\"false\">A</article>\n");
 
         const auto r = scan (docs, root);
         expect (anyProblemContains (r.problems, "no aggregateRating"),
                 "missing aggregate: reviews without an aggregate rating were not reported");
         report ("reviews without a rating", r.problems, true);
+    }
+
+    // ---- 8. broken catalogue links and branding must fail ------------------
+    if (! buildTree())
+        return 2;
+    {
+        const int n = replaceAll (docs / "index.html", "href=\"goasynth/\"", "href=\"missing/\"");
+        expect (n > 0, "catalogue drift: no GoaSynth link found to break");
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "missing product link to goasynth/"),
+                "catalogue drift: a missing product destination was not reported");
+        report ("catalogue destination drift", r.problems, true);
+    }
+    if (! buildTree())
+        return 2;
+    {
+        const int n = replaceAll (docs / "index.html", "<title>DakaGoaAudio", "<title>GoaSynth");
+        expect (n == 1, "catalogue brand: expected one title to rewrite");
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "catalogue must name DakaGoaAudio"),
+                "catalogue brand: a stale site name was not reported");
+        report ("catalogue branding drift", r.problems, true);
+    }
+    if (! buildTree())
+        return 2;
+    {
+        const int n = replaceAll (docs / "gacidbase" / "index.html",
+                                  "href=\"../\" aria-label=\"DakaGoaAudio home\"",
+                                  "href=\"#top\" aria-label=\"DakaGoaAudio home\"");
+        expect (n == 1, "catalogue return: expected one home link to rewrite");
+        const auto r = scan (docs, root);
+        expect (anyProblemContains (r.problems, "missing return to DakaGoaAudio"),
+                "catalogue return: a missing return-home link was not reported");
+        report ("catalogue return drift", r.problems, true);
     }
 
     // ---- and clean again, so a sticky failure cannot pass for a fresh one --

@@ -332,7 +332,7 @@ Two more things go to the site in the same command, and both are meant to be pub
 
 - `docs/downloads/SHA256SUMS.txt` — so a buyer can check what they downloaded against a file the
   seller cannot quietly rewrite;
-- the release block in `docs/index.html` — the version, the commit it was built from, and the hashes.
+- the release block in `docs/goasynth/index.html` — the version, the commit it was built from, and the hashes.
 
 **Attach that ZIP to the store product** (§3) and turn the store's customer library on, so the
 receipt carries a download link buyers can return to. That is the whole delivery path: the store

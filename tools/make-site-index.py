@@ -28,11 +28,11 @@ So a new page is picked up by being a page, and moving the site to a custom
 domain is: edit the canonical links, run this, commit. Nothing else knows the
 host.
 
-The one asset path that is not in the pages
--------------------------------------------
-SITE_IMAGE is the shared social-preview image, named here rather than in five
-files. Change it here when the screenshot it points at changes; the pages are
-rewritten from this constant. It is a path under the site root, not a URL.
+Social-preview images
+---------------------
+Each page keeps its own assets/ path from og:image while its host is re-rooted.
+SITE_IMAGE is the default for pages without a product-specific screenshot.
+It is a path under the site root, not a URL.
 
 JSON-LD needs no such list, which is why there is not one. The block names its
 own site URL - the "url" of its WebSite node - so this tool re-roots every URL
@@ -71,7 +71,7 @@ DOCS = ROOT / "docs"
 ROBOTS = DOCS / "robots.txt"
 SITEMAP = DOCS / "sitemap.xml"
 
-# The social-preview image every page shares, as a path under the site root.
+# Default social-preview image for pages without their own assets/ screenshot.
 SITE_IMAGE = "assets/ui-overview.png"
 
 CANONICAL = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"')
@@ -85,7 +85,7 @@ LD_NODE_URL = re.compile(r'"@type"\s*:\s*"(WebSite|SoftwareApplication)".*?"url"
                          re.DOTALL)
 
 ROBOTS_TEMPLATE = """\
-# GoaSynth — {base}
+# DakaGoaAudio — {base}
 #
 # Everything served from here is meant to be found: the landing page, the four
 # legal pages, the screenshots and the published checksums. There is no private
@@ -264,7 +264,15 @@ def rehome_jsonld(text: str, rel: str, base: str) -> str:
 def rehome_head(rel: str, canonical: str, base: str) -> str:
     """The page, with the absolute URLs in its head and JSON-LD re-derived."""
     text = (DOCS / rel).read_text(encoding="utf-8")
-    image = base + SITE_IMAGE
+    # Preserve each product's own screenshot while re-rooting it on a new host.
+    # Legacy/legal pages without a social image use the shared default.
+    current_image = re.search(r'<meta\s+property="og:image"\s+content="([^"]+)"', text)
+    image_path = SITE_IMAGE
+    if current_image:
+        asset = re.search(r'/((?:assets/)[^?#]+)', current_image.group(1))
+        if asset:
+            image_path = asset.group(1)
+    image = base + image_path
 
     text, urls = rewrite_meta(text, "property", "og:url", canonical, rel)
 

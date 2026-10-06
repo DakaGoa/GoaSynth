@@ -103,11 +103,11 @@ address, and this repository is public. It is the only place reviews live until 
 ## 4. Publishing
 
 ```bash
-python tools/make-reviews.py            # writes the section and the aggregateRating into docs/index.html
+python tools/make-reviews.py            # writes the section and the aggregateRating into docs/goasynth/index.html
 python tools/make-reviews.py --check    # fails if they are out of date
 ```
 
-Then commit `docs/index.html`, push, and the deploy carries it. The tool refuses rather than guesses:
+Then commit `docs/goasynth/index.html`, push, and the deploy carries it. The tool refuses rather than guesses:
 a rating outside 1–5, a missing name, text or date, an over-long name, a date that is not ISO, a
 review marked `consent` with no name — all stop the run with the reason. With no store file at all it
 does nothing, and with a store that yields no publishable reviews it **removes** the section and the

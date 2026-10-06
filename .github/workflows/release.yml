@@ -155,7 +155,7 @@ jobs:
           python tools/make-changelog.py --download-row auto
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html docs/version.json docs/downloads/SHA256SUMS.txt
+          git add docs/goasynth/index.html docs/version.json docs/downloads/SHA256SUMS.txt
           if git diff --cached --quiet; then
             echo "Site already current — nothing to commit."
           else
